@@ -1,16 +1,16 @@
 :root {
   color-scheme: dark;
-  --bg: #14121a;
-  --bg-elevated: #1c1926;
-  --bg-hover: #262233;
-  --border: #322d42;
-  --text: #f2eef9;
-  --text-dim: #9d95b3;
-  --accent: #f2b84b;
-  --accent-dim: #7a5c1f;
-  --danger: #f2617a;
-  --success: #6fd3a0;
-  --radius: 10px;
+  --bg: #11161b;
+  --bg-elevated: #182027;
+  --bg-hover: #22313a;
+  --border: #2c4049;
+  --text: #edf3f2;
+  --text-dim: #91a5a7;
+  --accent: #e1ad59;
+  --accent-dim: #765d2d;
+  --danger: #e9797e;
+  --success: #72c79f;
+  --radius: 8px;
   font-family: "Inter", "Segoe UI", Avenir, Helvetica, Arial, sans-serif;
   font-size: 14px;
   color: var(--text);
@@ -30,6 +30,7 @@ body,
 
 body {
   background-color: var(--bg);
+  background-image: radial-gradient(circle at 18% 0%, rgba(73, 117, 126, 0.11), transparent 34rem);
   color: var(--text);
 }
 
@@ -47,6 +48,12 @@ button {
 
 button:hover {
   background: var(--bg-hover);
+  border-color: var(--accent-dim);
+}
+
+:where(button, input, a):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 button:disabled {
@@ -94,7 +101,8 @@ input[type="search"] {
 input[type="text"]:focus,
 input[type="search"]:focus {
   outline: none;
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(225, 173, 89, 0.12);
 }
 
 input[type="range"] {

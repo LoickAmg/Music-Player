@@ -38,8 +38,39 @@ impl Default for SessionState {
 impl SessionState {
     pub fn load(path: &Path) -> Self {
         match fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Ok(content) => serde_json::from_str::<Self>(&content)
+                .map(|mut state| {
+                    state.sanitize();
+                    state
+                })
+                .unwrap_or_default(),
             Err(_) => Self::default(),
+        }
+    }
+
+    /// Keep persisted values inside the ranges accepted by the audio engine.
+    /// A local session file is user data and may be stale or manually edited.
+    fn sanitize(&mut self) {
+        self.position_secs = if self.position_secs.is_finite() {
+            self.position_secs.max(0.0)
+        } else {
+            0.0
+        };
+        self.volume = if self.volume.is_finite() {
+            self.volume.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        for gain in &mut self.eq_gains {
+            *gain = if gain.is_finite() {
+                gain.clamp(-12.0, 12.0)
+            } else {
+                0.0
+            };
+        }
+        self.queue.retain(|track| !track.trim().is_empty());
+        if self.current_track_id.as_ref().is_some_and(|track| track.trim().is_empty()) {
+            self.current_track_id = None;
         }
     }
 
@@ -48,7 +79,9 @@ impl SessionState {
             fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).unwrap();
-        fs::write(path, json)
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, json)?;
+        fs::rename(temporary, path)
     }
 }
 
@@ -101,5 +134,22 @@ mod tests {
         fs::write(&path, b"not json").unwrap();
         let state = SessionState::load(&path);
         assert_eq!(state.volume, 1.0);
+    }
+
+    #[test]
+    fn stale_values_are_sanitized_when_loaded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.json");
+        fs::write(
+            &path,
+            r#"{"library_root":null,"queue":["", "song.mp3"],"current_track_id":"","position_secs":-2.0,"volume":4.0,"shuffle":false,"repeat":"Off","eq_gains":[-30.0,0.0,30.0]}"#,
+        )
+        .unwrap();
+        let state = SessionState::load(&path);
+        assert_eq!(state.queue, vec!["song.mp3"]);
+        assert!(state.current_track_id.is_none());
+        assert_eq!(state.position_secs, 0.0);
+        assert_eq!(state.volume, 1.0);
+        assert_eq!(state.eq_gains, [-12.0, 0.0, 12.0]);
     }
 }
