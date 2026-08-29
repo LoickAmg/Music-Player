@@ -142,7 +142,7 @@ mod tests {
         let path = dir.path().join("session.json");
         fs::write(
             &path,
-            r#"{"library_root":null,"queue":["", "song.mp3"],"current_track_id":"","position_secs":-2.0,"volume":4.0,"shuffle":false,"repeat":"Off","eq_gains":[-30.0,0.0,30.0]}"#,
+            r#"{"library_root":null,"queue":["", "song.mp3"],"current_track_id":"","position_secs":-2.0,"volume":4.0,"shuffle":false,"repeat":"off","eq_gains":[-30.0,0.0,30.0]}"#,
         )
         .unwrap();
         let state = SessionState::load(&path);
