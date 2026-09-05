@@ -11,6 +11,7 @@ import PlaylistsPanel from "@/components/PlaylistsPanel.vue";
 import EqualizerPanel from "@/components/EqualizerPanel.vue";
 import NowPlayingBar from "@/components/NowPlayingBar.vue";
 import QueueDrawer from "@/components/QueueDrawer.vue";
+import LegalDialog from "@/components/LegalDialog.vue";
 
 type View = "library" | "playlists" | "equalizer";
 
@@ -22,6 +23,7 @@ const eq = useEqStore();
 const view = ref<View>("library");
 const activePlaylistId = ref<string | null>(null);
 const showQueue = ref(false);
+const showLegal = ref(false);
 const ready = ref(false);
 
 function navigate(next: View) {
@@ -32,6 +34,10 @@ function navigate(next: View) {
 function openPlaylist(id: string | null) {
   activePlaylistId.value = id;
   view.value = "playlists";
+}
+
+function openLegal() {
+  showLegal.value = true;
 }
 
 let saveInterval: ReturnType<typeof setInterval> | null = null;
@@ -82,6 +88,17 @@ onBeforeUnmount(() => {
     </div>
 
     <NowPlayingBar @toggle-queue="showQueue = !showQueue" />
+
+    <footer class="app-footer">
+      <span class="footer-brand">Music Player</span>
+      <nav class="footer-links" aria-label="Liens légaux">
+        <button type="button" class="footer-link" @click="openLegal">Mentions légales</button>
+        <button type="button" class="footer-link" @click="openLegal">Confidentialité</button>
+        <button type="button" class="footer-link" @click="openLegal">Contact</button>
+      </nav>
+    </footer>
+
+    <LegalDialog v-if="showLegal" @close="showLegal = false" />
   </div>
 </template>
 
@@ -102,5 +119,40 @@ onBeforeUnmount(() => {
 .content {
   min-width: 0;
   overflow-y: auto;
+}
+
+.app-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1em;
+  padding: 0.45em 1.1em;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  font-size: 0.75em;
+  color: var(--text-dim);
+}
+
+.footer-brand {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.footer-links {
+  display: flex;
+  gap: 1em;
+}
+
+.footer-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-dim);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.footer-link:hover {
+  color: var(--accent);
 }
 </style>

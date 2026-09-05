@@ -152,7 +152,7 @@ select {
   flex-direction: column;
   gap: 0.2em;
   min-width: 12em;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-soft);
 }
 
 .add-menu-title {

@@ -85,7 +85,7 @@ thead th {
 }
 
 tbody tr {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--row-border-subtle);
   cursor: default;
 }
 

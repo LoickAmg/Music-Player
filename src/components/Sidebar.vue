@@ -137,7 +137,7 @@ button.secondary {
 }
 
 .nav-item.active {
-  background: rgba(242, 184, 75, 0.12);
+  background: var(--accent-faint);
   border-color: var(--accent-dim);
   color: var(--accent);
 }

@@ -159,7 +159,7 @@ function cycleRepeat() {
 .play-pause {
   background: var(--accent);
   border-color: var(--accent);
-  color: #241b04;
+  color: var(--accent-contrast);
 }
 
 .progress-row {

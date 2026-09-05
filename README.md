@@ -145,3 +145,25 @@ avec les fichiers attachés — il ne reste qu'à la publier depuis l'onglet
 ## Licence
 
 MIT — voir [LICENSE](./LICENSE).
+
+## Identité visuelle
+
+Typographie **Outfit** auto-hébergée via `@fontsource` (aucun Google Fonts, aucun
+appel réseau) pour l’ensemble de l’interface — géométrique et technique, en
+cohérence avec le logiciel « console audio » ; pile de repli système.
+
+Couleurs déclarées comme variables CSS dans `src/style.css` (`--bg`, `--border`,
+`--text`, `--accent`, `--accent-contrast`, `--accent-soft`, `--danger`, etc.) —
+aucun code hex ou `rgba` en dur dans les composants. Pas de motif décoratif de
+fond (« dot grid ») ni dégradé en orbe.
+
+## Pages légales et erreurs
+
+Application de bureau Tauri (fenêtre unique, sans routage web) : les informations
+légales sont accessibles depuis la barre de pied de page via une boîte de dialogue
+`src/components/LegalDialog.vue` regroupant trois onglets : **Mentions légales**,
+**Confidentialité (RGPD)** et **Contact**.
+
+Les champs `[À compléter]` (éditeur, adresse, directeur de publication, responsable
+de traitement) et l’adresse `contact@exemple.fr` sont à personnaliser avant la
+distribution.

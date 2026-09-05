@@ -8,10 +8,17 @@
   --text-dim: #91a5a7;
   --accent: #e1ad59;
   --accent-dim: #765d2d;
+  --accent-contrast: #241b04;
+  --accent-soft: rgba(225, 173, 89, 0.12);
   --danger: #e9797e;
   --success: #72c79f;
   --radius: 8px;
-  font-family: "Inter", "Segoe UI", Avenir, Helvetica, Arial, sans-serif;
+  --accent-faint: rgba(242, 184, 75, 0.12);
+  --row-border-subtle: rgba(255, 255, 255, 0.03);
+  --shadow-soft: rgba(0, 0, 0, 0.4);
+  --danger-soft: rgba(242, 97, 122, 0.12);
+  --font-ui: "Outfit", "Segoe UI", Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
   color: var(--text);
   background-color: var(--bg);
@@ -30,7 +37,6 @@ body,
 
 body {
   background-color: var(--bg);
-  background-image: radial-gradient(circle at 18% 0%, rgba(73, 117, 126, 0.11), transparent 34rem);
   color: var(--text);
 }
 
@@ -64,7 +70,7 @@ button:disabled {
 button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #241b04;
+  color: var(--accent-contrast);
   font-weight: 600;
 }
 
@@ -102,7 +108,7 @@ input[type="text"]:focus,
 input[type="search"]:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(225, 173, 89, 0.12);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 input[type="range"] {
@@ -114,7 +120,7 @@ a {
 }
 
 .error-banner {
-  background: rgba(242, 97, 122, 0.12);
+  background: var(--danger-soft);
   border: 1px solid var(--danger);
   color: var(--danger);
   border-radius: var(--radius);
