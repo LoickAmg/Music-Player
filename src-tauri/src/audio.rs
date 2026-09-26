@@ -10,9 +10,11 @@
 //! sont de simples données, donc `Send + Sync` sans souci.
 
 use crate::eq::{EqGains, EqSource};
+use crate::ffmpeg;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Cursor, Read, Seek};
+use std::path::Path;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -107,7 +109,36 @@ impl AudioHandle {
     }
 }
 
-fn audio_thread_main(rx: Receiver<AudioCommand>, status: Arc<Mutex<AudioStatus>>, eq_gains: EqGains) {
+/// Décodeur d'un fichier : direct pour les formats natifs, via `ffmpeg` pour les autres
+/// (Opus, WMA, E-AC3…). Un fichier natif que Symphonia refuse (variante exotique) est
+/// aussi tenté via `ffmpeg` avant d'abandonner.
+fn open_decoder(path: &str) -> Result<Decoder<Box<dyn ReadSeek>>, String> {
+    let file_path = Path::new(path);
+    if !ffmpeg::needs_ffmpeg(file_path) {
+        let direct = File::open(path).map_err(|e| e.to_string()).and_then(|f| {
+            let reader: Box<dyn ReadSeek> = Box::new(BufReader::new(f));
+            Decoder::new(reader).map_err(|e| e.to_string())
+        });
+        match direct {
+            Ok(decoder) => return Ok(decoder),
+            Err(error) if !ffmpeg::ffmpeg_available() => return Err(error),
+            Err(_) => {} // on retente avec ffmpeg
+        }
+    }
+    let wav = ffmpeg::decode_to_wav(file_path)?;
+    let reader: Box<dyn ReadSeek> = Box::new(Cursor::new(wav));
+    Decoder::new(reader).map_err(|e| e.to_string())
+}
+
+/// Source lisible et repositionnable (fichier ou WAV en mémoire).
+trait ReadSeek: Read + Seek + Send + Sync {}
+impl<T: Read + Seek + Send + Sync> ReadSeek for T {}
+
+fn audio_thread_main(
+    rx: Receiver<AudioCommand>,
+    status: Arc<Mutex<AudioStatus>>,
+    eq_gains: EqGains,
+) {
     let (_stream, stream_handle) = match OutputStream::try_default() {
         Ok(v) => v,
         Err(e) => {
@@ -124,9 +155,7 @@ fn audio_thread_main(rx: Receiver<AudioCommand>, status: Arc<Mutex<AudioStatus>>
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(AudioCommand::Play(path, volume)) => {
-                let decoded = File::open(&path)
-                    .map_err(|e| e.to_string())
-                    .and_then(|f| Decoder::new(BufReader::new(f)).map_err(|e| e.to_string()));
+                let decoded = open_decoder(&path);
                 match decoded {
                     Ok(decoder) => {
                         let source = decoder.convert_samples::<f32>();

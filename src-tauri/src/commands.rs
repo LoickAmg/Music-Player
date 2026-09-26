@@ -45,7 +45,9 @@ fn track_or_stop(state: &State<AppState>, id: Option<String>) -> Result<Option<T
             Ok(None)
         }
         Some(id) => {
-            let track = state.find_track(&id).ok_or("Piste introuvable dans la bibliothèque.")?;
+            let track = state
+                .find_track(&id)
+                .ok_or("Piste introuvable dans la bibliothèque.")?;
             start_playback(state, &track.path)?;
             Ok(Some(track))
         }
@@ -88,7 +90,11 @@ pub fn get_cover(path: String) -> Option<String> {
 // ---------------------------------------------------------------------
 
 #[tauri::command]
-pub fn play_queue(state: State<AppState>, track_ids: Vec<String>, start_id: Option<String>) -> Result<Option<Track>, String> {
+pub fn play_queue(
+    state: State<AppState>,
+    track_ids: Vec<String>,
+    start_id: Option<String>,
+) -> Result<Option<Track>, String> {
     {
         let mut queue = state.queue.lock().unwrap();
         queue.set_items(track_ids, start_id.as_deref());
@@ -142,7 +148,9 @@ pub fn seek(state: State<AppState>, position_secs: f64) -> Result<(), String> {
     if state.audio.status().current_path.is_none() {
         return Err("Aucune piste chargée.".to_string());
     }
-    state.audio.seek(Duration::from_secs_f64(position_secs.max(0.0)));
+    state
+        .audio
+        .seek(Duration::from_secs_f64(position_secs.max(0.0)));
     Ok(())
 }
 
@@ -232,35 +240,66 @@ pub fn create_playlist(state: State<AppState>, name: String) -> String {
 pub fn delete_playlist(state: State<AppState>, id: String) -> Result<(), String> {
     let mut store = state.playlists.lock().unwrap();
     store.delete(&id);
-    store.save(&state.playlists_path()).map_err(|e| e.to_string())
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn rename_playlist(state: State<AppState>, id: String, name: String) -> Result<(), String> {
     let mut store = state.playlists.lock().unwrap();
-    store.rename(&id, name).map_err(|_| "Playlist introuvable.".to_string())?;
-    store.save(&state.playlists_path()).map_err(|e| e.to_string())
+    store
+        .rename(&id, name)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn add_to_playlist(state: State<AppState>, playlist_id: String, track_id: String) -> Result<(), String> {
+pub fn add_to_playlist(
+    state: State<AppState>,
+    playlist_id: String,
+    track_id: String,
+) -> Result<(), String> {
     let mut store = state.playlists.lock().unwrap();
-    store.add_track(&playlist_id, track_id).map_err(|_| "Playlist introuvable.".to_string())?;
-    store.save(&state.playlists_path()).map_err(|e| e.to_string())
+    store
+        .add_track(&playlist_id, track_id)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn remove_from_playlist(state: State<AppState>, playlist_id: String, track_id: String) -> Result<(), String> {
+pub fn remove_from_playlist(
+    state: State<AppState>,
+    playlist_id: String,
+    track_id: String,
+) -> Result<(), String> {
     let mut store = state.playlists.lock().unwrap();
-    store.remove_track(&playlist_id, &track_id).map_err(|_| "Playlist introuvable.".to_string())?;
-    store.save(&state.playlists_path()).map_err(|e| e.to_string())
+    store
+        .remove_track(&playlist_id, &track_id)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn move_track_in_playlist(state: State<AppState>, playlist_id: String, from: usize, to: usize) -> Result<(), String> {
+pub fn move_track_in_playlist(
+    state: State<AppState>,
+    playlist_id: String,
+    from: usize,
+    to: usize,
+) -> Result<(), String> {
     let mut store = state.playlists.lock().unwrap();
-    store.move_track(&playlist_id, from, to).map_err(|_| "Playlist introuvable.".to_string())?;
-    store.save(&state.playlists_path()).map_err(|e| e.to_string())
+    store
+        .move_track(&playlist_id, from, to)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------
@@ -342,7 +381,8 @@ pub fn persist_session(state: &State<AppState>) -> std::io::Result<()> {
 /// Reconstruit l'état applicatif au démarrage à partir de `session.json` /
 /// `playlists.json`. Appelé une seule fois depuis `lib.rs::run`.
 pub fn restore_state(state: &AppState, data_dir: &Path) {
-    let playlists = crate::playlists::PlaylistStore::load(&PathBuf::from(data_dir).join("playlists.json"));
+    let playlists =
+        crate::playlists::PlaylistStore::load(&PathBuf::from(data_dir).join("playlists.json"));
     *state.playlists.lock().unwrap() = playlists;
 
     let session = SessionState::load(&PathBuf::from(data_dir).join("session.json"));

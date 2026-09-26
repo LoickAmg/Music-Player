@@ -25,6 +25,8 @@ const activePlaylistId = ref<string | null>(null);
 const showQueue = ref(false);
 const showLegal = ref(false);
 const ready = ref(false);
+// Vrai quand la page tourne dans un navigateur (npm run dev) et non dans l'application de bureau.
+const demoMode = "__MP_DEMO__" in window;
 
 function navigate(next: View) {
   view.value = next;
@@ -71,6 +73,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="ready" class="app-shell">
+    <div v-if="demoMode" class="demo-banner" role="status">
+      Mode démonstration (navigateur) : les pistes sont fictives, ni le son ni l'ajout de dossier ne
+      fonctionnent ici. Lancez l'application de bureau avec <code>npm run tauri dev</code>.
+    </div>
     <div class="body">
       <Sidebar :active-view="view" :active-playlist-id="activePlaylistId" @navigate="navigate" @open-playlist="openPlaylist" />
 
@@ -85,6 +91,11 @@ onBeforeUnmount(() => {
       </main>
 
       <QueueDrawer v-if="showQueue" @close="showQueue = false" />
+    </div>
+
+    <div v-if="player.error" class="error-banner" role="alert">
+      <span>{{ player.error }}</span>
+      <button type="button" class="banner-close" aria-label="Fermer" @click="player.error = null">×</button>
     </div>
 
     <NowPlayingBar @toggle-queue="showQueue = !showQueue" />
@@ -103,6 +114,31 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.demo-banner {
+  padding: 0.5rem 1rem;
+  background: #4a3410;
+  color: #ffe2a3;
+  font-size: 0.85rem;
+  text-align: center;
+}
+.error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.55rem 1rem;
+  background: #4a1a1a;
+  color: #ffd6d6;
+  font-size: 0.9rem;
+}
+.banner-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
 .app-shell {
   height: 100%;
   display: flex;

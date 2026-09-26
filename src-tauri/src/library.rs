@@ -11,7 +11,7 @@ use std::path::Path;
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "wav", "m4a", "aac"];
+use crate::ffmpeg;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Track {
@@ -39,10 +39,7 @@ pub fn track_id_for_path(path: &Path) -> String {
 }
 
 fn is_supported(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_lowercase().as_str()))
-        .unwrap_or(false)
+    ffmpeg::is_native(path) || ffmpeg::needs_ffmpeg(path)
 }
 
 /// Lit les métadonnées d'un fichier audio. Retourne `None` si le fichier
@@ -53,7 +50,11 @@ pub fn read_track(path: &Path) -> Option<Track> {
     if !is_supported(path) {
         return None;
     }
-    let tagged_file = Probe::open(path).ok()?.read().ok()?;
+    let Some(tagged_file) = Probe::open(path).ok().and_then(|probe| probe.read().ok()) else {
+        // Format inconnu de lofty (WMA, E-AC3…) : on ne perd pas la piste pour autant, on la
+        // liste avec ce que ffprobe en sait (s'il est installé), sinon avec son nom de fichier.
+        return ffmpeg::needs_ffmpeg(path).then(|| track_from_probe(path));
+    };
     let properties = tagged_file.properties();
     let duration_secs = properties.duration().as_secs_f64();
 
@@ -128,7 +129,30 @@ pub fn cover_data_uri(path: &Path) -> Option<String> {
 }
 
 pub fn default_extensions() -> Vec<&'static str> {
-    SUPPORTED_EXTENSIONS.to_vec()
+    ffmpeg::NATIVE_EXTENSIONS
+        .iter()
+        .chain(ffmpeg::FFMPEG_EXTENSIONS)
+        .copied()
+        .collect()
+}
+
+/// Piste construite sans lofty : métadonnées de ffprobe si disponible, sinon le nom du fichier.
+fn track_from_probe(path: &Path) -> Track {
+    let info = ffmpeg::probe(path).unwrap_or_default();
+    let stem = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "Piste inconnue".to_string());
+    Track {
+        id: track_id_for_path(path),
+        path: path.to_string_lossy().to_string(),
+        title: info.title.unwrap_or(stem),
+        artist: info.artist.unwrap_or_else(|| "Artiste inconnu".to_string()),
+        album: info.album.unwrap_or_else(|| "Album inconnu".to_string()),
+        track_no: info.track_no,
+        duration_secs: info.duration_secs,
+        has_cover: false,
+    }
 }
 
 #[allow(dead_code)]
@@ -189,6 +213,24 @@ mod tests {
         assert_eq!(track.title, "Mon Morceau");
         assert_eq!(track.artist, "Artiste inconnu");
         assert!(!track.has_cover);
+    }
+
+    #[test]
+    fn formats_needing_ffmpeg_are_listed_even_when_lofty_cannot_read_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("High For This.eac3");
+        fs::write(&path, b"donnees non lisibles par lofty").unwrap();
+        let track = read_track(&path).expect("un format ffmpeg reste listé");
+        assert_eq!(track.title, "High For This");
+        assert_eq!(track.artist, "Artiste inconnu");
+    }
+
+    #[test]
+    fn broken_native_files_are_still_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("casse.mp3");
+        fs::write(&path, b"pas un mp3").unwrap();
+        assert!(read_track(&path).is_none());
     }
 
     #[test]

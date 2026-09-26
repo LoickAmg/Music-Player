@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod commands;
 pub mod eq;
+pub mod ffmpeg;
 pub mod library;
 pub mod playlists;
 pub mod queue;

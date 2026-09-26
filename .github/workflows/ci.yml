@@ -60,6 +60,11 @@ jobs:
   release:
     needs: test
     if: startsWith(github.ref, 'refs/tags/app-v')
+    # Sans cette permission, le jeton par défaut ne peut pas créer la release :
+    # « Resource not accessible by integration » (échec constaté sur app-v0.1.0,
+    # alors que les 3 installeurs se construisaient correctement).
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:

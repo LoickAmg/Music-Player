@@ -205,5 +205,6 @@ export function installTauriMock() {
     },
   };
 
+  (window as unknown as { __MP_DEMO__?: boolean }).__MP_DEMO__ = true;
   console.info("[tauriMock] Mode démo activé (hors webview Tauri) : données et lecture simulées.");
 }

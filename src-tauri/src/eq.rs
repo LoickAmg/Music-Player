@@ -211,9 +211,7 @@ mod tests {
     }
 
     fn test_signal(len: usize) -> Vec<f32> {
-        (0..len)
-            .map(|i| (i as f32 * 0.37).sin() * 0.5)
-            .collect()
+        (0..len).map(|i| (i as f32 * 0.37).sin() * 0.5).collect()
     }
 
     #[test]
@@ -259,7 +257,10 @@ mod tests {
         let gains = new_eq_gains([12.0, 12.0, 12.0]); // boost max
         let eq = EqSource::new(source, gains);
         for sample in eq {
-            assert!(sample.is_finite(), "l'égaliseur a produit une valeur non finie");
+            assert!(
+                sample.is_finite(),
+                "l'égaliseur a produit une valeur non finie"
+            );
         }
     }
 

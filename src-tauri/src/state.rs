@@ -46,6 +46,11 @@ impl AppState {
     }
 
     pub fn find_track(&self, id: &str) -> Option<Track> {
-        self.library.lock().unwrap().iter().find(|t| t.id == id).cloned()
+        self.library
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|t| t.id == id)
+            .cloned()
     }
 }

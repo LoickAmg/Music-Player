@@ -69,7 +69,11 @@ impl SessionState {
             };
         }
         self.queue.retain(|track| !track.trim().is_empty());
-        if self.current_track_id.as_ref().is_some_and(|track| track.trim().is_empty()) {
+        if self
+            .current_track_id
+            .as_ref()
+            .is_some_and(|track| track.trim().is_empty())
+        {
             self.current_track_id = None;
         }
     }

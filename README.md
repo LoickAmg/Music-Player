@@ -26,6 +26,10 @@ Bibliothèques Rust clés : `rodio` (lecture audio, décodage via
 
 - **Bibliothèque locale** : scan récursif d'un dossier choisi, métadonnées
   (titre/artiste/album/durée/pochette), recherche et tri
+- **Presque tous les formats audio** : MP3, FLAC, OGG, WAV, AAC, M4A/ALAC, AIFF, MKA, WebM
+  lus directement ; **Opus, WMA, AC3 / E-AC3 (Dolby), APE, WavPack, DSD, MPC…** lus via
+  [ffmpeg](https://ffmpeg.org) s'il est installé (Windows : `winget install ffmpeg`). Sans
+  ffmpeg, ces fichiers restent listés et un message explique quoi installer.
 - **Lecture** : lecture/pause, piste suivante/précédente, recherche dans la
   piste (seek), volume, **lecture aléatoire** et **3 modes de répétition**
   (off/piste/liste)
@@ -92,6 +96,9 @@ npm run tauri dev     # lance l'app desktop (backend Rust + frontend Vite)
 
 ### Mode démo dans un navigateur
 
+> ⚠️ Dans ce mode, **rien ne joue et l'ajout de dossier ne fait rien** : les pistes sont
+> fictives. Une bannière l'indique. Pour un vrai lecteur, lancez `npm run tauri dev`.
+
 `npm run dev` (sans `tauri`) lance juste le frontend Vite dans un
 navigateur classique, avec l'IPC Tauri simulé (bibliothèque de démo, lecture
 simulée sans son réel) — pratique pour itérer vite sur l'UI sans recompiler
@@ -136,6 +143,11 @@ GitHub :
 git tag app-v0.1.0
 git push origin app-v0.1.0
 ```
+
+Si le tag existe déjà (`app-v0.1.0`), supprimez-le puis recréez-le après avoir poussé le correctif du
+workflow : `git tag -d app-v0.1.0 && git push origin :refs/tags/app-v0.1.0`, puis les deux
+commandes ci-dessus. Le job `release` a besoin de `permissions: contents: write` (ajouté) : sans cela
+la construction réussit mais la création de la Release échoue avec « Resource not accessible by integration ».
 
 Ce tag déclenche le job `release` du workflow (`.github/workflows/ci.yml`),
 qui construit les 3 installeurs et crée une **Release GitHub en brouillon**
