@@ -5,7 +5,8 @@
 //! pouvoir être ajustés en direct pendant la lecture, sans reconstruire
 //! le pipeline audio.
 
-use rodio::Source;
+use rodio::source::SeekError;
+use rodio::{ChannelCount, SampleRate, Source};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -83,8 +84,8 @@ fn compute_all_coeffs(sample_rate: f32, gains: &[f32; 3]) -> [BiquadCoeffs; 3] {
 
 pub struct EqSource<I> {
     input: I,
-    channels: u16,
-    sample_rate: u32,
+    channels: ChannelCount,
+    sample_rate: SampleRate,
     gains: EqGains,
     cached_gains: [f32; 3],
     coeffs: [BiquadCoeffs; 3],
@@ -98,11 +99,11 @@ where
     I: Source<Item = f32>,
 {
     pub fn new(input: I, gains: EqGains) -> Self {
-        let channels = input.channels().max(1);
+        let channels = input.channels();
         let sample_rate = input.sample_rate();
         let cached_gains = *gains.lock().unwrap();
-        let coeffs = compute_all_coeffs(sample_rate as f32, &cached_gains);
-        let state = vec![[BiquadState::default(); 3]; channels as usize];
+        let coeffs = compute_all_coeffs(sample_rate.get() as f32, &cached_gains);
+        let state = vec![[BiquadState::default(); 3]; channels.get() as usize];
         Self {
             input,
             channels,
@@ -132,11 +133,11 @@ where
         if let Ok(current) = self.gains.try_lock() {
             if *current != self.cached_gains {
                 self.cached_gains = *current;
-                self.coeffs = compute_all_coeffs(self.sample_rate as f32, &self.cached_gains);
+                self.coeffs = compute_all_coeffs(self.sample_rate.get() as f32, &self.cached_gains);
             }
         }
 
-        let channel = self.channel_cursor % self.channels as usize;
+        let channel = self.channel_cursor % self.channels.get() as usize;
         self.channel_cursor += 1;
 
         let channel_state = &mut self.state[channel];
@@ -152,17 +153,24 @@ impl<I> Source for EqSource<I>
 where
     I: Source<Item = f32>,
 {
-    fn current_frame_len(&self) -> Option<usize> {
-        self.input.current_frame_len()
+    fn current_span_len(&self) -> Option<usize> {
+        self.input.current_span_len()
     }
-    fn channels(&self) -> u16 {
+    fn channels(&self) -> ChannelCount {
         self.channels
     }
-    fn sample_rate(&self) -> u32 {
+    fn sample_rate(&self) -> SampleRate {
         self.sample_rate
     }
     fn total_duration(&self) -> Option<Duration> {
         self.input.total_duration()
+    }
+    /// Transmis à la source : sans cela, le curseur de position ne pouvait rien déplacer.
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.input.try_seek(pos)?;
+        self.state.iter_mut().for_each(|s| *s = [BiquadState::default(); 3]);
+        self.channel_cursor = 0;
+        Ok(())
     }
 }
 
@@ -196,14 +204,14 @@ mod tests {
     }
 
     impl Source for TestSource {
-        fn current_frame_len(&self) -> Option<usize> {
+        fn current_span_len(&self) -> Option<usize> {
             None
         }
-        fn channels(&self) -> u16 {
-            self.channels
+        fn channels(&self) -> ChannelCount {
+            ChannelCount::new(self.channels).unwrap()
         }
-        fn sample_rate(&self) -> u32 {
-            self.sample_rate
+        fn sample_rate(&self) -> SampleRate {
+            SampleRate::new(self.sample_rate).unwrap()
         }
         fn total_duration(&self) -> Option<Duration> {
             None
@@ -246,8 +254,8 @@ mod tests {
         let source = TestSource::new(test_signal(16), 48_000, 2);
         let gains = new_eq_gains([2.0, -3.0, 0.0]);
         let eq = EqSource::new(source, gains);
-        assert_eq!(eq.channels(), 2);
-        assert_eq!(eq.sample_rate(), 48_000);
+        assert_eq!(eq.channels().get(), 2);
+        assert_eq!(eq.sample_rate().get(), 48_000);
     }
 
     #[test]

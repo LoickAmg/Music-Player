@@ -279,7 +279,7 @@ mod tests {
             assert_eq!(&wav[..4], b"RIFF", "{name}");
             // Le WAV produit est lisible par le lecteur intégré.
             let decoder = rodio::Decoder::new(std::io::Cursor::new(wav)).expect(name);
-            assert!(rodio::Source::channels(&decoder) >= 1);
+            assert!(rodio::Source::channels(&decoder).get() >= 1);
 
             let info = probe(&path);
             if let Some(info) = info {

@@ -3,6 +3,7 @@
 //! via `lofty`, et récupération à la demande de la pochette embarquée.
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use lofty::config::{ParseOptions, ParsingMode};
 use lofty::file::{AudioFile, TaggedFileExt};
 use lofty::probe::Probe;
 use lofty::tag::Accessor;
@@ -42,18 +43,24 @@ fn is_supported(path: &Path) -> bool {
     ffmpeg::is_native(path) || ffmpeg::needs_ffmpeg(path)
 }
 
-/// Lit les métadonnées d'un fichier audio. Retourne `None` si le fichier
-/// n'est pas un format supporté ou ne peut pas être décodé par lofty (le
-/// fichier est alors simplement ignoré plutôt que de faire échouer tout
-/// le scan).
+/// Lecture tolérante : beaucoup de fichiers réels ont des étiquettes imparfaites (une date
+/// ID3 mal formée suffisait à faire rejeter un fichier entier en mode par défaut).
+fn read_tagged(path: &Path, read_tags: bool) -> Option<lofty::file::TaggedFile> {
+    let options = ParseOptions::new()
+        .parsing_mode(ParsingMode::Relaxed)
+        .read_tags(read_tags);
+    Probe::open(path).ok()?.options(options).read().ok()
+}
+
+/// Lit les métadonnées d'un fichier audio. Retourne `None` seulement si l'extension n'est
+/// pas un format audio : un fichier dont les étiquettes sont illisibles reste listé (avec
+/// ce que ffprobe en sait, sinon avec son nom de fichier) plutôt que de disparaître.
 pub fn read_track(path: &Path) -> Option<Track> {
     if !is_supported(path) {
         return None;
     }
-    let Some(tagged_file) = Probe::open(path).ok().and_then(|probe| probe.read().ok()) else {
-        // Format inconnu de lofty (WMA, E-AC3…) : on ne perd pas la piste pour autant, on la
-        // liste avec ce que ffprobe en sait (s'il est installé), sinon avec son nom de fichier.
-        return ffmpeg::needs_ffmpeg(path).then(|| track_from_probe(path));
+    let Some(tagged_file) = read_tagged(path, true).or_else(|| read_tagged(path, false)) else {
+        return Some(track_from_probe(path));
     };
     let properties = tagged_file.properties();
     let duration_secs = properties.duration().as_secs_f64();
@@ -115,7 +122,8 @@ pub fn scan_library(root: &Path) -> Vec<Track> {
 /// Extrait la pochette embarquée d'un fichier, encodée en data URI base64
 /// prête à être posée dans un attribut `src` côté frontend.
 pub fn cover_data_uri(path: &Path) -> Option<String> {
-    let tagged_file = Probe::open(path).ok()?.read().ok()?;
+    let options = ParseOptions::new().parsing_mode(ParsingMode::Relaxed);
+    let tagged_file = Probe::open(path).ok()?.options(options).read().ok()?;
     let tag = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag())?;
@@ -226,11 +234,12 @@ mod tests {
     }
 
     #[test]
-    fn broken_native_files_are_still_skipped() {
+    fn audio_files_with_unreadable_tags_are_still_listed() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("casse.mp3");
         fs::write(&path, b"pas un mp3").unwrap();
-        assert!(read_track(&path).is_none());
+        let track = read_track(&path).expect("un fichier audio ne doit jamais disparaître du scan");
+        assert_eq!(track.title, "casse");
     }
 
     #[test]
