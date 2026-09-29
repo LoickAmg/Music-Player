@@ -65,7 +65,7 @@ async function remove() {
         <template v-if="mosaic.length === 4">
           <Artwork v-for="t in mosaic" :key="t.id" :track="t" :radius="0" />
         </template>
-        <Artwork v-else :track="mosaic[0] ?? null" :label="playlist.name" :radius="10" />
+        <Artwork v-else :track="mosaic[0] ?? null" :label="playlist.name" :radius="3" />
       </div>
       <div class="info">
         <p class="kicker">Playlist</p>
@@ -100,7 +100,7 @@ async function remove() {
 .cover {
   width: 230px;
   flex: none;
-  border-radius: 10px;
+  border-radius: 4px;
   overflow: hidden;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
 }
@@ -120,9 +120,12 @@ h1,
 .title-input {
   margin: 4px 0 4px;
   font-family: var(--font-display);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font-size: 46px;
+  font-style: italic;
+  font-weight: 800;
+  line-height: 0.98;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--blue);
 }
 h1 {
   cursor: text;

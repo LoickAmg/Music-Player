@@ -340,7 +340,7 @@ mod tests {
         let mut buf = [0u8; 4];
         r.read_exact(&mut buf).unwrap();
         assert_eq!(&buf, b"fLaC");
-        assert_eq!(r.seek(SeekFrom::Current(0)).unwrap(), 4);
+        assert_eq!(r.stream_position().unwrap(), 4);
     }
 
     fn write_wav(path: &Path, secs: u32) {

@@ -107,5 +107,5 @@ jobs:
           releaseBody: |
             Installeurs générés automatiquement par la CI pour Windows, macOS et Linux.
             Choisis le fichier correspondant à ton système ci-dessous.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false

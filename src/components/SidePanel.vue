@@ -72,8 +72,8 @@ const remaining = computed(() => {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--bg-sidebar);
-  border-left: 1px solid var(--separator);
+  background: linear-gradient(180deg, rgba(4, 16, 46, 0.94), rgba(2, 7, 22, 0.96));
+  border-left: 1px solid rgba(63, 224, 255, 0.2);
   animation: slide 0.25s var(--ease);
 }
 @keyframes slide {
@@ -89,18 +89,22 @@ const remaining = computed(() => {
   padding: 12px 12px 6px;
 }
 .tabs > button:not(.close) {
-  height: 28px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 16px;
   border: 0;
-  border-radius: 7px;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
   background: none;
   color: var(--text-2);
-  font-weight: 600;
-  font-size: 13px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 .tabs > button.on {
-  background: var(--bg-active);
-  color: var(--text);
+  background: #fff;
+  color: var(--ink);
 }
 .close {
   margin-left: auto;

@@ -108,7 +108,7 @@ async function removeFromPlaylist() {
   max-height: 70vh;
   overflow: auto;
   padding: 5px;
-  border-radius: 10px;
+  border-radius: 4px;
   background: rgba(44, 44, 48, 0.94);
   backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
@@ -141,7 +141,7 @@ button {
 }
 button:hover {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .sub {
   margin: 2px 0 2px 10px;

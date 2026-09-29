@@ -201,7 +201,7 @@ pub fn scan_library_with_progress(root: &Path, on_progress: impl Fn(usize, usize
             let folder_has_cover = path.parent().is_some_and(|d| covered_dirs.contains(d));
             let track = read_track_with_folder_cover(path, folder_has_cover);
             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            if n % 64 == 0 || n == total {
+            if n.is_multiple_of(64) || n == total {
                 on_progress(n, total);
             }
             track

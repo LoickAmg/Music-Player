@@ -22,7 +22,14 @@ Bibliothèques Rust clés : `rodio` (lecture audio, décodage via
 `symphonia` — mp3/flac/ogg/wav/m4a/aac), `lofty` (métadonnées + pochettes),
 `walkdir` (scan récursif), `tauri-plugin-dialog` (sélecteur de dossier).
 
-## Lancer l'application
+## Installer (Windows)
+
+Téléchargez `Music Player_x.y.z_x64-setup.exe` depuis la page [Releases](https://github.com/LoickAmg/Music-Player/releases)
+de ce dépôt, puis double-cliquez dessus : l'installation se fait pour votre compte (aucun droit
+administrateur), avec un raccourci dans le menu Démarrer et sur le Bureau. Chaque tag `app-v*`
+construit et publie automatiquement les installateurs Windows, macOS et Linux (voir `.github/workflows/ci.yml`).
+
+## Lancer l'application depuis les sources
 
 Aucune commande à taper : après `npm run tauri build`, double-cliquez sur l'installateur
 `src-tauri/target/release/bundle/nsis/Music Player_x.y.z_x64-setup.exe` (raccourci dans le
@@ -31,7 +38,9 @@ menu Démarrer), ou directement sur l'exécutable autonome `src-tauri/target/rel
 
 ## Interface
 
-Inspirée d'Apple Music : barre de navigation latérale (Ajouts récents, Artistes, Albums,
+Direction artistique inspirée de **Persona 3 Reload** (bleu nuit profond, cyan électrique, titres
+en capitales italiques condensées, sélection en barre blanche inclinée à ombre cyan, boutons en
+parallélogramme, rais de lumière sur l'écran « À l'écoute »), ergonomie inspirée d'Apple Music : barre de navigation latérale (Ajouts récents, Artistes, Albums,
 Morceaux, Playlists), barre de lecture façon « écran LCD » (pochette, titre, progression que
 l'on peut faire glisser), grilles de pochettes, pages d'album et d'artiste, recherche
 instantanée, menu contextuel (clic droit), écran « À l'écoute » plein écran avec la pochette

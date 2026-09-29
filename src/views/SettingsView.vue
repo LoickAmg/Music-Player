@@ -95,7 +95,7 @@ const shortcuts = [
 .card {
   margin-bottom: 16px;
   padding: 18px 20px;
-  border-radius: 12px;
+  border-radius: 4px;
   background: rgba(255, 255, 255, 0.04);
   box-shadow: inset 0 0 0 0.5px var(--separator);
 }
@@ -143,7 +143,7 @@ h2 :deep(svg) {
 }
 .chip.on {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .bands {
   display: flex;

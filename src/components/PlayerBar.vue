@@ -148,9 +148,10 @@ function toggleMute() {
   gap: 18px;
   height: 64px;
   padding: 0 18px;
-  background: rgba(34, 34, 37, 0.86);
-  backdrop-filter: blur(30px) saturate(1.8);
-  border-bottom: 1px solid var(--separator);
+  background: linear-gradient(90deg, rgba(4, 16, 46, 0.92), rgba(7, 26, 71, 0.9));
+  backdrop-filter: blur(24px) saturate(1.5);
+  border-bottom: 1px solid rgba(63, 224, 255, 0.25);
+  box-shadow: 0 6px 24px rgba(0, 4, 20, 0.45);
   position: relative;
   z-index: 5;
 }
@@ -166,9 +167,17 @@ function toggleMute() {
   color: var(--text);
 }
 .icon-btn.play {
-  width: 42px;
-  height: 42px;
-  color: var(--text);
+  width: 50px;
+  height: 40px;
+  margin: 0 4px;
+  border-radius: 0;
+  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
+  background: var(--cyan);
+  color: var(--ink);
+}
+.icon-btn.play:hover {
+  background: #fff;
+  color: var(--ink);
 }
 .icon-btn.play:active,
 .icon-btn.big:active {
@@ -187,10 +196,9 @@ function toggleMute() {
 .lcd {
   display: flex;
   align-items: stretch;
-  height: 48px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  height: 50px;
+  clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+  background: linear-gradient(90deg, rgba(31, 107, 255, 0.3), rgba(11, 39, 102, 0.55) 40%, rgba(31, 107, 255, 0.3));
   overflow: hidden;
 }
 .lcd-idle {
@@ -245,8 +253,11 @@ function toggleMute() {
   text-overflow: ellipsis;
 }
 .lcd-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .lcd-sub {
   font-size: 12px;
@@ -285,7 +296,7 @@ function toggleMute() {
   right: 0;
   bottom: 0;
   height: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(2, 7, 22, 0.6);
   cursor: pointer;
   outline: none;
 }
@@ -299,11 +310,9 @@ function toggleMute() {
 }
 .fill {
   height: 100%;
-  background: var(--text-2);
+  background: linear-gradient(90deg, var(--blue), var(--cyan));
+  box-shadow: 0 0 10px var(--cyan);
   transform-origin: left;
-}
-.lcd:hover .fill {
-  background: var(--accent);
 }
 .right {
   display: flex;
@@ -322,14 +331,15 @@ function toggleMute() {
   width: 96px;
   height: 4px;
   border-radius: 2px;
-  background: linear-gradient(to right, var(--text-2) var(--v), rgba(255, 255, 255, 0.15) var(--v));
+  background: linear-gradient(to right, var(--cyan) var(--v), rgba(120, 170, 255, 0.2) var(--v));
 }
 .volume input::-webkit-slider-thumb {
   appearance: none;
   width: 13px;
   height: 13px;
-  border-radius: 50%;
+  border-radius: 1px;
+  transform: rotate(45deg);
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 8px var(--cyan);
 }
 </style>

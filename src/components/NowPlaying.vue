@@ -55,7 +55,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
     <div v-if="track" class="layout">
       <div class="left">
-        <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
+        <Artwork :track="track" :radius="3" eager class="hero-art" :class="{ paused: player.isPaused }" />
         <div class="meta">
           <h2>{{ track.title }}</h2>
           <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
@@ -113,8 +113,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   width: 90vmax;
   height: 90vmax;
   object-fit: cover;
-  filter: blur(90px) saturate(1.7) brightness(0.8);
-  opacity: 0.9;
+  filter: blur(90px) saturate(1.4) brightness(0.7);
+  opacity: 0.75;
 }
 .b1 {
   top: -35vmax;
@@ -135,13 +135,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .fallback {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 25% 30%, hsl(var(--h) 60% 35%), transparent 60%),
-    radial-gradient(circle at 80% 75%, hsl(calc(var(--h) + 60) 55% 25%), transparent 55%), #121214;
+  background: radial-gradient(circle at 25% 30%, rgba(31, 107, 255, 0.55), transparent 60%),
+    radial-gradient(circle at 80% 75%, rgba(63, 224, 255, 0.25), transparent 55%), #04102e;
 }
 .veil {
   position: absolute;
   inset: 0;
-  background: rgba(10, 10, 12, 0.35);
+  /* Teinte bleu nuit + rais de lumière diagonaux qui glissent lentement */
+  background:
+    repeating-linear-gradient(115deg, transparent 0 60px, rgba(120, 200, 255, 0.05) 60px 64px, transparent 64px 140px),
+    linear-gradient(160deg, rgba(11, 39, 102, 0.55), rgba(2, 7, 22, 0.75));
+  background-size: 400px 400px, auto;
+  mix-blend-mode: normal;
+  animation: shafts 18s linear infinite;
+}
+@keyframes shafts {
+  to {
+    background-position: 400px 0, 0 0;
+  }
 }
 .collapse {
   position: absolute;
@@ -168,7 +179,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .hero-art {
   width: 100%;
-  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 10px 10px 0 var(--cyan), 0 30px 60px rgba(0, 4, 20, 0.6);
   transition: transform 0.6s var(--ease);
 }
 .hero-art.paused {
@@ -180,8 +191,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .meta h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 700;
+  font-style: italic;
+  font-size: 30px;
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 2px 2px 0 var(--blue);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -204,7 +218,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .bar-fill {
   height: 100%;
-  background: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(90deg, var(--blue), var(--cyan));
+  box-shadow: 0 0 12px var(--cyan);
   transform-origin: left;
 }
 .times {
@@ -233,7 +248,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   color: #fff !important;
   width: 56px !important;
   height: 56px !important;
-  border-radius: 50% !important;
+}
+.c-play {
+  width: 70px !important;
+  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
+  background: var(--cyan) !important;
+  color: var(--ink) !important;
 }
 .right {
   min-height: 0;

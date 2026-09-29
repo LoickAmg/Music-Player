@@ -83,7 +83,8 @@ function openMenu(event: MouseEvent) {
   gap: 12px;
   height: 100%;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 2px;
+  transition: background 0.12s, transform 0.2s var(--ease);
   color: var(--text);
   outline: none;
 }
@@ -91,15 +92,20 @@ function openMenu(event: MouseEvent) {
   grid-template-columns: 32px minmax(0, 1fr) 56px 32px;
 }
 .track-row.striped {
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(90, 160, 255, 0.04);
 }
 .track-row:hover,
 .track-row:focus-visible {
-  background: var(--bg-hover);
+  background: linear-gradient(90deg, rgba(63, 224, 255, 0.16), rgba(31, 107, 255, 0.06));
+  box-shadow: inset 3px 0 0 var(--cyan);
 }
 .track-row.current .t,
 .track-row.current .num {
-  color: var(--accent);
+  color: var(--cyan);
+  text-shadow: 0 0 10px rgba(63, 224, 255, 0.45);
+}
+.track-row.current .t {
+  font-weight: 700;
 }
 .lead {
   position: relative;

@@ -133,7 +133,7 @@ onBeforeUnmount(() => {
       <div class="body">
         <div ref="scroller" class="content" :class="{ flush: ui.route.name === 'artists' }">
           <div v-if="!library.root" class="welcome">
-            <div class="welcome-art"><Icon name="note" :size="42" /></div>
+            <img class="welcome-art" src="/logo.png" alt="" />
             <h1>Bienvenue</h1>
             <p>Choisissez le dossier où se trouve votre musique : l'application l'analyse une fois, puis s'ouvre instantanément.</p>
             <button type="button" class="pill pill-accent" @click="library.chooseFolderAndScan()">
@@ -177,8 +177,13 @@ onBeforeUnmount(() => {
 .app {
   height: 100%;
   display: grid;
-  grid-template-columns: 236px 1fr;
-  background: var(--bg-content);
+  grid-template-columns: 244px 1fr;
+  /* Fond « nuit bleue » : dégradé profond, lueur cyan et fines rayures diagonales */
+  background:
+    radial-gradient(ellipse 60% 45% at 85% 0%, rgba(31, 107, 255, 0.35), transparent 70%),
+    radial-gradient(ellipse 50% 40% at 10% 100%, rgba(63, 224, 255, 0.12), transparent 70%),
+    repeating-linear-gradient(115deg, rgba(120, 180, 255, 0.025) 0 2px, transparent 2px 14px),
+    linear-gradient(160deg, #071a47 0%, #04102e 45%, #020716 100%);
 }
 .main {
   display: flex;
@@ -215,12 +220,12 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
 }
 .demo {
-  background: #3b2d10;
-  color: #ffd98a;
+  background: rgba(31, 107, 255, 0.25);
+  color: #cfe6ff;
 }
 .error {
-  background: #4a1620;
-  color: #ffd1d8;
+  background: linear-gradient(90deg, #6b0f24, #3a0a1a);
+  color: #ffd6de;
 }
 .welcome {
   height: 100%;
@@ -233,9 +238,13 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .welcome h1 {
-  margin: 12px 0 0;
+  margin: 14px 0 0;
   font-family: var(--font-display);
-  font-size: 28px;
+  font-size: 48px;
+  font-style: italic;
+  font-weight: 800;
+  text-transform: uppercase;
+  text-shadow: 3px 3px 0 var(--blue);
 }
 .welcome p {
   max-width: 420px;
@@ -244,20 +253,17 @@ onBeforeUnmount(() => {
   line-height: 1.55;
 }
 .welcome-art {
-  display: grid;
-  place-items: center;
-  width: 96px;
-  height: 96px;
-  border-radius: 22px;
-  background: linear-gradient(145deg, #ff5a78, #c21745);
-  box-shadow: 0 16px 40px rgba(250, 45, 85, 0.35);
+  width: 128px;
+  height: 128px;
+  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
+  filter: drop-shadow(6px 6px 0 var(--blue));
 }
 .big-spinner {
   width: 34px;
   height: 34px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.12);
-  border-top-color: var(--accent);
+  border-top-color: var(--cyan);
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin {
@@ -266,6 +272,12 @@ onBeforeUnmount(() => {
   }
 }
 .toast {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 15px !important;
+  letter-spacing: 0.03em;
+  border-left: 4px solid var(--cyan);
   position: fixed;
   left: 50%;
   bottom: 28px;
@@ -273,7 +285,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   padding: 9px 16px;
   border-radius: 10px;
-  background: rgba(50, 50, 54, 0.95);
+  background: rgba(7, 26, 71, 0.95);
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
   font-size: 13px;

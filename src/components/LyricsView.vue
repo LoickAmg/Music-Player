@@ -126,13 +126,14 @@ function seekTo(ms: number) {
   display: none;
 }
 .line {
-  margin: 0 0 18px;
+  margin: 0 0 16px;
   font-family: var(--font-display);
-  font-size: 23px;
+  font-style: italic;
+  font-size: 27px;
   font-weight: 700;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-  color: rgba(255, 255, 255, 0.28);
+  line-height: 1.12;
+  letter-spacing: 0.01em;
+  color: rgba(150, 190, 255, 0.3);
   cursor: pointer;
   transform-origin: left center;
   transition: color 0.4s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
@@ -142,22 +143,23 @@ function seekTo(ms: number) {
   filter: none;
 }
 .line.past {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(150, 190, 255, 0.45);
 }
 .line.active {
   color: #fff;
-  transform: scale(1.03);
+  transform: translateX(6px) scale(1.04);
+  text-shadow: 0 0 18px rgba(63, 224, 255, 0.75), 3px 3px 0 var(--blue);
   filter: none;
 }
 .line:hover {
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--cyan);
   filter: none;
 }
 .large .scroller {
   padding: 18vh 8% 50vh;
 }
 .large .line {
-  font-size: clamp(28px, 3.2vw, 44px);
+  font-size: clamp(32px, 3.6vw, 52px);
   margin-bottom: 26px;
 }
 .plain {

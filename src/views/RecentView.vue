@@ -62,7 +62,10 @@ section {
 h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 19px;
+  font-style: italic;
+  font-size: 24px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   font-weight: 700;
 }
 .more {

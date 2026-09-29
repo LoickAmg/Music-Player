@@ -33,6 +33,10 @@ async function newPlaylist() {
 
 <template>
   <aside class="sidebar">
+    <div class="brand">
+      <img src="/logo.png" alt="" />
+      <span>Music<br /><b>Player</b></span>
+    </div>
     <label class="search">
       <Icon name="search" :size="15" />
       <input
@@ -107,9 +111,40 @@ async function newPlaylist() {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 14px 10px 10px;
-  background: var(--bg-sidebar);
-  border-right: 1px solid var(--separator);
+  padding: 16px 12px 10px;
+  background: linear-gradient(180deg, rgba(3, 11, 34, 0.95), rgba(2, 7, 22, 0.97));
+  border-right: 1px solid rgba(63, 224, 255, 0.18);
+  box-shadow: 1px 0 0 rgba(31, 107, 255, 0.2), 8px 0 30px rgba(0, 0, 0, 0.35);
+  position: relative;
+  z-index: 6;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 4px 18px;
+}
+.brand img {
+  width: 44px;
+  height: 44px;
+  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
+  filter: drop-shadow(3px 3px 0 var(--blue));
+}
+.brand span {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 0.95;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+.brand b {
+  font-weight: 800;
+  font-size: 22px;
+  color: var(--text);
+  text-shadow: 2px 2px 0 var(--blue);
 }
 .search {
   display: flex;
@@ -118,13 +153,13 @@ async function newPlaylist() {
   height: 30px;
   padding: 0 9px;
   margin: 0 4px 18px;
-  border-radius: 7px;
-  background: rgba(255, 255, 255, 0.07);
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+  background: rgba(31, 107, 255, 0.18);
   color: var(--text-2);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 }
 .search:focus-within {
-  box-shadow: 0 0 0 2px var(--accent);
+  background: rgba(63, 224, 255, 0.2);
+  color: var(--text);
 }
 .search input {
   flex: 1;
@@ -153,9 +188,14 @@ async function newPlaylist() {
   align-items: center;
   justify-content: space-between;
   margin: 0 10px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-3);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  opacity: 0.75;
 }
 .add {
   display: grid;
@@ -172,27 +212,52 @@ async function newPlaylist() {
   background: var(--bg-hover);
 }
 .nav-item {
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 30px;
-  padding: 0 10px;
+  height: 34px;
+  padding: 0 12px;
   border: 0;
-  border-radius: 7px;
   background: none;
   text-align: left;
-  font-size: 13.5px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: 0.03em;
   min-width: 0;
+  transition: color 0.15s, transform 0.2s var(--ease);
+}
+.nav-item::before {
+  content: "";
+  position: absolute;
+  inset: 2px 0;
+  z-index: -1;
+  transform: skewX(-16deg);
+  transition: background 0.15s, box-shadow 0.2s var(--ease);
 }
 .nav-item:hover {
+  transform: translateX(3px);
+}
+.nav-item:hover::before {
   background: var(--bg-hover);
 }
+/* Sélection façon menu P3R : barre blanche inclinée, texte bleu nuit, ombre cyan décalée */
 .nav-item.active {
-  background: var(--bg-active);
+  color: var(--ink);
+}
+.nav-item.active::before {
+  background: #fff;
+  box-shadow: 5px 4px 0 var(--cyan);
+}
+.nav-item.active .ico {
+  color: var(--blue);
 }
 .ico {
   flex: none;
-  color: var(--accent);
+  color: var(--cyan);
 }
 .ellipsis {
   overflow: hidden;
