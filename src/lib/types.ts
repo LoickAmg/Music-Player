@@ -1,6 +1,5 @@
-// Miroir TypeScript des structures Rust (serde) de src-tauri/src/*.rs.
-// Garder ces types synchronisés à la main avec les `#[derive(Serialize)]`
-// côté Rust — pas de génération automatique pour un projet de cette taille.
+// Miroir TypeScript des structures Rust (serde) de src-tauri/src/*.rs, à garder
+// synchronisé à la main avec les `#[derive(Serialize)]` côté Rust.
 
 export interface Track {
   id: string;
@@ -8,9 +7,14 @@ export interface Track {
   title: string;
   artist: string;
   album: string;
+  album_artist: string;
   track_no: number | null;
+  disc_no: number | null;
+  year: number | null;
+  genre: string | null;
   duration_secs: number;
   has_cover: boolean;
+  added_secs: number;
 }
 
 export type RepeatMode = "off" | "one" | "all";
@@ -35,6 +39,23 @@ export interface Playlist {
   track_ids: string[];
 }
 
+export interface LyricLine {
+  time_ms: number;
+  text: string;
+}
+
+export interface Lyrics {
+  synced: LyricLine[] | null;
+  plain: string | null;
+  instrumental: boolean;
+  source: string;
+}
+
+export interface ScanProgress {
+  done: number;
+  total: number;
+}
+
 export interface InitialState {
   library_root: string | null;
   library: Track[];
@@ -44,4 +65,24 @@ export interface InitialState {
   volume: number;
   eq_gains: [number, number, number];
   playlists: Playlist[];
+  scanning: boolean;
+}
+
+/** Album reconstitué côté interface à partir des pistes. */
+export interface Album {
+  key: string;
+  title: string;
+  artist: string;
+  year: number | null;
+  tracks: Track[];
+  /** Piste dont on affiche la pochette (la première qui en a une). */
+  coverTrack: Track | null;
+  addedSecs: number;
+  durationSecs: number;
+}
+
+export interface Artist {
+  name: string;
+  albums: Album[];
+  tracks: Track[];
 }

@@ -1,82 +1,103 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useUiStore } from "@/stores/ui";
+import Icon from "./Icon.vue";
 
-type View = "library" | "playlists" | "equalizer";
-
-const props = defineProps<{
-  activeView: View;
-  activePlaylistId: string | null;
-}>();
-
-const emit = defineEmits<{
-  (e: "navigate", view: View): void;
-  (e: "open-playlist", id: string): void;
-}>();
-
+const ui = useUiStore();
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
+const searchInput = ref<HTMLInputElement | null>(null);
 
-const rootLabel = computed(() => {
-  if (!library.root) return "Aucun dossier choisi";
-  const parts = library.root.split(/[/\\]/).filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : library.root;
+defineExpose({ focusSearch: () => searchInput.value?.focus() });
+
+const nav = [
+  { name: "recent", label: "Ajouts récents", icon: "clock" },
+  { name: "artists", label: "Artistes", icon: "artist" },
+  { name: "albums", label: "Albums", icon: "album" },
+  { name: "songs", label: "Morceaux", icon: "songs" },
+] as const;
+
+const progress = computed(() => {
+  const p = library.progress;
+  if (!p || !p.total) return null;
+  return Math.round((p.done / p.total) * 100);
 });
+
+async function newPlaylist() {
+  const id = await playlists.create(`Nouvelle playlist ${playlists.items.length + 1}`);
+  if (id) ui.go({ name: "playlist", id });
+}
 </script>
 
 <template>
   <aside class="sidebar">
-    <div class="brand">🎵 Music Player</div>
+    <label class="search">
+      <Icon name="search" :size="15" />
+      <input
+        ref="searchInput"
+        :value="ui.search"
+        type="search"
+        placeholder="Rechercher"
+        aria-label="Rechercher dans la bibliothèque"
+        @input="ui.setSearch(($event.target as HTMLInputElement).value)"
+        @keydown.esc="ui.setSearch(''); ($event.target as HTMLInputElement).blur()"
+      />
+    </label>
 
-    <div class="library-block">
-      <div class="library-root" :title="library.root ?? ''">{{ rootLabel }}</div>
-      <button class="secondary" :disabled="library.loading" @click="library.chooseFolderAndScan()">
-        {{ library.loading ? "Analyse en cours…" : "Choisir un dossier" }}
-      </button>
-    </div>
-
-    <nav class="nav">
+    <nav class="section" aria-label="Bibliothèque">
+      <p class="section-title">Bibliothèque</p>
       <button
+        v-for="item in nav"
+        :key="item.name"
+        type="button"
         class="nav-item"
-        :class="{ active: props.activeView === 'library' }"
-        @click="emit('navigate', 'library')"
+        :class="{ active: ui.route.name === item.name }"
+        @click="ui.go({ name: item.name })"
       >
-        📚 Bibliothèque
-        <span class="count">{{ library.tracks.length }}</span>
-      </button>
-      <button
-        class="nav-item"
-        :class="{ active: props.activeView === 'playlists' && !props.activePlaylistId }"
-        @click="emit('navigate', 'playlists')"
-      >
-        🎧 Playlists
-        <span class="count">{{ playlists.items.length }}</span>
-      </button>
-      <button
-        class="nav-item"
-        :class="{ active: props.activeView === 'equalizer' }"
-        @click="emit('navigate', 'equalizer')"
-      >
-        🎚️ Égaliseur
+        <Icon :name="item.icon" :size="17" class="ico" />
+        {{ item.label }}
       </button>
     </nav>
 
-    <div class="playlists-block">
-      <div class="section-title">Playlists</div>
-      <div v-if="playlists.items.length === 0" class="empty-state small">Aucune playlist pour l'instant.</div>
-      <ul class="playlist-list">
-        <li v-for="p in playlists.items" :key="p.id">
-          <button
-            class="nav-item"
-            :class="{ active: props.activeView === 'playlists' && props.activePlaylistId === p.id }"
-            @click="emit('open-playlist', p.id)"
-          >
-            🎧 {{ p.name }}
-            <span class="count">{{ p.track_ids.length }}</span>
-          </button>
-        </li>
-      </ul>
+    <nav class="section playlists" aria-label="Playlists">
+      <p class="section-title">
+        Playlists
+        <button type="button" class="add" title="Nouvelle playlist" aria-label="Nouvelle playlist" @click="newPlaylist">
+          <Icon name="plus" :size="15" />
+        </button>
+      </p>
+      <button
+        v-for="p in playlists.items"
+        :key="p.id"
+        type="button"
+        class="nav-item"
+        :class="{ active: ui.route.name === 'playlist' && ui.route.id === p.id }"
+        @click="ui.go({ name: 'playlist', id: p.id })"
+      >
+        <Icon name="playlist" :size="17" class="ico" />
+        <span class="ellipsis">{{ p.name }}</span>
+      </button>
+      <p v-if="!playlists.items.length" class="empty">Aucune playlist pour l'instant.</p>
+    </nav>
+
+    <div class="foot">
+      <div v-if="library.scanning" class="scan" role="status">
+        <span class="spinner" />
+        <span>
+          Analyse de la bibliothèque<span v-if="progress !== null"> · {{ progress }} %</span>
+        </span>
+      </div>
+      <button
+        type="button"
+        class="nav-item"
+        :class="{ active: ui.route.name === 'settings' }"
+        @click="ui.go({ name: 'settings' })"
+      >
+        <Icon name="settings" :size="17" class="ico" />
+        Réglages
+      </button>
     </div>
   </aside>
 </template>
@@ -85,93 +106,130 @@ const rootLabel = computed(() => {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 1.25em;
-  padding: 1.25em 1em;
-  border-right: 1px solid var(--border);
-  background: var(--bg-elevated);
+  min-height: 0;
+  padding: 14px 10px 10px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 9px;
+  margin: 0 4px 18px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+}
+.search:focus-within {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font-size: 13px;
+}
+.search input::-webkit-search-cancel-button {
+  filter: invert(1) opacity(0.5);
+}
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 18px;
+}
+.playlists {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
-
-.brand {
-  font-weight: 700;
-  font-size: 1.05em;
-}
-
-.library-block {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5em;
-}
-
-.library-root {
-  font-size: 0.8em;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-button.secondary {
-  width: 100%;
-}
-
-.nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25em;
-}
-
-.nav-item {
+.section-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5em;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border-color: transparent;
+  margin: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
 }
-
+.add {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-2);
+}
+.add:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  text-align: left;
+  font-size: 13.5px;
+  min-width: 0;
+}
 .nav-item:hover {
   background: var(--bg-hover);
 }
-
 .nav-item.active {
-  background: var(--accent-faint);
-  border-color: var(--accent-dim);
+  background: var(--bg-active);
+}
+.ico {
+  flex: none;
   color: var(--accent);
 }
-
-.count {
-  font-size: 0.75em;
-  color: var(--text-dim);
+.ellipsis {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-
-.nav-item.active .count {
-  color: inherit;
-  opacity: 0.8;
+.empty {
+  margin: 2px 10px;
+  font-size: 12px;
+  color: var(--text-3);
 }
-
-.section-title {
-  font-size: 0.75em;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-  margin-bottom: 0.4em;
-}
-
-.playlist-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.foot {
   display: flex;
   flex-direction: column;
-  gap: 0.2em;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--separator);
 }
-
-.empty-state.small {
-  padding: 0.5em 0;
-  font-size: 0.8em;
-  text-align: left;
+.scan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 </style>

@@ -22,7 +22,7 @@ use std::time::Duration;
 
 #[derive(Debug)]
 enum AudioCommand {
-    Play(String, f32),
+    Play(String, f32, Option<Sender<Result<(), String>>>),
     Pause,
     Resume,
     Stop,
@@ -69,8 +69,17 @@ impl AudioHandle {
         let _ = self.tx.lock().unwrap().send(cmd);
     }
 
-    pub fn play(&self, path: &str, volume: f32) {
-        self.send(AudioCommand::Play(path.to_string(), volume));
+    /// Lance une piste et attend que son décodage ait démarré, pour pouvoir signaler une
+    /// erreur à l'interface (le décodage via ffmpeg d'un long fichier peut prendre du temps).
+    pub fn play(&self, path: &str, volume: f32) -> Result<(), String> {
+        let (reply, answer) = mpsc::channel();
+        self.send(AudioCommand::Play(path.to_string(), volume, Some(reply)));
+        answer.recv_timeout(Duration::from_secs(60)).unwrap_or_else(|_| {
+            Err(self
+                .status()
+                .device_error
+                .unwrap_or_else(|| "Le moteur audio ne répond pas.".to_string()))
+        })
     }
 
     pub fn pause(&self) {
@@ -201,8 +210,11 @@ struct Engine {
 impl Engine {
     fn handle(&mut self, cmd: AudioCommand, status: &Mutex<AudioStatus>) {
         match cmd {
-            AudioCommand::Play(path, volume) => match open_decoder(&path) {
+            AudioCommand::Play(path, volume, reply) => match open_decoder(&path) {
                 Ok(decoder) => {
+                    if let Some(reply) = reply {
+                        let _ = reply.send(Ok(()));
+                    }
                     if let Some(old) = self.player.take() {
                         old.stop();
                     }
@@ -222,8 +234,11 @@ impl Engine {
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or(path);
-                    status.lock().unwrap().device_error =
-                        Some(format!("Lecture impossible de « {name} » : {e}"));
+                    let message = format!("Lecture impossible de « {name} » : {e}");
+                    status.lock().unwrap().device_error = Some(message.clone());
+                    if let Some(reply) = reply {
+                        let _ = reply.send(Err(message));
+                    }
                 }
             },
             AudioCommand::Pause => {

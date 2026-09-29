@@ -8,6 +8,8 @@ export const usePlayerStore = defineStore("player", {
   state: () => ({
     currentTrack: null as Track | null,
     positionSecs: 0,
+    /** Instant (performance.now) où `positionSecs` a été mesurée : sert à l'interpoler. */
+    positionStamp: 0,
     isPaused: true,
     volume: 1,
     queueIds: [] as string[],
@@ -15,8 +17,25 @@ export const usePlayerStore = defineStore("player", {
     shuffle: false,
     repeat: "off" as RepeatMode,
     error: null as string | null,
+    busy: false,
   }),
+  getters: {
+    /** Position estimée entre deux sondages (utile pour synchroniser les paroles). */
+    positionAt:
+      (state) =>
+      (now: number): number => {
+        if (state.isPaused || !state.currentTrack) return state.positionSecs;
+        const elapsed = (now - state.positionStamp) / 1000;
+        return Math.min(state.positionSecs + Math.max(0, elapsed), state.currentTrack.duration_secs || Infinity);
+      },
+    upNextIds: (state): string[] =>
+      state.queuePosition === null ? state.queueIds : state.queueIds.slice(state.queuePosition + 1),
+  },
   actions: {
+    setPosition(secs: number) {
+      this.positionSecs = secs;
+      this.positionStamp = performance.now();
+    },
     setFromInitialState(init: {
       current_track: Track | null;
       position_secs: number;
@@ -24,14 +43,14 @@ export const usePlayerStore = defineStore("player", {
       queue: QueueView;
     }) {
       this.currentTrack = init.current_track;
-      this.positionSecs = init.position_secs;
+      this.setPosition(init.position_secs);
       this.volume = init.volume;
       this.isPaused = true;
       this.applyQueue(init.queue);
     },
     applyStatus(status: PlaybackStatus) {
-      this.currentTrack = status.current_track;
-      this.positionSecs = status.position_secs;
+      if (status.current_track?.id !== this.currentTrack?.id) this.currentTrack = status.current_track;
+      this.setPosition(status.position_secs);
       this.isPaused = status.is_paused;
       this.volume = status.volume;
     },
@@ -43,50 +62,52 @@ export const usePlayerStore = defineStore("player", {
     },
     async afterTrackChange(track: Track | null) {
       this.currentTrack = track;
-      this.positionSecs = 0;
+      this.setPosition(0);
       this.isPaused = track === null;
       await this.refreshQueue();
     },
-    async playQueue(trackIds: string[], startId?: string | null) {
+    async run(action: () => Promise<Track | null>) {
       this.error = null;
+      this.busy = true;
       try {
-        const track = await api.playQueue(trackIds, startId ?? null);
-        await this.afterTrackChange(track);
+        await this.afterTrackChange(await action());
       } catch (e) {
         this.error = String(e);
+      } finally {
+        this.busy = false;
       }
     },
-    async playTrackNow(trackId: string) {
-      this.error = null;
-      try {
-        const track = await api.playTrackNow(trackId);
-        await this.afterTrackChange(track);
-      } catch (e) {
-        this.error = String(e);
+    playQueue(trackIds: string[], startId?: string | null) {
+      return this.run(() => api.playQueue(trackIds, startId ?? null));
+    },
+    playShuffled(trackIds: string[]) {
+      const shuffled = [...trackIds];
+      for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
+      return this.playQueue(shuffled, shuffled[0]);
+    },
+    playTrackNow(trackId: string) {
+      return this.run(() => api.playTrackNow(trackId));
+    },
+    next() {
+      return this.run(() => api.nextTrack());
+    },
+    async previous() {
+      // Comme sur tous les lecteurs : au-delà de 3 s, « précédent » revient au début.
+      if (this.positionAt(performance.now()) > 3 && this.currentTrack) {
+        await this.seek(0);
+        return;
+      }
+      await this.run(() => api.previousTrack());
     },
     async togglePlayPause() {
       this.error = null;
       try {
-        this.isPaused = await api.togglePlayPause();
-      } catch (e) {
-        this.error = String(e);
-      }
-    },
-    async next() {
-      this.error = null;
-      try {
-        const track = await api.nextTrack();
-        await this.afterTrackChange(track);
-      } catch (e) {
-        this.error = String(e);
-      }
-    },
-    async previous() {
-      this.error = null;
-      try {
-        const track = await api.previousTrack();
-        await this.afterTrackChange(track);
+        const paused = await api.togglePlayPause();
+        this.setPosition(this.positionAt(performance.now()));
+        this.isPaused = paused;
       } catch (e) {
         this.error = String(e);
       }
@@ -95,7 +116,7 @@ export const usePlayerStore = defineStore("player", {
       this.error = null;
       try {
         await api.seek(positionSecs);
-        this.positionSecs = positionSecs;
+        this.setPosition(positionSecs);
       } catch (e) {
         this.error = String(e);
       }
@@ -116,6 +137,10 @@ export const usePlayerStore = defineStore("player", {
       } catch (e) {
         this.error = String(e);
       }
+    },
+    async cycleRepeat() {
+      const next: RepeatMode = this.repeat === "off" ? "all" : this.repeat === "all" ? "one" : "off";
+      await this.setRepeat(next);
     },
     async setRepeat(mode: RepeatMode) {
       this.repeat = mode;
@@ -139,10 +164,8 @@ export const usePlayerStore = defineStore("player", {
     async refreshStatus() {
       this.applyStatus(await api.getPlaybackStatus());
     },
-    // Appelé à chaque tick du sondage : détecte une fin de piste côté
-    // Rust et avance automatiquement, sinon se contente de rafraîchir la
-    // position de lecture (pour la barre de progression).
     async pollTick() {
+      if (this.busy) return;
       try {
         const advanced = await api.pollAutoAdvance();
         if (advanced !== null) {
@@ -151,15 +174,12 @@ export const usePlayerStore = defineStore("player", {
           await this.refreshStatus();
         }
       } catch {
-        // Le sondage est best-effort : une erreur ponctuelle (ex : device
-        // audio momentanément indisponible) ne doit pas spammer l'UI.
+        // Sondage « au mieux » : une erreur ponctuelle ne doit pas inonder l'interface.
       }
     },
     startPolling() {
       if (pollHandle) return;
-      pollHandle = setInterval(() => {
-        void this.pollTick();
-      }, 1000);
+      pollHandle = setInterval(() => void this.pollTick(), 500);
     },
     stopPolling() {
       if (pollHandle) {

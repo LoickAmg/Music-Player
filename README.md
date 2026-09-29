@@ -22,10 +22,40 @@ Bibliothèques Rust clés : `rodio` (lecture audio, décodage via
 `symphonia` — mp3/flac/ogg/wav/m4a/aac), `lofty` (métadonnées + pochettes),
 `walkdir` (scan récursif), `tauri-plugin-dialog` (sélecteur de dossier).
 
+## Lancer l'application
+
+Aucune commande à taper : après `npm run tauri build`, double-cliquez sur l'installateur
+`src-tauri/target/release/bundle/nsis/Music Player_x.y.z_x64-setup.exe` (raccourci dans le
+menu Démarrer), ou directement sur l'exécutable autonome `src-tauri/target/release/music-player.exe`
+(l'interface est intégrée, WebView2 est déjà présent sur Windows 10/11).
+
+## Interface
+
+Inspirée d'Apple Music : barre de navigation latérale (Ajouts récents, Artistes, Albums,
+Morceaux, Playlists), barre de lecture façon « écran LCD » (pochette, titre, progression que
+l'on peut faire glisser), grilles de pochettes, pages d'album et d'artiste, recherche
+instantanée, menu contextuel (clic droit), écran « À l'écoute » plein écran avec la pochette
+floutée et animée en fond, raccourcis clavier (Espace, Ctrl+←/→, ←/→, Ctrl+F, Ctrl+L).
+Les listes sont virtualisées : des milliers de morceaux restent fluides.
+
+## Paroles synchronisées
+
+Panneau « Paroles » et écran « À l'écoute » : la ligne chantée s'allume, la vue défile toute
+seule, un clic sur une ligne saute à ce passage. Sources, dans l'ordre :
+
+1. un fichier `.lrc` du même nom posé à côté du morceau ;
+2. les paroles intégrées aux étiquettes du fichier (ID3 USLT, Vorbis `LYRICS`, MP4 `©lyr`) ;
+3. sur autorisation explicite (demandée une fois), [LRCLIB](https://lrclib.net), base libre et
+   sans clé : seuls titre, artiste, album et durée sont envoyés, les titres « de vidéo »
+   (« (Lyrics) », « [Official Video] », « Artiste - Titre »…) sont nettoyés avant la recherche,
+   et les réponses sont mises en cache (`lyrics/` dans le dossier de l'application).
+
 ## Fonctionnalités
 
-- **Bibliothèque locale** : scan récursif d'un dossier choisi, métadonnées
-  (titre/artiste/album/durée/pochette), recherche et tri
+- **Bibliothèque locale** : scan **parallèle** d'un dossier (≈ 5 000 fichiers en 3,5 s),
+  métadonnées tolérantes aux étiquettes abîmées (un fichier audio n'est jamais écarté),
+  pochettes embarquées **ou** `cover.jpg`/`folder.jpg` du dossier, **cache** : la
+  bibliothèque s'affiche instantanément au lancement puis se met à jour en arrière-plan
 - **Presque tous les formats audio** : MP3, FLAC, OGG, WAV, AAC, M4A/ALAC, AIFF, MKA, WebM
   lus directement ; **Opus, WMA, AC3 / E-AC3 (Dolby), APE, WavPack, DSD, MPC…** lus via
   [ffmpeg](https://ffmpeg.org) s'il est installé (Windows : `winget install ffmpeg`). Sans
@@ -61,7 +91,8 @@ l'application.
 ```
 src-tauri/            Backend Rust
   src/queue.rs         File d'attente : ordre, shuffle, répétition (logique pure, testée)
-  src/library.rs       Scan de bibliothèque + métadonnées (lofty)
+  src/library.rs       Scan parallèle, métadonnées (lofty), cache, pochettes
+  src/lyrics.rs        Paroles : .lrc, étiquettes, LRCLIB (+ cache)
   src/playlists.rs     Playlists persistées en JSON
   src/session.rs       Sauvegarde/restauration de session
   src/eq.rs            Égaliseur 3 bandes (filtres biquad + Source rodio maison)

@@ -7,6 +7,7 @@ use crate::library::Track;
 use crate::playlists::PlaylistStore;
 use crate::queue::Queue;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
 pub struct AppState {
@@ -14,11 +15,13 @@ pub struct AppState {
     pub queue: Mutex<Queue>,
     pub library: Mutex<Vec<Track>>,
     pub library_root: Mutex<Option<String>>,
+    /// Vrai pendant un scan (au démarrage ou demandé) : évite deux scans simultanés.
+    pub scanning: AtomicBool,
     pub playlists: Mutex<PlaylistStore>,
     pub eq_gains: EqGains,
     pub volume: Mutex<f32>,
-    /// Dossier de données de l'app (résolu par Tauri au démarrage), où
-    /// vivent `playlists.json` et `session.json`.
+    /// Dossier de données de l'app, où vivent `playlists.json`, `session.json`,
+    /// `library.json` et les caches de pochettes et de paroles.
     pub data_dir: PathBuf,
 }
 
@@ -30,6 +33,7 @@ impl AppState {
             queue: Mutex::new(Queue::new()),
             library: Mutex::new(Vec::new()),
             library_root: Mutex::new(None),
+            scanning: AtomicBool::new(false),
             playlists: Mutex::new(PlaylistStore::default()),
             eq_gains,
             volume: Mutex::new(1.0),
@@ -43,6 +47,18 @@ impl AppState {
 
     pub fn session_path(&self) -> PathBuf {
         self.data_dir.join("session.json")
+    }
+
+    pub fn library_cache_path(&self) -> PathBuf {
+        self.data_dir.join("library.json")
+    }
+
+    pub fn covers_dir(&self) -> PathBuf {
+        self.data_dir.join("covers")
+    }
+
+    pub fn lyrics_dir(&self) -> PathBuf {
+        self.data_dir.join("lyrics")
     }
 
     pub fn find_track(&self, id: &str) -> Option<Track> {

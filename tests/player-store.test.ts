@@ -29,9 +29,14 @@ function track(id: string): Track {
     title: id,
     artist: "Artiste",
     album: "Album",
+    album_artist: "Artiste",
     track_no: 1,
+    disc_no: null,
+    year: null,
+    genre: null,
     duration_secs: 200,
     has_cover: false,
+    added_secs: 0,
   };
 }
 
@@ -123,5 +128,28 @@ describe("player store", () => {
 
     expect(store.shuffle).toBe(true);
     expect(store.queueIds).toEqual(["b", "a"]);
+  });
+
+  it("positionAt interpole la position pendant la lecture, et la fige en pause", () => {
+    const store = usePlayerStore();
+    store.currentTrack = track("a");
+    store.isPaused = false;
+    store.positionSecs = 10;
+    store.positionStamp = 1000;
+    expect(store.positionAt(3500)).toBeCloseTo(12.5);
+    expect(store.positionAt(999_999)).toBe(200);
+    store.isPaused = true;
+    expect(store.positionAt(3500)).toBe(10);
+  });
+
+  it("previous revient au début du morceau au-delà de 3 secondes", async () => {
+    const store = usePlayerStore();
+    store.currentTrack = track("a");
+    store.isPaused = true;
+    store.positionSecs = 30;
+    vi.mocked(api.seek).mockResolvedValueOnce(undefined);
+    await store.previous();
+    expect(api.seek).toHaveBeenCalledWith(0);
+    expect(api.previousTrack).not.toHaveBeenCalled();
   });
 });

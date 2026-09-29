@@ -1,52 +1,97 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { api } from "@/lib/api";
+import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { api, onScanEvents } from "@/lib/api";
+import { SCROLLER } from "@/lib/virtual";
+import { useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
+import { useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
-import { useEqStore } from "@/stores/eq";
+import { useUiStore } from "@/stores/ui";
+import Icon from "@/components/Icon.vue";
+import NowPlaying from "@/components/NowPlaying.vue";
+import PlayerBar from "@/components/PlayerBar.vue";
+import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
-import LibraryPanel from "@/components/LibraryPanel.vue";
-import PlaylistsPanel from "@/components/PlaylistsPanel.vue";
-import EqualizerPanel from "@/components/EqualizerPanel.vue";
-import NowPlayingBar from "@/components/NowPlayingBar.vue";
-import QueueDrawer from "@/components/QueueDrawer.vue";
-import LegalDialog from "@/components/LegalDialog.vue";
-
-type View = "library" | "playlists" | "equalizer";
+import TrackMenu from "@/components/TrackMenu.vue";
+import AlbumDetail from "@/views/AlbumDetail.vue";
+import AlbumsView from "@/views/AlbumsView.vue";
+import ArtistsView from "@/views/ArtistsView.vue";
+import PlaylistView from "@/views/PlaylistView.vue";
+import RecentView from "@/views/RecentView.vue";
+import SearchView from "@/views/SearchView.vue";
+import SettingsView from "@/views/SettingsView.vue";
+import SongsView from "@/views/SongsView.vue";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const eq = useEqStore();
+const ui = useUiStore();
+const lyrics = useLyricsStore();
 
-const view = ref<View>("library");
-const activePlaylistId = ref<string | null>(null);
-const showQueue = ref(false);
-const showLegal = ref(false);
 const ready = ref(false);
-// Vrai quand la page tourne dans un navigateur (npm run dev) et non dans l'application de bureau.
 const demoMode = "__MP_DEMO__" in window;
+const scroller = ref<HTMLElement | null>(null);
+const sidebar = ref<InstanceType<typeof Sidebar> | null>(null);
+provide(SCROLLER, scroller);
 
-function navigate(next: View) {
-  view.value = next;
-  if (next === "playlists") activePlaylistId.value = null;
+// Chaque changement de page repart du haut.
+watch(
+  () => ui.route,
+  () => scroller.value?.scrollTo({ top: 0 }),
+);
+
+// Les paroles ne sont chargées que lorsqu'elles sont visibles.
+watch(
+  () => [player.currentTrack?.id, ui.panel, ui.nowPlayingOpen] as const,
+  ([id, panel, full]) => {
+    if (panel === "lyrics" || full) void lyrics.load(id ?? null);
+  },
+);
+
+function isTyping(e: KeyboardEvent) {
+  const el = e.target as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
 }
 
-function openPlaylist(id: string | null) {
-  activePlaylistId.value = id;
-  view.value = "playlists";
+function onKey(e: KeyboardEvent) {
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (ctrl && e.key.toLowerCase() === "f") {
+    e.preventDefault();
+    sidebar.value?.focusSearch();
+    return;
+  }
+  if (ctrl && e.key.toLowerCase() === "l") {
+    e.preventDefault();
+    ui.togglePanel("lyrics");
+    return;
+  }
+  if (isTyping(e) || !player.currentTrack) return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    void player.togglePlayPause();
+  } else if (ctrl && e.key === "ArrowRight") {
+    void player.next();
+  } else if (ctrl && e.key === "ArrowLeft") {
+    void player.previous();
+  } else if (e.key === "ArrowRight") {
+    void player.seek(Math.min(player.currentTrack.duration_secs, player.positionAt(performance.now()) + 5));
+  } else if (e.key === "ArrowLeft") {
+    void player.seek(Math.max(0, player.positionAt(performance.now()) - 5));
+  }
 }
 
-function openLegal() {
-  showLegal.value = true;
-}
-
+let unlisten: (() => void) | null = null;
 let saveInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
+  unlisten = await onScanEvents({
+    progress: (p) => library.applyProgress(p),
+    updated: (tracks) => library.applyScanResult(tracks),
+  });
   const initial = await api.getInitialState();
-  library.setFromInitialState(initial.library_root, initial.library);
+  library.setFromInitialState(initial.library_root, initial.library, initial.scanning);
   playlists.setFromInitialState(initial.playlists);
   eq.setFromInitialState(initial.eq_gains);
   player.setFromInitialState({
@@ -56,139 +101,196 @@ onMounted(async () => {
     queue: initial.queue,
   });
   ready.value = true;
-
   player.startPolling();
-  // Sauvegarde la session régulièrement (pas seulement à la fermeture, au
-  // cas où l'app serait tuée plutôt que fermée proprement).
-  saveInterval = setInterval(() => {
-    void api.saveSession();
-  }, 15_000);
+  saveInterval = setInterval(() => void api.saveSession(), 15_000);
+  window.addEventListener("keydown", onKey);
 });
 
 onBeforeUnmount(() => {
   player.stopPolling();
+  unlisten?.();
   if (saveInterval) clearInterval(saveInterval);
+  window.removeEventListener("keydown", onKey);
 });
 </script>
 
 <template>
-  <div v-if="ready" class="app-shell">
-    <div v-if="demoMode" class="demo-banner" role="status">
-      Mode démonstration (navigateur) : les pistes sont fictives, ni le son ni l'ajout de dossier ne
-      fonctionnent ici. Lancez l'application de bureau avec <code>npm run tauri dev</code>.
+  <div v-if="ready" class="app">
+    <Sidebar ref="sidebar" />
+
+    <div class="main">
+      <PlayerBar />
+      <div v-if="demoMode" class="banner demo">
+        Mode démonstration (navigateur) : pistes fictives, pas de son. L'application de bureau lit vos vrais fichiers.
+      </div>
+      <Transition name="fade">
+        <div v-if="player.error" class="banner error" role="alert">
+          <span>{{ player.error }}</span>
+          <button type="button" class="icon-btn" aria-label="Fermer" @click="player.error = null"><Icon name="close" :size="14" /></button>
+        </div>
+      </Transition>
+
+      <div class="body">
+        <div ref="scroller" class="content" :class="{ flush: ui.route.name === 'artists' }">
+          <div v-if="!library.root" class="welcome">
+            <div class="welcome-art"><Icon name="note" :size="42" /></div>
+            <h1>Bienvenue</h1>
+            <p>Choisissez le dossier où se trouve votre musique : l'application l'analyse une fois, puis s'ouvre instantanément.</p>
+            <button type="button" class="pill pill-accent" @click="library.chooseFolderAndScan()">
+              <Icon name="folder" :size="15" /> Choisir mon dossier de musique
+            </button>
+          </div>
+          <div v-else-if="!library.tracks.length && library.scanning" class="welcome">
+            <span class="big-spinner" />
+            <h1>Analyse de votre musique…</h1>
+            <p v-if="library.progress?.total">{{ library.progress.done.toLocaleString("fr-FR") }} / {{ library.progress.total.toLocaleString("fr-FR") }} fichiers</p>
+          </div>
+          <template v-else>
+            <RecentView v-if="ui.route.name === 'recent'" />
+            <AlbumsView v-else-if="ui.route.name === 'albums'" />
+            <ArtistsView v-else-if="ui.route.name === 'artists'" :artist="ui.route.artist" />
+            <SongsView v-else-if="ui.route.name === 'songs'" />
+            <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
+            <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
+            <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
+            <SettingsView v-else-if="ui.route.name === 'settings'" />
+          </template>
+          <button v-if="ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
+            <Icon name="back" :size="18" />
+          </button>
+        </div>
+        <SidePanel v-if="ui.panel" />
+      </div>
     </div>
-    <div class="body">
-      <Sidebar :active-view="view" :active-playlist-id="activePlaylistId" @navigate="navigate" @open-playlist="openPlaylist" />
 
-      <main class="content">
-        <LibraryPanel v-if="view === 'library'" />
-        <PlaylistsPanel
-          v-else-if="view === 'playlists'"
-          :active-playlist-id="activePlaylistId"
-          @open-playlist="openPlaylist"
-        />
-        <EqualizerPanel v-else-if="view === 'equalizer'" />
-      </main>
-
-      <QueueDrawer v-if="showQueue" @close="showQueue = false" />
-    </div>
-
-    <div v-if="player.error" class="error-banner" role="alert">
-      <span>{{ player.error }}</span>
-      <button type="button" class="banner-close" aria-label="Fermer" @click="player.error = null">×</button>
-    </div>
-
-    <NowPlayingBar @toggle-queue="showQueue = !showQueue" />
-
-    <footer class="app-footer">
-      <span class="footer-brand">Music Player</span>
-      <nav class="footer-links" aria-label="Liens légaux">
-        <button type="button" class="footer-link" @click="openLegal">Mentions légales</button>
-        <button type="button" class="footer-link" @click="openLegal">Confidentialité</button>
-        <button type="button" class="footer-link" @click="openLegal">Contact</button>
-      </nav>
-    </footer>
-
-    <LegalDialog v-if="showLegal" @close="showLegal = false" />
+    <Transition name="np">
+      <NowPlaying v-if="ui.nowPlayingOpen" />
+    </Transition>
+    <TrackMenu />
+    <Transition name="fade">
+      <div v-if="ui.toast" class="toast" role="status">{{ ui.toast }}</div>
+    </Transition>
   </div>
 </template>
 
 <style scoped>
-.demo-banner {
-  padding: 0.5rem 1rem;
-  background: #4a3410;
-  color: #ffe2a3;
-  font-size: 0.85rem;
-  text-align: center;
-}
-.error-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.55rem 1rem;
-  background: #4a1a1a;
-  color: #ffd6d6;
-  font-size: 0.9rem;
-}
-.banner-close {
-  background: none;
-  border: none;
-  color: inherit;
-  font-size: 1.2rem;
-  cursor: pointer;
-}
-
-.app-shell {
+.app {
   height: 100%;
+  display: grid;
+  grid-template-columns: 236px 1fr;
+  background: var(--bg-content);
+}
+.main {
   display: flex;
   flex-direction: column;
-}
-
-.body {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 220px 1fr auto;
+  min-width: 0;
   min-height: 0;
 }
-
+.body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
 .content {
+  position: relative;
+  flex: 1;
   min-width: 0;
   overflow-y: auto;
 }
-
-.app-footer {
+.content.flush {
+  overflow: hidden;
+}
+.back {
+  position: absolute;
+  top: 14px;
+  left: 10px;
+  z-index: 3;
+}
+.banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1em;
-  padding: 0.45em 1.1em;
-  border-top: 1px solid var(--border);
-  background: var(--bg-elevated);
-  font-size: 0.75em;
-  color: var(--text-dim);
+  gap: 12px;
+  padding: 7px 16px;
+  font-size: 12.5px;
 }
-
-.footer-brand {
-  font-weight: 600;
-  color: var(--text);
+.demo {
+  background: #3b2d10;
+  color: #ffd98a;
 }
-
-.footer-links {
+.error {
+  background: #4a1620;
+  color: #ffd1d8;
+}
+.welcome {
+  height: 100%;
   display: flex;
-  gap: 1em;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  text-align: center;
 }
-
-.footer-link {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--text-dim);
-  font-size: 0.85em;
-  cursor: pointer;
+.welcome h1 {
+  margin: 12px 0 0;
+  font-family: var(--font-display);
+  font-size: 28px;
 }
-
-.footer-link:hover {
-  color: var(--accent);
+.welcome p {
+  max-width: 420px;
+  margin: 0 0 12px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.welcome-art {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #ff5a78, #c21745);
+  box-shadow: 0 16px 40px rgba(250, 45, 85, 0.35);
+}
+.big-spinner {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  z-index: 70;
+  transform: translateX(-50%);
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: rgba(50, 50, 54, 0.95);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+.np-leave-active {
+  transition: opacity 0.3s, transform 0.3s var(--ease);
+}
+.np-leave-to {
+  opacity: 0;
+  transform: translateY(40px);
 }
 </style>

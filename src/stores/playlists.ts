@@ -17,13 +17,15 @@ export const usePlaylistsStore = defineStore("playlists", {
     async fetchAll() {
       this.items = await api.listPlaylists();
     },
-    async create(name: string) {
+    async create(name: string): Promise<string | null> {
       this.error = null;
       try {
-        await api.createPlaylist(name);
+        const id = await api.createPlaylist(name);
         await this.fetchAll();
+        return id;
       } catch (e) {
         this.error = String(e);
+        return null;
       }
     },
     async remove(id: string) {

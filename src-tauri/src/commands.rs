@@ -3,14 +3,16 @@
 //! `queue`, `library`, `playlists`, `session`, `eq` et `audio`.
 
 use crate::library::{self, Track};
+use crate::lyrics::{self, Lyrics};
 use crate::playlists::Playlist;
 use crate::queue::RepeatMode;
 use crate::session::SessionState;
 use crate::state::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Debug, Serialize)]
@@ -31,11 +33,7 @@ pub struct QueueView {
 
 fn start_playback(state: &State<AppState>, path: &str) -> Result<(), String> {
     let volume = *state.volume.lock().unwrap();
-    state.audio.play(path, volume);
-    if let Some(err) = state.audio.status().device_error {
-        return Err(err);
-    }
-    Ok(())
+    state.audio.play(path, volume)
 }
 
 fn track_or_stop(state: &State<AppState>, id: Option<String>) -> Result<Option<Track>, String> {
@@ -67,12 +65,34 @@ pub async fn pick_library_folder(app: tauri::AppHandle) -> Option<String> {
     rx.recv().ok().flatten().map(|p| p.to_string())
 }
 
-#[tauri::command]
-pub fn scan_library(state: State<AppState>, root: String) -> Vec<Track> {
-    let tracks = library::scan_library(Path::new(&root));
+#[derive(Clone, Serialize)]
+struct ScanProgress {
+    done: usize,
+    total: usize,
+}
+
+/// Scanne `root` (hors du fil de l'interface), met à jour la bibliothèque et son cache,
+/// et diffuse l'avancement (`scan-progress`) puis le résultat (`library-updated`).
+pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
+    let state = app.state::<AppState>();
+    if state.scanning.swap(true, Ordering::SeqCst) {
+        return Err("Un scan de la bibliothèque est déjà en cours.".to_string());
+    }
+    let _ = app.emit("scan-progress", ScanProgress { done: 0, total: 0 });
+    let tracks = library::scan_library_with_progress(Path::new(root), |done, total| {
+        let _ = app.emit("scan-progress", ScanProgress { done, total });
+    });
     *state.library.lock().unwrap() = tracks.clone();
-    *state.library_root.lock().unwrap() = Some(root);
-    tracks
+    *state.library_root.lock().unwrap() = Some(root.to_string());
+    let _ = library::save_cache(&state.library_cache_path(), root, &tracks);
+    state.scanning.store(false, Ordering::SeqCst);
+    let _ = app.emit("library-updated", &tracks);
+    Ok(tracks)
+}
+
+#[tauri::command(async)]
+pub fn scan_library(app: AppHandle, root: String) -> Result<Vec<Track>, String> {
+    run_scan(&app, &root)
 }
 
 #[tauri::command]
@@ -80,18 +100,30 @@ pub fn get_library(state: State<AppState>) -> Vec<Track> {
     state.library.lock().unwrap().clone()
 }
 
-#[tauri::command]
-pub fn get_cover(path: String) -> Option<String> {
-    library::cover_data_uri(Path::new(&path))
+/// Chemin d'un fichier image de pochette (extrait dans le cache), ou `None`.
+#[tauri::command(async)]
+pub fn get_cover(state: State<'_, AppState>, path: String, track_id: String) -> Result<Option<String>, String> {
+    Ok(library::cover_file(Path::new(&path), &track_id, &state.covers_dir())
+        .map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command(async)]
+pub fn get_lyrics(
+    state: State<'_, AppState>,
+    track_id: String,
+    allow_online: bool,
+) -> Result<Option<Lyrics>, String> {
+    let track = state.find_track(&track_id).ok_or("Piste introuvable dans la bibliothèque.")?;
+    lyrics::lyrics_for(&track, &state.lyrics_dir(), allow_online)
 }
 
 // ---------------------------------------------------------------------
 // Lecture / file d'attente
 // ---------------------------------------------------------------------
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn play_queue(
-    state: State<AppState>,
+    state: State<'_, AppState>,
     track_ids: Vec<String>,
     start_id: Option<String>,
 ) -> Result<Option<Track>, String> {
@@ -103,8 +135,9 @@ pub fn play_queue(
     track_or_stop(&state, current)
 }
 
-#[tauri::command]
-pub fn play_track_now(state: State<AppState>, track_id: String) -> Result<Option<Track>, String> {
+#[tauri::command(async)]
+pub fn play_track_now(
+    state: State<'_, AppState>, track_id: String) -> Result<Option<Track>, String> {
     let already_queued = {
         let mut queue = state.queue.lock().unwrap();
         queue.jump_to(&track_id)
@@ -131,14 +164,16 @@ pub fn toggle_play_pause(state: State<AppState>) -> Result<bool, String> {
     }
 }
 
-#[tauri::command]
-pub fn next_track(state: State<AppState>) -> Result<Option<Track>, String> {
+#[tauri::command(async)]
+pub fn next_track(
+    state: State<'_, AppState>) -> Result<Option<Track>, String> {
     let next_id = state.queue.lock().unwrap().next().cloned();
     track_or_stop(&state, next_id)
 }
 
-#[tauri::command]
-pub fn previous_track(state: State<AppState>) -> Result<Option<Track>, String> {
+#[tauri::command(async)]
+pub fn previous_track(
+    state: State<'_, AppState>) -> Result<Option<Track>, String> {
     let prev_id = state.queue.lock().unwrap().previous().cloned();
     track_or_stop(&state, prev_id)
 }
@@ -199,7 +234,8 @@ pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
     PlaybackStatus {
         current_track,
         position_secs: status.position_secs,
-        is_paused: status.is_paused,
+        // Aucune piste chargée (démarrage, fin de file) = rien ne joue.
+        is_paused: status.is_paused || status.current_path.is_none(),
         volume: *state.volume.lock().unwrap(),
     }
 }
@@ -209,8 +245,9 @@ pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
 /// suivante selon la file/le mode de répétition. Retourne la nouvelle
 /// piste si elle a changé, `None` si rien n'a changé ou si la file est
 /// terminée.
-#[tauri::command]
-pub fn poll_auto_advance(state: State<AppState>) -> Result<Option<Track>, String> {
+#[tauri::command(async)]
+pub fn poll_auto_advance(
+    state: State<'_, AppState>) -> Result<Option<Track>, String> {
     if !state.audio.status().finished {
         return Ok(None);
     }
@@ -332,6 +369,8 @@ pub struct InitialState {
     pub volume: f32,
     pub eq_gains: [f32; 3],
     pub playlists: Vec<Playlist>,
+    /// Un scan tourne en arrière-plan : la bibliothèque affichée vient du cache.
+    pub scanning: bool,
 }
 
 #[tauri::command]
@@ -353,6 +392,7 @@ pub fn get_initial_state(state: State<AppState>) -> InitialState {
         volume: *state.volume.lock().unwrap(),
         eq_gains: *state.eq_gains.lock().unwrap(),
         playlists: state.playlists.lock().unwrap().playlists.clone(),
+        scanning: state.scanning.load(Ordering::SeqCst),
     }
 }
 
@@ -378,9 +418,10 @@ pub fn persist_session(state: &State<AppState>) -> std::io::Result<()> {
     session.save(&state.session_path())
 }
 
-/// Reconstruit l'état applicatif au démarrage à partir de `session.json` /
-/// `playlists.json`. Appelé une seule fois depuis `lib.rs::run`.
-pub fn restore_state(state: &AppState, data_dir: &Path) {
+/// Reconstruit l'état applicatif au démarrage à partir de `session.json`, `playlists.json`
+/// et du cache `library.json` (affichage instantané, sans attendre un scan complet).
+/// Retourne le dossier de la bibliothèque, à rescanner ensuite en arrière-plan.
+pub fn restore_state(state: &AppState, data_dir: &Path) -> Option<String> {
     let playlists =
         crate::playlists::PlaylistStore::load(&PathBuf::from(data_dir).join("playlists.json"));
     *state.playlists.lock().unwrap() = playlists;
@@ -390,8 +431,8 @@ pub fn restore_state(state: &AppState, data_dir: &Path) {
     *state.eq_gains.lock().unwrap() = session.eq_gains;
 
     if let Some(root) = &session.library_root {
-        let tracks = library::scan_library(Path::new(root));
-        *state.library.lock().unwrap() = tracks;
+        let cached = library::load_cache(&state.library_cache_path(), root).unwrap_or_default();
+        *state.library.lock().unwrap() = cached;
         *state.library_root.lock().unwrap() = Some(root.clone());
     }
 
@@ -405,4 +446,5 @@ pub fn restore_state(state: &AppState, data_dir: &Path) {
         queue.set_shuffle(session.shuffle);
         queue.set_repeat(session.repeat);
     }
+    session.library_root
 }

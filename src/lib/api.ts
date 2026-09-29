@@ -1,15 +1,25 @@
-// Fine couche typée par-dessus `invoke()` : un point d'entrée unique par
-// commande Rust, pour ne jamais avoir à retaper une chaîne de commande ou
-// une forme de payload à la main dans les stores/composants.
+// Fine couche typée par-dessus `invoke()` : un point d'entrée unique par commande Rust.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { InitialState, Playlist, PlaybackStatus, QueueView, RepeatMode, Track } from "./types";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type {
+  InitialState,
+  Lyrics,
+  Playlist,
+  PlaybackStatus,
+  QueueView,
+  RepeatMode,
+  ScanProgress,
+  Track,
+} from "./types";
 
 export const api = {
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
   getLibrary: () => invoke<Track[]>("get_library"),
-  getCover: (path: string) => invoke<string | null>("get_cover", { path }),
+  getCover: (path: string, trackId: string) => invoke<string | null>("get_cover", { path, trackId }),
+  getLyrics: (trackId: string, allowOnline: boolean) =>
+    invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline }),
 
   playQueue: (trackIds: string[], startId?: string | null) =>
     invoke<Track | null>("play_queue", { trackIds, startId: startId ?? null }),
@@ -43,3 +53,20 @@ export const api = {
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),
 };
+
+/** Abonnements aux événements du scan (sans effet dans le mode démo du navigateur). */
+export async function onScanEvents(handlers: {
+  progress: (p: ScanProgress) => void;
+  updated: (tracks: Track[]) => void;
+}): Promise<UnlistenFn> {
+  try {
+    const off1 = await listen<ScanProgress>("scan-progress", (e) => handlers.progress(e.payload));
+    const off2 = await listen<Track[]>("library-updated", (e) => handlers.updated(e.payload));
+    return () => {
+      off1();
+      off2();
+    };
+  } catch {
+    return () => {};
+  }
+}

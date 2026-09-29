@@ -3,6 +3,7 @@ pub mod commands;
 pub mod eq;
 pub mod ffmpeg;
 pub mod library;
+pub mod lyrics;
 pub mod playlists;
 pub mod queue;
 pub mod session;
@@ -24,8 +25,17 @@ pub fn run() {
             std::fs::create_dir_all(&data_dir).ok();
 
             let state = AppState::new(data_dir.clone());
-            commands::restore_state(&state, &data_dir);
+            let library_root = commands::restore_state(&state, &data_dir);
             app.manage(state);
+
+            // La bibliothèque s'affiche aussitôt depuis le cache ; le rescan (nouveaux
+            // fichiers, étiquettes modifiées) se fait en arrière-plan.
+            if let Some(root) = library_root {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let _ = commands::run_scan(&handle, &root);
+                });
+            }
 
             // Sauvegarde la session quand la fenêtre principale se ferme,
             // pour retrouver piste/position/volume/EQ au prochain lancement.
@@ -47,6 +57,7 @@ pub fn run() {
             commands::scan_library,
             commands::get_library,
             commands::get_cover,
+            commands::get_lyrics,
             commands::play_queue,
             commands::play_track_now,
             commands::toggle_play_pause,

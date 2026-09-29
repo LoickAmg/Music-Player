@@ -7,7 +7,7 @@ const emit = defineEmits<{
 
 type SectionId = "mentions" | "confidentialite" | "contact";
 
-const contactEmail = "contact@exemple.fr";
+const contactEmail = "mahounaamg@gmail.com";
 
 const sections: { id: SectionId; label: string; title: string }[] = [
   { id: "mentions", label: "Mentions légales", title: "Mentions légales" },
@@ -43,37 +43,37 @@ const active = ref<SectionId>("mentions");
         <div v-if="active === 'mentions'" class="section">
           <p class="lead">Ce logiciel de bureau est édité par :</p>
           <ul>
-            <li><strong>Éditeur :</strong> [À compléter]</li>
-            <li><strong>Adresse postale :</strong> [À compléter]</li>
-            <li><strong>Directeur de la publication :</strong> [À compléter]</li>
+            <li><strong>Éditeur :</strong> Mahouna (particulier, projet non commercial)</li>
+            <li><strong>Directeur de la publication :</strong> Mahouna</li>
+            <li><strong>Contact :</strong> {{ contactEmail }}</li>
           </ul>
           <h3>Hébergement</h3>
-          <p>Application de bureau Tauri diffusée librement ; aucune donnée d’utilisation n’est transmise à un tiers.</p>
+          <p>Application de bureau (Tauri) installée et exécutée sur votre ordinateur : aucun serveur n’héberge vos données. Le code source est publié sur GitHub (GitHub, Inc., San Francisco, États-Unis).</p>
           <h3>Propriété intellectuelle</h3>
           <p>Le code source est distribué sous licence MIT. Toute reproduction, même partielle, sans autorisation préalable est interdite pour les éléments non couverts par cette licence.</p>
         </div>
 
         <div v-else-if="active === 'confidentialite'" class="section">
           <h3>Données traitées</h3>
-          <p>Le logiciel fonctionne entièrement en local : aucune donnée personnelle n’est collectée, aucun compte n’est requis, aucun cookie de suivi ni outil d’analyse tiers n’est utilisé.</p>
+          <p>Le logiciel fonctionne en local : aucun compte, aucun cookie de suivi, aucun outil d’analyse. Vos fichiers audio ne quittent jamais votre ordinateur.</p>
           <h3>Base légale</h3>
-          <p>Aucun traitement de données personnelles n’est réalisé. Les fichiers audio scannés restent sur votre machine et ne sont jamais transmis.</p>
+          <p>Seule exception, facultative et désactivée tant que vous ne l’avez pas autorisée : la recherche de paroles en ligne. Elle envoie au service LRCLIB (lrclib.net) le titre, l’artiste, l’album et la durée du morceau écouté, sans aucune donnée vous concernant. Vous pouvez la couper à tout moment dans Réglages → Paroles.</p>
           <h3>Conservation</h3>
-          <p>Sans collecte de données personnelles, aucune durée de conservation ne s’applique.</p>
+          <p>Les pochettes et paroles trouvées sont conservées dans le dossier de l’application sur votre ordinateur ; les supprimer n’a aucune incidence sur votre musique.</p>
           <h3>Responsable de traitement</h3>
-          <p>[À compléter] — nom et coordonnées du responsable de traitement.</p>
+          <p>Mahouna — {{ contactEmail }}.</p>
         </div>
 
         <div v-else class="section">
-          <p>Une question, une remarque ou une suggestion ? Écrivez-nous à l’adresse suivante :</p>
+          <p>Une question, une remarque ou une suggestion ? Écrivez à :</p>
           <p class="email"><a :href="`mailto:${contactEmail}`">{{ contactEmail }}</a></p>
-          <p>Nous répondons généralement sous quelques jours ouvrés.</p>
+          <p>Réponse généralement sous quelques jours.</p>
         </div>
       </div>
 
       <footer class="dialog-footer">
         <span>© {{ new Date().getFullYear() }} Music Player</span>
-        <span class="dim">[À compléter] avant distribution.</span>
+        <span class="dim">Licence MIT</span>
       </footer>
     </section>
   </div>

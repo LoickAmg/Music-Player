@@ -9,26 +9,54 @@
 // statiquement faux en prod ⇒ tree-shaké par Rollup) pour ne jamais
 // atterrir dans le bundle livré à l'utilisateur.
 
-import type { InitialState, Playlist, PlaybackStatus, QueueView, RepeatMode, Track } from "./types";
+import type { InitialState, Lyrics, Playlist, PlaybackStatus, QueueView, RepeatMode, Track } from "./types";
+
+const DEMO_ALBUMS = [
+  { album: "Nuit Blanche", artist: "Les Ondes", year: 2021 },
+  { album: "Horizon", artist: "Camille R.", year: 2019 },
+  { album: "Petites Machines", artist: "Studio Sud", year: 2023 },
+  { album: "Chambre 12", artist: "Aurore Vasseur", year: 2018 },
+  { album: "Lumière d'hiver", artist: "Les Ondes", year: 2024 },
+  { album: "Grand Large", artist: "Nils & Iris", year: 2022 },
+];
+const DEMO_TITLES = [
+  "Ouverture", "Rivière", "Minuit passé", "Les néons", "Ce qu'il reste", "Aube", "Sable", "Tempête douce",
+  "Vertige", "Lettre ouverte", "Boulevard", "Encore une fois",
+];
 
 function makeTrack(i: number, overrides: Partial<Track> = {}): Track {
-  const albums = ["Nuit Blanche", "Horizon", "Petites Machines", "Chambre 12"];
-  const artists = ["Les Ondes", "Camille R.", "Studio Sud", "Aurore Vasseur"];
+  const a = DEMO_ALBUMS[i % DEMO_ALBUMS.length];
   return {
     id: `mock-${i}`,
     path: `/musique/demo/track-${i}.mp3`,
-    title: `Piste ${i}`,
-    artist: artists[i % artists.length],
-    album: albums[i % albums.length],
-    track_no: (i % 12) + 1,
+    title: DEMO_TITLES[Math.floor(i / DEMO_ALBUMS.length) % DEMO_TITLES.length],
+    artist: a.artist,
+    album: a.album,
+    album_artist: a.artist,
+    track_no: Math.floor(i / DEMO_ALBUMS.length) + 1,
+    disc_no: 1,
+    year: a.year,
+    genre: "Pop",
     duration_secs: 150 + ((i * 37) % 120),
-    has_cover: i % 3 !== 0,
+    has_cover: false,
+    added_secs: 1_700_000_000 + i * 3600,
     ...overrides,
   };
 }
 
+const DEMO_LYRICS: Lyrics = {
+  synced: [
+    "Sous les néons de la ville", "Je compte les heures qui filent", "", "Et la nuit me répond",
+    "Par des échos sans nom", "Minuit passé, je reste là", "À écouter battre le monde", "", "Encore une fois",
+    "Encore une fois",
+  ].map((text, i) => ({ time_ms: 2000 + i * 3500, text })),
+  plain: null,
+  instrumental: false,
+  source: "démonstration",
+};
+
 export function installTauriMock() {
-  const library: Track[] = Array.from({ length: 18 }, (_, i) => makeTrack(i + 1));
+  const library: Track[] = Array.from({ length: 60 }, (_, i) => makeTrack(i));
 
   let queue: QueueView = { track_ids: [], position: null, shuffle: false, repeat: "off" };
   let volume = 1;
@@ -71,6 +99,7 @@ export function installTauriMock() {
     scan_library: () => library,
     get_library: () => library,
     get_cover: () => null,
+    get_lyrics: () => DEMO_LYRICS,
 
     play_queue: ({ trackIds, startId }) => {
       queue = { ...queue, track_ids: trackIds, position: trackIds.length ? 0 : null };
@@ -184,6 +213,7 @@ export function installTauriMock() {
       volume,
       eq_gains: eqGains,
       playlists,
+      scanning: false,
     }),
     save_session: () => undefined,
   };
