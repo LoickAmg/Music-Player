@@ -147,7 +147,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   width: min(640px, calc(100vw - 40px));
   padding: 24px;
   border-radius: 14px;
-  background: rgba(40, 40, 44, 0.97);
+  background: rgba(9, 24, 60, 0.97);
   box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   animation: pop 0.25s var(--ease);
 }
@@ -210,7 +210,7 @@ h2 {
   transform: scale(1.07);
 }
 .swatch.on {
-  box-shadow: 0 0 0 2px rgba(40, 40, 44, 1), 0 0 0 4px #fff;
+  box-shadow: 0 0 0 2px rgba(9, 24, 60, 1), 0 0 0 4px #3fe0ff;
 }
 .custom {
   display: grid;

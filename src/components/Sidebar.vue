@@ -108,7 +108,7 @@ function newPlaylist() {
   flex-direction: column;
   min-height: 0;
   padding: 14px 10px 10px;
-  background: var(--bg-sidebar);
+  background: linear-gradient(180deg, #06122f 0%, #040b20 100%);
   border-right: 1px solid var(--separator);
 }
 .search {

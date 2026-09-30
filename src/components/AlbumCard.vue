@@ -57,7 +57,7 @@ function play() {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: rgba(20, 20, 22, 0.72);
+  background: rgba(5, 16, 44, 0.72);
   backdrop-filter: blur(10px);
   color: #fff;
   opacity: 0;

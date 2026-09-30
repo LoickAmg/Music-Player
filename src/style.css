@@ -1,16 +1,16 @@
 :root {
-  --bg: #1c1c1e;
-  --bg-content: #1e1e20;
-  --bg-sidebar: #232326;
-  --bg-elevated: #2c2c2f;
-  --bg-hover: rgba(255, 255, 255, 0.06);
-  --bg-active: rgba(255, 255, 255, 0.1);
-  --text: #f5f5f7;
-  --text-2: rgba(235, 235, 245, 0.62);
-  --text-3: rgba(235, 235, 245, 0.34);
-  --separator: rgba(255, 255, 255, 0.08);
-  --accent: #fa2d55;
-  --accent-soft: rgba(250, 45, 85, 0.16);
+  --bg: #050d24;
+  --bg-content: #071433;
+  --bg-sidebar: #040b20;
+  --bg-elevated: #0c1d45;
+  --bg-hover: rgba(80, 170, 255, 0.08);
+  --bg-active: rgba(80, 170, 255, 0.16);
+  --text: #eef5ff;
+  --text-2: rgba(205, 225, 255, 0.66);
+  --text-3: rgba(170, 200, 245, 0.4);
+  --separator: rgba(120, 170, 255, 0.13);
+  --accent: #3aa8ff;
+  --accent-soft: rgba(58, 168, 255, 0.16);
   --radius: 10px;
   --radius-sm: 6px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
@@ -92,7 +92,7 @@ input {
   transform: scale(0.97);
 }
 .pill-accent {
-  background: var(--accent);
+  background: linear-gradient(120deg, #1f6bff, #3aa8ff);
   color: #fff;
 }
 .pill-accent:hover {

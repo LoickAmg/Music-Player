@@ -250,11 +250,11 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
 }
 .demo {
-  background: #3b2d10;
-  color: #ffd98a;
+  background: rgba(31, 107, 255, 0.22);
+  color: #cfe6ff;
 }
 .error {
-  background: #4a1620;
+  background: #3a0f24;
   color: #ffd1d8;
 }
 .welcome {
@@ -306,7 +306,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   padding: 9px 16px;
   border-radius: 10px;
-  background: rgba(50, 50, 54, 0.95);
+  background: rgba(10, 26, 64, 0.95);
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
   font-size: 13px;

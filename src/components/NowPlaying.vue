@@ -141,7 +141,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   position: absolute;
   inset: 0;
   background: radial-gradient(circle at 25% 30%, hsl(var(--h) 60% 35%), transparent 60%),
-    radial-gradient(circle at 80% 75%, hsl(calc(var(--h) + 60) 55% 25%), transparent 55%), #121214;
+    radial-gradient(circle at 80% 75%, hsl(calc(var(--h) + 60) 55% 25%), transparent 55%), #050d24;
 }
 .aura {
   position: absolute;

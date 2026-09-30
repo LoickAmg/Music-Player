@@ -108,7 +108,7 @@ async function removeFromPlaylist() {
   overflow: auto;
   padding: 5px;
   border-radius: 10px;
-  background: rgba(44, 44, 48, 0.94);
+  background: rgba(10, 26, 64, 0.95);
   backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
   animation: pop 0.14s var(--ease);

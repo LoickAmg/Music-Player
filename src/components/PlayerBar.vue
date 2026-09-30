@@ -148,7 +148,7 @@ function toggleMute() {
   gap: 18px;
   height: 64px;
   padding: 0 18px;
-  background: rgba(34, 34, 37, 0.86);
+  background: rgba(6, 18, 48, 0.88);
   backdrop-filter: blur(30px) saturate(1.8);
   border-bottom: 1px solid var(--separator);
   position: relative;
