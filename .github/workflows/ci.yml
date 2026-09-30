@@ -159,7 +159,15 @@ jobs:
           node scripts/android-patch.mjs
 
       - name: Compilation de l'APK
-        run: npx tauri android build --apk --target aarch64 armv7
+        run: |
+          set -o pipefail
+          if ! npx tauri android build --apk --target aarch64 armv7 2>&1 | tee build.log; then
+            # Les erreurs deviennent des annotations, lisibles sans accès aux journaux.
+            grep -iE "error|failed|could not|cannot find|undefined" build.log | grep -v "^warning" | tail -40 | while IFS= read -r line; do
+              echo "::error::${line:0:900}"
+            done
+            exit 1
+          fi
 
       # Signature : clé fournie par les secrets du dépôt si elle existe (mises à jour
       # sans désinstaller), sinon clé générée pour cette version.
