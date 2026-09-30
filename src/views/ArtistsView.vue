@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { formatCollection, hueFor } from "@/lib/format";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
+import { useUiStore } from "@/stores/ui";
 import AlbumCard from "@/components/AlbumCard.vue";
 import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
@@ -10,6 +11,9 @@ import TrackRow from "@/components/TrackRow.vue";
 const props = defineProps<{ artist?: string }>();
 const library = useLibraryStore();
 const player = usePlayerStore();
+const ui = useUiStore();
+// Sur téléphone : la liste, puis le détail de l'artiste touché (avec retour).
+const showDetail = ref(!!props.artist);
 
 const selectedName = ref<string | null>(props.artist ?? null);
 watch(
@@ -46,7 +50,7 @@ function initials(name: string) {
 </script>
 
 <template>
-  <div class="artists">
+  <div class="artists" :class="{ 'm-detail': ui.isMobile && showDetail, 'm-list': ui.isMobile && !showDetail }">
     <nav ref="list" class="artist-list" aria-label="Artistes">
       <button
         v-for="a in artists"
@@ -54,7 +58,7 @@ function initials(name: string) {
         type="button"
         class="artist-item"
         :class="{ active: selected?.name === a.name }"
-        @click="selectedName = a.name"
+        @click="selectedName = a.name; showDetail = true"
       >
         <span class="avatar" :style="{ background: `hsl(${hueFor(a.name)} 35% 32%)` }">{{ initials(a.name) }}</span>
         <span class="name">{{ a.name }}</span>
@@ -63,6 +67,7 @@ function initials(name: string) {
 
     <div v-if="selected" class="detail">
       <header>
+        <button v-if="ui.isMobile" type="button" class="m-back" @click="showDetail = false"><Icon name="back" :size="18" /> Artistes</button>
         <h1>{{ selected.name }}</h1>
         <p class="muted">{{ formatCollection(selected.tracks.length, duration) }}</p>
         <div class="actions">
@@ -175,5 +180,49 @@ section {
 .more {
   margin: 10px;
   font-size: 12.5px;
+}
+.m-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 10px -6px;
+  padding: 4px 6px;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 15px;
+}
+@media (max-width: 760px) {
+  .artists {
+    display: block;
+    height: auto;
+  }
+  .artist-list {
+    border: 0;
+    padding: 4px 10px;
+    overflow: visible;
+  }
+  .artist-item {
+    padding: 8px;
+  }
+  .avatar {
+    width: 40px;
+    height: 40px;
+    font-size: 13px;
+  }
+  .name {
+    font-size: 15px;
+  }
+  .m-list .detail,
+  .m-detail .artist-list {
+    display: none;
+  }
+  .detail {
+    overflow: visible;
+    padding: 8px 16px 24px;
+  }
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  }
 }
 </style>

@@ -183,3 +183,24 @@ input {
   transition: --amb-primary 1.2s ease, --amb-secondary 1.2s ease, --amb-glow 1.2s ease, --amb-base 1.2s ease,
     --amb-energy 1.2s ease;
 }
+
+/* ---------------------------------------------------------------- téléphone */
+@media (max-width: 760px) {
+  :root {
+    font-size: 15px;
+  }
+  .page {
+    padding: 8px 16px 24px;
+  }
+  .page-title {
+    margin: 6px 0 16px;
+    font-size: 26px;
+  }
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+  }
+  .pill {
+    height: 40px;
+  }
+}

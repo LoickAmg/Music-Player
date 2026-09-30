@@ -155,4 +155,23 @@ h1 {
 .empty p {
   margin: 4px;
 }
+@media (max-width: 760px) {
+  .hero {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+  }
+  .hero .actions {
+    justify-content: center;
+  }
+  .art,
+  .cover {
+    width: min(64vw, 260px);
+  }
+  h1,
+  .title-input {
+    font-size: 24px;
+  }
+}
 </style>

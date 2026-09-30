@@ -36,6 +36,7 @@ function openMenu(event: MouseEvent) {
     role="row"
     tabindex="0"
     @dblclick="emit('play')"
+    @click="ui.isMobile && emit('play')"
     @keydown.enter="emit('play')"
     @contextmenu.prevent="openMenu"
   >
@@ -55,6 +56,7 @@ function openMenu(event: MouseEvent) {
     <div class="title">
       <span class="t">{{ track.title }}</span>
       <span v-if="variant === 'album' && track.artist !== track.album_artist" class="sub">{{ track.artist }}</span>
+      <span v-else-if="variant !== 'album'" class="sub mobile-only">{{ track.artist }}</span>
     </div>
     <button v-if="variant !== 'album'" type="button" class="link artist" @click.stop="ui.go({ name: 'artists', artist: track.artist })">
       {{ track.artist }}
@@ -228,6 +230,34 @@ function openMenu(event: MouseEvent) {
   }
   to {
     height: 12px;
+  }
+}
+.mobile-only {
+  display: none;
+}
+@media (max-width: 760px) {
+  .track-row,
+  .track-row.album {
+    grid-template-columns: 44px minmax(0, 1fr) 40px;
+    gap: 10px;
+    padding: 0 4px;
+  }
+  .track-row.album {
+    grid-template-columns: 28px minmax(0, 1fr) 40px;
+  }
+  .artist,
+  .album,
+  .dur,
+  .play-hover {
+    display: none !important;
+  }
+  .mobile-only {
+    display: block;
+  }
+  .more {
+    opacity: 1 !important;
+    width: 40px;
+    height: 40px;
   }
 }
 </style>

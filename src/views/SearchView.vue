@@ -81,4 +81,10 @@ h2 {
 .row {
   height: 52px;
 }
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+  }
+}
 </style>

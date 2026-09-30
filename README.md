@@ -29,6 +29,18 @@ de ce dépôt, puis double-cliquez dessus : l'installation se fait pour votre co
 administrateur), avec un raccourci dans le menu Démarrer et sur le Bureau. Chaque tag `app-v*`
 construit et publie automatiquement les installateurs Windows, macOS et Linux (voir `.github/workflows/ci.yml`).
 
+## Android
+
+Chaque version publiée (tag `app-v*`) contient aussi **`Music-Player-android.apk`**,
+compilé par la CI pour les téléphones Android 8 et plus (arm64 et armv7 : Pixel 6 Pro,
+Redmi 15C, Huawei Y8p…). Installation : télécharger l'APK sur le téléphone, l'ouvrir et
+autoriser l'installation depuis cette source. Au premier lancement, l'application demande
+l'accès aux fichiers audio, puis « Analyser la musique du téléphone » parcourt le stockage
+partagé (Musique, Téléchargements…).
+
+Sur un écran étroit, l'interface passe en mode mobile : onglets en bas, mini-lecteur,
+écran « À l'écoute » plein écran avec pochette ou paroles.
+
 ## Lancer l'application depuis les sources
 
 Aucune commande à taper : après `npm run tauri build`, double-cliquez sur l'installateur

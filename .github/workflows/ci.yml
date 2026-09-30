@@ -5,6 +5,8 @@ on:
     branches: [main]
     tags: ["app-v*"]
   pull_request:
+  # Lancement manuel (onglet Actions) : construit l'APK Android sans créer de version.
+  workflow_dispatch:
 
 jobs:
   # Feedback rapide sur chaque push/PR : lint + tests backend (Rust) et
@@ -109,3 +111,83 @@ jobs:
             Choisis le fichier correspondant à ton système ci-dessous.
           releaseDraft: false
           prerelease: false
+
+  # APK Android (téléphones arm64 et armv7, Android 8 et plus). Construit sur un tag
+  # « app-v* » (et joint à la release) ou à la demande depuis l'onglet Actions.
+  android:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      NDK_VERSION: "27.2.12479018"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: SDK et NDK Android
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: "Projet Android (généré puis complété : permissions musique)"
+        run: |
+          npx tauri android init --ci
+          node scripts/android-patch.mjs
+
+      - name: Compilation de l'APK
+        run: npx tauri android build --apk --target aarch64 armv7
+
+      # Signature : clé fournie par les secrets du dépôt si elle existe (mises à jour
+      # sans désinstaller), sinon clé générée pour cette version.
+      - name: Signature de l'APK
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          echo "APK non signé : $APK"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > release.jks
+            PASS="$KEYSTORE_PASSWORD"
+          else
+            PASS="music-player"
+            keytool -genkeypair -keystore release.jks -storepass "$PASS" -keypass "$PASS"               -alias music-player -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Mahouna, O=Music Player, C=FR"
+          fi
+          BT="$ANDROID_HOME/build-tools/35.0.0"
+          "$BT/zipalign" -f -p 4 "$APK" aligned.apk
+          "$BT/apksigner" sign --ks release.jks --ks-pass "pass:$PASS" --out "Music-Player-android.apk" aligned.apk
+          ls -la *.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: music-player-android
+          path: "*-android.apk"
+
+      - name: Ajout de l'APK à la release
+        if: startsWith(github.ref, 'refs/tags/app-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*-android.apk"

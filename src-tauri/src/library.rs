@@ -177,6 +177,16 @@ pub fn scan_library(root: &Path) -> Vec<Track> {
 
 /// Parcourt `root` et lit toutes les pistes en parallèle. `on_progress(fait, total)` est
 /// appelé régulièrement pour afficher l'avancement.
+/// Dossiers jamais parcourus : dossiers cachés et, sur un téléphone, les données des
+/// applications (`Android/`), inaccessibles et très volumineuses.
+fn is_skipped_dir(entry: &walkdir::DirEntry) -> bool {
+    if !entry.file_type().is_dir() {
+        return false;
+    }
+    let name = entry.file_name().to_string_lossy();
+    name.starts_with('.') || (entry.depth() == 1 && name == "Android")
+}
+
 pub fn scan_library_with_progress(
     root: &Path,
     on_progress: impl Fn(usize, usize) + Sync,
@@ -186,6 +196,7 @@ pub fn scan_library_with_progress(
     for entry in WalkDir::new(root)
         .follow_links(true)
         .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !is_skipped_dir(e))
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {

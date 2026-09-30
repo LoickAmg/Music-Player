@@ -108,4 +108,9 @@ function play(index: number) {
   font-size: 8px;
   margin-left: 3px;
 }
+@media (max-width: 760px) {
+  .header {
+    display: none;
+  }
+}
 </style>

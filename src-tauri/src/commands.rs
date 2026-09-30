@@ -58,12 +58,27 @@ fn track_or_stop(state: &State<AppState>, id: Option<String>) -> Result<Option<T
 
 #[tauri::command]
 pub async fn pick_library_folder(app: tauri::AppHandle) -> Option<String> {
+    // Sur Android, le sélecteur de dossier renvoie des adresses « content:// » qu'on ne
+    // peut pas parcourir comme des fichiers : on analyse directement le stockage
+    // partagé du téléphone (Musique, Téléchargements…), avec la permission d'accès
+    // aux fichiers audio demandée au lancement.
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        return Some(ANDROID_STORAGE.to_string());
+    }
+    #[cfg(not(target_os = "android"))]
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog().file().pick_folder(move |folder| {
         let _ = tx.send(folder);
     });
+    #[cfg(not(target_os = "android"))]
     rx.recv().ok().flatten().map(|p| p.to_string())
 }
+
+/// Racine du stockage partagé sur Android.
+#[cfg(target_os = "android")]
+const ANDROID_STORAGE: &str = "/storage/emulated/0";
 
 #[derive(Clone, Serialize)]
 struct ScanProgress {

@@ -10,6 +10,8 @@ import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
+import MobileBar from "@/components/MobileBar.vue";
+import MobileTop from "@/components/MobileTop.vue";
 import NowPlaying from "@/components/NowPlaying.vue";
 import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
@@ -20,6 +22,7 @@ import AlbumDetail from "@/views/AlbumDetail.vue";
 import AlbumsView from "@/views/AlbumsView.vue";
 import ArtistsView from "@/views/ArtistsView.vue";
 import PlaylistView from "@/views/PlaylistView.vue";
+import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
 import SearchView from "@/views/SearchView.vue";
 import SettingsView from "@/views/SettingsView.vue";
@@ -44,6 +47,12 @@ watch(
   () => ui.route,
   () => scroller.value?.scrollTo({ top: 0 }),
 );
+
+// Téléphone ou fenêtre étroite : interface mobile (onglets en bas, lecteur compact).
+const narrow = window.matchMedia("(max-width: 760px)");
+ui.isMobile = narrow.matches;
+narrow.addEventListener("change", (e) => (ui.isMobile = e.matches));
+const onAndroid = /Android/i.test(navigator.userAgent);
 
 // Les couleurs de l'interface suivent la pochette du morceau en cours.
 watch(
@@ -125,11 +134,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="ready" class="app">
-    <Sidebar ref="sidebar" />
+  <div v-if="ready" class="app" :class="{ mobile: ui.isMobile, 'has-track': !!player.currentTrack }">
+    <Sidebar v-if="!ui.isMobile" ref="sidebar" />
 
     <div class="main">
-      <PlayerBar />
+      <PlayerBar v-if="!ui.isMobile" />
       <div v-if="demoMode" class="banner demo">
         Mode démonstration (navigateur) : pistes fictives, pas de son. L'application de bureau lit vos vrais fichiers.
       </div>
@@ -144,14 +153,15 @@ onBeforeUnmount(() => {
         <div
           ref="scroller"
           class="content"
-          :class="{ flush: ui.route.name === 'artists', home: !library.root || ui.route.name === 'recent', ambient: !!player.currentTrack }"
+          :class="{ flush: ui.route.name === 'artists' && !ui.isMobile, home: !library.root || ui.route.name === 'recent', ambient: !!player.currentTrack }"
         >
+          <MobileTop v-if="ui.isMobile" />
           <div v-if="!library.root" class="welcome">
             <img class="welcome-art" src="/logo.png" alt="" />
             <h1>Bienvenue</h1>
             <p>Choisissez le dossier où se trouve votre musique : l'application l'analyse une fois, puis s'ouvre instantanément.</p>
             <button type="button" class="pill pill-accent" @click="library.chooseFolderAndScan()">
-              <Icon name="folder" :size="15" /> Choisir mon dossier de musique
+              <Icon name="folder" :size="15" /> {{ onAndroid ? "Analyser la musique du téléphone" : "Choisir mon dossier de musique" }}
             </button>
           </div>
           <div v-else-if="!library.tracks.length && library.scanning" class="welcome">
@@ -168,18 +178,20 @@ onBeforeUnmount(() => {
             <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
             <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
             <SettingsView v-else-if="ui.route.name === 'settings'" />
+            <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
           </template>
-          <button v-if="ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
+          <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
             <Icon name="back" :size="18" />
           </button>
         </div>
-        <SidePanel v-if="ui.panel" />
+        <SidePanel v-if="ui.panel && !ui.isMobile" />
       </div>
     </div>
 
     <Transition name="np">
       <NowPlaying v-if="ui.nowPlayingOpen" />
     </Transition>
+    <MobileBar v-if="ui.isMobile" />
     <TrackMenu />
     <PlaylistDialog />
     <Transition name="fade">
@@ -194,6 +206,19 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 236px 1fr;
   background: var(--bg-content);
+}
+.app.mobile {
+  grid-template-columns: 1fr;
+}
+/* Espace réservé sous le contenu pour les onglets (+ le mini-lecteur s'il y a un morceau) */
+.app.mobile .content {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+.app.mobile.has-track .content {
+  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+}
+.app.mobile .toast {
+  bottom: calc(150px + env(safe-area-inset-bottom));
 }
 .main {
   display: flex;

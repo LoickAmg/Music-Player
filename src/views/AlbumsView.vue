@@ -4,6 +4,7 @@ import { collator } from "@/lib/format";
 import { useLibraryStore } from "@/stores/library";
 import AlbumCard from "@/components/AlbumCard.vue";
 import VirtualGrid from "@/components/VirtualGrid.vue";
+import { useUiStore } from "@/stores/ui";
 
 const library = useLibraryStore();
 type Sort = "artist" | "title" | "recent" | "year";
@@ -28,6 +29,7 @@ const albums = computed(() => {
       return list;
   }
 });
+const ui = useUiStore();
 </script>
 
 <template>
@@ -39,7 +41,7 @@ const albums = computed(() => {
       </div>
     </div>
     <p v-if="!albums.length" class="muted">Aucun album : les morceaux sans album figurent dans « Morceaux ».</p>
-    <VirtualGrid :items="albums" :min-width="170" :gap="24" :extra="46">
+    <VirtualGrid :items="albums" :min-width="ui.isMobile ? 130 : 170" :gap="ui.isMobile ? 14 : 24" :extra="46">
       <template #default="{ item }">
         <AlbumCard :album="item" />
       </template>
@@ -73,5 +75,17 @@ const albums = computed(() => {
 .sorts button.on {
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
+}
+@media (max-width: 760px) {
+  .top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .sorts button {
+    flex: 1;
+    white-space: nowrap;
+    font-size: 12px;
+  }
 }
 </style>

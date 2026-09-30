@@ -22,6 +22,8 @@ watch(
   },
   { immediate: true },
 );
+// Téléphone : on affiche soit la pochette, soit les paroles en plein écran.
+const showLyrics = ref(false);
 const hue = computed(() => hueFor(track.value?.album || track.value?.title || ""));
 
 const duration = computed(() => track.value?.duration_secs ?? 0);
@@ -58,7 +60,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       <Icon name="collapse" :size="18" />
     </button>
 
-    <div v-if="track" class="layout">
+    <div v-if="track" class="layout" :class="{ 'm-lyrics': ui.isMobile && showLyrics }">
       <div class="left">
         <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
         <div class="meta">
@@ -83,6 +85,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <button type="button" class="icon-btn c-big" aria-label="Suivant" @click="player.next()"><Icon name="next" :size="28" /></button>
           <button type="button" class="icon-btn" :class="{ on: player.repeat !== 'off' }" aria-label="Répéter" @click="player.cycleRepeat()">
             <Icon name="repeat" :size="20" />
+          </button>
+        </div>
+        <div v-if="ui.isMobile" class="m-extra">
+          <button type="button" class="icon-btn" :class="{ on: showLyrics }" aria-label="Paroles" @click="showLyrics = !showLyrics">
+            <Icon name="lyrics" :size="22" />
           </button>
         </div>
       </div>
@@ -316,5 +323,46 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   place-items: center;
   height: 100%;
   color: var(--text-2);
+}
+.m-extra {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+@media (max-width: 760px) {
+  .layout {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+    padding: calc(env(safe-area-inset-top) + 56px) 24px calc(env(safe-area-inset-bottom) + 24px);
+  }
+  .left {
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+  }
+  .hero-art {
+    width: min(100%, 46vh);
+    margin: 0 auto;
+  }
+  .right {
+    display: none;
+  }
+  .m-lyrics .right {
+    display: block;
+    flex: 1;
+    min-height: 0;
+  }
+  .m-lyrics .hero-art,
+  .m-lyrics .meta {
+    display: none;
+  }
+  .m-lyrics .left {
+    order: 2;
+  }
+  .collapse {
+    top: calc(env(safe-area-inset-top) + 12px);
+  }
 }
 </style>

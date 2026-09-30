@@ -8,6 +8,7 @@ export type Route =
   | { name: "album"; key: string }
   | { name: "playlist"; id: string }
   | { name: "search"; query: string }
+  | { name: "playlists" }
   | { name: "settings" };
 
 export type SidePanel = "lyrics" | "queue" | null;
@@ -33,6 +34,8 @@ export const useUiStore = defineStore("ui", {
     toast: null as string | null,
     menu: null as TrackMenu | null,
     playlistDialog: null as PlaylistDialog | null,
+    /** Écran de téléphone : navigation par onglets en bas, lecteur compact. */
+    isMobile: false,
   }),
   getters: {
     canGoBack: (state) => state.history.length > 0,
