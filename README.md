@@ -52,6 +52,16 @@ Sur le téléphone :
   publier une version sans eux) ;
 - icône adaptative : l'image entière dans la zone visible, fond assorti.
 
+## Mises à jour
+
+- **Ordinateur** : à partir de la 0.4.3, l'application vérifie au démarrage si une nouvelle
+  version est publiée sur GitHub et propose « Mettre à jour » (bandeau, ou Réglages →
+  Mises à jour). L'installateur, dont la signature est vérifiée avec la clé publique de
+  `tauri.conf.json`, s'installe puis l'application redémarre, sans perdre la bibliothèque ni
+  les réglages. Les versions sont signées par la CI (secrets `TAURI_SIGNING_PRIVATE_KEY` et
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) ; sans eux, la CI refuse de publier.
+- **Android** : installer le nouvel APK par-dessus l'ancien (même signature, voir plus haut).
+
 ## Lancer l'application depuis les sources
 
 Aucune commande à taper : après `npm run tauri build`, double-cliquez sur l'installateur
@@ -131,6 +141,7 @@ src-tauri/            Backend Rust
   src/queue.rs         File d'attente : ordre, shuffle, répétition (logique pure, testée)
   src/library.rs       Scan parallèle, métadonnées (lofty), cache, pochettes
   src/lyrics.rs        Paroles : .lrc, étiquettes, LRCLIB (+ cache)
+  src/updater.rs       Mise à jour automatique (ordinateur)
   src/playlists.rs     Playlists persistées en JSON
   src/session.rs       Sauvegarde/restauration de session
   src/eq.rs            Égaliseur 3 bandes (filtres biquad + Source rodio maison)

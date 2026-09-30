@@ -12,6 +12,7 @@ import { useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
+import { useUpdaterStore } from "@/stores/updater";
 import Icon from "@/components/Icon.vue";
 import MobileBar from "@/components/MobileBar.vue";
 import MobileTop from "@/components/MobileTop.vue";
@@ -38,6 +39,7 @@ const eq = useEqStore();
 const ui = useUiStore();
 const lyrics = useLyricsStore();
 const ambience = useAmbienceStore();
+const updater = useUpdaterStore();
 
 const ready = ref(false);
 const demoMode = "__MP_DEMO__" in window;
@@ -139,6 +141,8 @@ onMounted(async () => {
   window.history.replaceState({ mp: "root" }, "");
   window.addEventListener("popstate", onPopState);
   installAndroidMedia(player);
+  // Nouvelle version publiée ? (ordinateur ; vérifiée une fois l'interface affichée)
+  if (!demoMode && !onAndroid) setTimeout(() => void updater.check(), 4000);
   saveInterval = setInterval(() => void api.saveSession(), 15_000);
   window.addEventListener("keydown", onKey);
 });
@@ -162,6 +166,21 @@ onBeforeUnmount(() => {
       <div v-if="demoMode" class="banner demo">
         Mode démonstration (navigateur) : pistes fictives, pas de son. L'application de bureau lit vos vrais fichiers.
       </div>
+      <Transition name="fade">
+        <div v-if="updater.available && !updater.dismissed" class="banner update" role="status">
+          <span v-if="updater.installing">
+            Téléchargement de la version {{ updater.available.version }}…
+            <template v-if="updater.progress !== null">{{ Math.round(updater.progress * 100) }} %</template>
+            — l'application redémarrera toute seule.
+          </span>
+          <span v-else-if="updater.message">{{ updater.message }}</span>
+          <span v-else>Music Player {{ updater.available.version }} est disponible (version installée : {{ updater.available.current }}).</span>
+          <span v-if="!updater.installing" class="banner-actions">
+            <button type="button" class="pill pill-accent" @click="updater.install()">Mettre à jour</button>
+            <button type="button" class="icon-btn" aria-label="Plus tard" @click="updater.dismissed = true"><Icon name="close" :size="14" /></button>
+          </span>
+        </div>
+      </Transition>
       <Transition name="fade">
         <div v-if="player.error" class="banner error" role="alert">
           <span>{{ player.error }}</span>
@@ -297,6 +316,20 @@ onBeforeUnmount(() => {
 .demo {
   background: rgba(31, 107, 255, 0.22);
   color: #cfe6ff;
+}
+.update {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #e6f1ff;
+}
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.update .pill {
+  padding: 5px 14px;
+  font-size: 12px;
 }
 .error {
   background: #3a0f24;

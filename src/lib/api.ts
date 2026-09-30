@@ -11,6 +11,7 @@ import type {
   RepeatMode,
   ScanProgress,
   Track,
+  UpdateInfo,
 } from "./types";
 
 export const api = {
@@ -53,6 +54,9 @@ export const api = {
 
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),
+
+  checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
+  installUpdate: () => invoke<void>("install_update"),
 };
 
 /** Abonnements aux événements du scan (sans effet dans le mode démo du navigateur). */

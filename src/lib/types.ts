@@ -88,3 +88,10 @@ export interface Artist {
   albums: Album[];
   tracks: Track[];
 }
+
+/** Nouvelle version proposée par la mise à jour automatique (ordinateur). */
+export interface UpdateInfo {
+  version: string;
+  current: string;
+  notes: string | null;
+}

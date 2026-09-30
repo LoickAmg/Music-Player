@@ -100,15 +100,30 @@ jobs:
 
       - run: npm ci
 
+      # Mise à jour automatique : les installateurs sont signés et un « latest.json » est
+      # joint à la version. Sans la clé, les applis installées refuseraient la mise à jour.
+      - name: Clé de mise à jour présente
+        shell: bash
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$UPDATER_KEY" ]; then
+            echo "::error::Secret TAURI_SIGNING_PRIVATE_KEY manquant : installateurs non signés pour la mise à jour automatique."
+            exit 1
+          fi
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Music Player ${{ github.ref_name }}"
           releaseBody: |
             Installeurs générés automatiquement par la CI pour Windows, macOS et Linux.
             Choisis le fichier correspondant à ton système ci-dessous.
+            Les applications déjà installées (à partir de la 0.4.3) proposent la mise à jour d'elles-mêmes.
           releaseDraft: false
           prerelease: false
 

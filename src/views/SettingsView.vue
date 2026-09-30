@@ -1,16 +1,29 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, ref } from "vue";
+import { getVersion } from "@tauri-apps/api/app";
 import { formatCollection } from "@/lib/format";
 import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
+import { useUpdaterStore } from "@/stores/updater";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
 const library = useLibraryStore();
 const eq = useEqStore();
 const lyrics = useLyricsStore();
+const updater = useUpdaterStore();
 const showLegal = ref(false);
+// Sur téléphone, la mise à jour se fait en installant le nouvel APK par-dessus.
+const onAndroid = /Android/i.test(navigator.userAgent);
+const version = ref<string | null>(null);
+onMounted(async () => {
+  try {
+    version.value = await getVersion();
+  } catch {
+    // mode démo du navigateur
+  }
+});
 
 const shortcuts = [
   ["Espace", "Lecture / pause"],
@@ -37,6 +50,23 @@ const shortcuts = [
         </button>
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
+    </section>
+
+    <section v-if="!onAndroid" class="card">
+      <h2><Icon name="refresh" :size="17" /> Mises à jour</h2>
+      <p class="muted">
+        Version installée : {{ version ?? "—" }}. Au démarrage, l'application vérifie si une nouvelle version est publiée
+        et propose de l'installer en un clic (elle redémarre ensuite toute seule, sans rien perdre).
+      </p>
+      <div class="actions">
+        <button type="button" class="pill pill-ghost" :disabled="updater.checking || updater.installing" @click="updater.check(true)">
+          {{ updater.checking ? "Vérification…" : "Rechercher une mise à jour" }}
+        </button>
+        <button v-if="updater.available" type="button" class="pill pill-accent" :disabled="updater.installing" @click="updater.install()">
+          {{ updater.installing ? "Installation…" : `Installer la version ${updater.available.version}` }}
+        </button>
+      </div>
+      <p v-if="updater.message" class="muted small">{{ updater.message }}</p>
     </section>
 
     <section class="card">

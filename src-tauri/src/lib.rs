@@ -8,15 +8,19 @@ pub mod playlists;
 pub mod queue;
 pub mod session;
 pub mod state;
+pub mod updater;
 
 use state::AppState;
 use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init());
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    builder
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -100,6 +104,8 @@ pub fn run() {
             commands::get_eq_gains,
             commands::get_initial_state,
             commands::save_session,
+            updater::check_update,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
