@@ -283,44 +283,115 @@ impl Engine {
     }
 }
 
+/// Texte lisible d'une panique interceptée.
+fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "erreur interne".to_string())
+}
+
+/// Ouvre la sortie audio. D'abord la configuration par défaut du système ; en secours
+/// (utile sur Android, où l'interrogation du système peut échouer), une configuration
+/// fixe 48 kHz stéréo, sans rien demander au système. Toute panique est interceptée
+/// pour que la cause remonte jusqu'à l'interface.
+fn open_output() -> Result<rodio::MixerDeviceSink, String> {
+    use rodio::cpal::traits::HostTrait;
+    use std::num::NonZero;
+
+    let mut errors = Vec::new();
+    match panic::catch_unwind(DeviceSinkBuilder::open_default_sink) {
+        Ok(Ok(device)) => return Ok(device),
+        Ok(Err(e)) => errors.push(e.to_string()),
+        Err(p) => errors.push(panic_text(p)),
+    }
+    for format in [rodio::cpal::SampleFormat::F32, rodio::cpal::SampleFormat::I16] {
+        let attempt = panic::catch_unwind(move || -> Result<rodio::MixerDeviceSink, String> {
+            let device = rodio::cpal::default_host()
+                .default_output_device()
+                .ok_or_else(|| "aucun périphérique de sortie".to_string())?;
+            DeviceSinkBuilder::default()
+                .with_device(device)
+                .with_channels(NonZero::new(2).unwrap())
+                .with_sample_rate(NonZero::new(48_000).unwrap())
+                .with_sample_format(format)
+                .with_buffer_size(rodio::cpal::BufferSize::Fixed(2048))
+                .open_stream()
+                .map_err(|e| e.to_string())
+        });
+        match attempt {
+            Ok(Ok(device)) => return Ok(device),
+            Ok(Err(e)) => errors.push(e),
+            Err(p) => errors.push(panic_text(p)),
+        }
+    }
+    Err(errors.join(" ; "))
+}
+
+fn new_engine(eq_gains: &EqGains) -> Result<Engine, String> {
+    let mut device = open_output()?;
+    device.log_on_drop(false);
+    let mixer = device.mixer().clone();
+    Ok(Engine {
+        _device: device,
+        mixer,
+        player: None,
+        eq_gains: eq_gains.clone(),
+    })
+}
+
 fn audio_thread_main(
     rx: Receiver<AudioCommand>,
     status: Arc<Mutex<AudioStatus>>,
     eq_gains: EqGains,
 ) {
-    let mut device = match DeviceSinkBuilder::open_default_sink() {
-        Ok(d) => d,
+    // La sortie audio est ouverte au démarrage, et de nouveau à chaque lecture tant
+    // qu'elle n'a pas pu l'être : le thread ne meurt jamais, et chaque échec est expliqué.
+    let mut engine = match new_engine(&eq_gains) {
+        Ok(engine) => Some(engine),
         Err(e) => {
-            status.lock().unwrap().device_error =
-                Some(format!("Aucune sortie audio disponible : {e}"));
-            while rx.recv().is_ok() {}
-            return;
+            status.lock().unwrap().device_error = Some(format!("Aucune sortie audio disponible : {e}"));
+            None
         }
-    };
-    device.log_on_drop(false);
-    let mixer = device.mixer().clone();
-    let mut engine = Engine {
-        _device: device,
-        mixer,
-        player: None,
-        eq_gains,
     };
 
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(cmd) => {
-                let outcome = panic::catch_unwind(AssertUnwindSafe(|| engine.handle(cmd, &status)));
-                if outcome.is_err() {
-                    engine.player = None;
+                if engine.is_none() {
+                    if let AudioCommand::Play(_, _, reply) = &cmd {
+                        match new_engine(&eq_gains) {
+                            Ok(e) => {
+                                engine = Some(e);
+                                status.lock().unwrap().device_error = None;
+                            }
+                            Err(e) => {
+                                let message = format!("Aucune sortie audio disponible : {e}");
+                                status.lock().unwrap().device_error = Some(message.clone());
+                                if let Some(reply) = reply {
+                                    let _ = reply.send(Err(message));
+                                }
+                                continue;
+                            }
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+                let Some(active) = engine.as_mut() else { continue };
+                let outcome = panic::catch_unwind(AssertUnwindSafe(|| active.handle(cmd, &status)));
+                if let Err(p) = outcome {
+                    active.player = None;
                     status.lock().unwrap().device_error =
-                        Some("Le moteur audio a rencontré une erreur sur ce fichier.".to_string());
+                        Some(format!("Le moteur audio a rencontré une erreur sur ce fichier : {}", panic_text(p)));
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
 
-        if let Some(p) = &engine.player {
+        if let Some(p) = engine.as_ref().and_then(|e| e.player.as_ref()) {
             let mut st = status.lock().unwrap();
             st.position_secs = p.get_pos().as_secs_f64();
             if p.empty() && st.current_path.is_some() {

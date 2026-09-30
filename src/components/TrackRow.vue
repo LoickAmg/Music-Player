@@ -245,8 +245,8 @@ function openMenu(event: MouseEvent) {
   .track-row.album {
     grid-template-columns: 28px minmax(0, 1fr) 40px;
   }
-  .artist,
-  .album,
+  .link.artist,
+  .link.album,
   .dur,
   .play-hover {
     display: none !important;

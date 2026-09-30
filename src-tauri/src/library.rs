@@ -187,16 +187,39 @@ fn is_skipped_dir(entry: &walkdir::DirEntry) -> bool {
     name.starts_with('.') || (entry.depth() == 1 && name == "Android")
 }
 
+/// Dossiers à parcourir. Sur un téléphone, le stockage interne est complété par les
+/// cartes SD, montées à part dans `/storage/XXXX-XXXX`.
+fn scan_roots(root: &Path) -> Vec<PathBuf> {
+    #[allow(unused_mut)]
+    let mut roots = vec![root.to_path_buf()];
+    #[cfg(target_os = "android")]
+    if root == Path::new("/storage/emulated/0") {
+        if let Ok(entries) = std::fs::read_dir("/storage") {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name != "emulated" && name != "self" && entry.path().is_dir() {
+                    roots.push(entry.path());
+                }
+            }
+        }
+    }
+    roots
+}
+
 pub fn scan_library_with_progress(
     root: &Path,
     on_progress: impl Fn(usize, usize) + Sync,
 ) -> Vec<Track> {
     let mut audio_files = Vec::new();
     let mut images_by_dir: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for entry in WalkDir::new(root)
-        .follow_links(true)
+    for entry in scan_roots(root)
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !is_skipped_dir(e))
+        .flat_map(|r| {
+            WalkDir::new(r)
+                .follow_links(true)
+                .into_iter()
+                .filter_entry(|e| e.depth() == 0 || !is_skipped_dir(e))
+        })
         .filter_map(|e| e.ok())
     {
         if !entry.file_type().is_file() {

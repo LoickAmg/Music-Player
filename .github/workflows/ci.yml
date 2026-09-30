@@ -156,6 +156,8 @@ jobs:
       - name: "Projet Android (généré puis complété : permissions musique)"
         run: |
           npx tauri android init --ci
+          # Même logo que sur PC (icônes de lancement Android générées dans gen/android)
+          npx tauri icon src-tauri/icons/app-icon-source.png
           node scripts/android-patch.mjs
 
       - name: Compilation de l'APK
