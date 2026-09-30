@@ -36,7 +36,7 @@ function seekClick(e: MouseEvent) {
 }
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape") ui.nowPlayingOpen = false;
+  if (e.key === "Escape") ui.closeNowPlaying();
 }
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
@@ -56,7 +56,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       <div class="grain" />
     </div>
 
-    <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.nowPlayingOpen = false">
+    <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.closeNowPlaying()">
       <Icon name="collapse" :size="18" />
     </button>
 
@@ -363,6 +363,25 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   }
   .collapse {
     top: calc(env(safe-area-inset-top) + 12px);
+  }
+  /* Fond allégé pour les téléphones modestes : un flou calculé une fois (plus d'image
+     floutée qui tourne), des nappes de lumière sans flou ni fusion, sur leur propre
+     calque. Sinon tout l'écran (et donc les paroles) rame. */
+  .backdrop {
+    contain: strict;
+    will-change: transform;
+  }
+  .blob {
+    animation: none;
+    filter: blur(48px) saturate(1.5) brightness(0.72);
+  }
+  .aura {
+    filter: none;
+    mix-blend-mode: normal;
+    will-change: transform;
+  }
+  .grain {
+    display: none;
   }
 }
 </style>

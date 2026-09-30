@@ -35,7 +35,7 @@ function active(route: Route) {
 
 <template>
   <div class="mobile-bar">
-    <div v-if="track" class="mini" role="button" tabindex="0" aria-label="Afficher « À l'écoute »" @click="ui.nowPlayingOpen = true">
+    <div v-if="track" class="mini" role="button" tabindex="0" aria-label="Afficher « À l'écoute »" @click="ui.openNowPlaying()">
       <Artwork :track="track" :radius="6" eager class="mini-art" />
       <div class="mini-text">
         <span class="t">{{ track.title }}</span>

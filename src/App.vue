@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { listen } from "@tauri-apps/api/event";
 import { api, onScanEvents } from "@/lib/api";
+import { installAndroidMedia } from "@/lib/androidMedia";
+import type { Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
 import { useAmbienceStore } from "@/stores/ambience";
 import { useEqStore } from "@/stores/eq";
@@ -61,11 +64,13 @@ watch(
   { immediate: true },
 );
 
-// Les paroles ne sont chargées que lorsqu'elles sont visibles.
+// Paroles cherchées dès le début du morceau (prêtes quand on les affiche), et celles du
+// morceau suivant préparées en avance.
 watch(
-  () => [player.currentTrack?.id, ui.panel, ui.nowPlayingOpen] as const,
-  ([id, panel, full]) => {
-    if (panel === "lyrics" || full) void lyrics.load(id ?? null);
+  () => player.currentTrack?.id,
+  (id) => {
+    void lyrics.load(id ?? null);
+    lyrics.prefetch(player.upNextIds[0]);
   },
 );
 
@@ -102,6 +107,8 @@ function onKey(e: KeyboardEvent) {
 }
 
 let unlisten: (() => void) | null = null;
+const offPlayback: (() => void)[] = [];
+const onPopState = () => ui.onPopState();
 let saveInterval: ReturnType<typeof setInterval> | null = null;
 
 onMounted(async () => {
@@ -121,6 +128,17 @@ onMounted(async () => {
   });
   ready.value = true;
   player.startPolling();
+  // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.
+  try {
+    offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));
+    offPlayback.push(await listen<string>("playback-error", (e) => (player.error = e.payload)));
+  } catch {
+    // mode démo du navigateur
+  }
+  // Bouton retour d'Android : l'historique de la vue web suit les pages de l'interface.
+  window.history.replaceState({ mp: "root" }, "");
+  window.addEventListener("popstate", onPopState);
+  installAndroidMedia(player);
   saveInterval = setInterval(() => void api.saveSession(), 15_000);
   window.addEventListener("keydown", onKey);
 });
@@ -128,6 +146,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   player.stopPolling();
   unlisten?.();
+  offPlayback.forEach((off) => off());
+  window.removeEventListener("popstate", onPopState);
   if (saveInterval) clearInterval(saveInterval);
   window.removeEventListener("keydown", onKey);
 });

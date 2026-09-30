@@ -165,7 +165,7 @@ jobs:
           set -o pipefail
           if ! npx tauri android build --apk --target aarch64 armv7 2>&1 | tee build.log; then
             # Les erreurs deviennent des annotations, lisibles sans accès aux journaux.
-            grep -iE "error|failed|could not|cannot find|undefined" build.log | grep -v "^warning" | tail -40 | while IFS= read -r line; do
+            grep -iE "error|failed|could not|cannot find|undefined|^e: " build.log | grep -v "^warning" | tail -40 | while IFS= read -r line; do
               echo "::error::${line:0:900}"
             done
             exit 1
@@ -183,6 +183,11 @@ jobs:
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > release.jks
             PASS="$KEYSTORE_PASSWORD"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            # Une version publiée doit toujours porter la même signature, sinon Android
+            # refuse la mise à jour (il faudrait désinstaller).
+            echo "::error::Secrets ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD manquants : APK de version non signé."
+            exit 1
           else
             PASS="music-player"
             keytool -genkeypair -keystore release.jks -storepass "$PASS" -keypass "$PASS"               -alias music-player -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Mahouna, O=Music Player, C=FR"

@@ -2,14 +2,15 @@ import { defineStore } from "pinia";
 import { api } from "@/lib/api";
 import type { LyricLine, Lyrics } from "@/lib/types";
 
-const ONLINE_KEY = "mp:lyrics-online";
+// Recherche en ligne activée d'office (l'utilisateur n'a rien à faire) ; désactivable
+// dans les Réglages. Nouvelle clé : l'ancien choix « Non merci » ne s'applique plus.
+const ONLINE_KEY = "mp:lyrics-online-auto";
 
-function readOnlinePref(): boolean | null {
+function readOnlinePref(): boolean {
   try {
-    const v = localStorage.getItem(ONLINE_KEY);
-    return v === null ? null : v === "1";
+    return localStorage.getItem(ONLINE_KEY) !== "0";
   } catch {
-    return null;
+    return true;
   }
 }
 
@@ -36,7 +37,6 @@ export const useLyricsStore = defineStore("lyrics", {
     lyrics: null as Lyrics | null,
     loading: false,
     error: null as string | null,
-    /** null = l'utilisateur n'a pas encore choisi (on lui pose la question une fois). */
     allowOnline: readOnlinePref(),
   }),
   actions: {
@@ -57,13 +57,17 @@ export const useLyricsStore = defineStore("lyrics", {
       if (!trackId) return;
       this.loading = true;
       try {
-        const lyrics = await api.getLyrics(trackId, this.allowOnline === true);
+        const lyrics = await api.getLyrics(trackId, this.allowOnline);
         if (this.trackId === trackId) this.lyrics = lyrics;
       } catch (e) {
         if (this.trackId === trackId) this.error = String(e);
       } finally {
         if (this.trackId === trackId) this.loading = false;
       }
+    },
+    /** Prépare en arrière-plan les paroles d'un morceau à venir (mises en cache côté Rust). */
+    prefetch(trackId: string | null | undefined) {
+      if (trackId && this.allowOnline) void api.getLyrics(trackId, true).catch(() => {});
     },
   },
 });

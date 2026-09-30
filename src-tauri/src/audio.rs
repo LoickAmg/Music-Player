@@ -306,7 +306,10 @@ fn open_output() -> Result<rodio::MixerDeviceSink, String> {
         Ok(Err(e)) => errors.push(e.to_string()),
         Err(p) => errors.push(panic_text(p)),
     }
-    for format in [rodio::cpal::SampleFormat::F32, rodio::cpal::SampleFormat::I16] {
+    for format in [
+        rodio::cpal::SampleFormat::F32,
+        rodio::cpal::SampleFormat::I16,
+    ] {
         let attempt = panic::catch_unwind(move || -> Result<rodio::MixerDeviceSink, String> {
             let device = rodio::cpal::default_host()
                 .default_output_device()
@@ -351,7 +354,8 @@ fn audio_thread_main(
     let mut engine = match new_engine(&eq_gains) {
         Ok(engine) => Some(engine),
         Err(e) => {
-            status.lock().unwrap().device_error = Some(format!("Aucune sortie audio disponible : {e}"));
+            status.lock().unwrap().device_error =
+                Some(format!("Aucune sortie audio disponible : {e}"));
             None
         }
     };
@@ -379,12 +383,16 @@ fn audio_thread_main(
                         continue;
                     }
                 }
-                let Some(active) = engine.as_mut() else { continue };
+                let Some(active) = engine.as_mut() else {
+                    continue;
+                };
                 let outcome = panic::catch_unwind(AssertUnwindSafe(|| active.handle(cmd, &status)));
                 if let Err(p) = outcome {
                     active.player = None;
-                    status.lock().unwrap().device_error =
-                        Some(format!("Le moteur audio a rencontré une erreur sur ce fichier : {}", panic_text(p)));
+                    status.lock().unwrap().device_error = Some(format!(
+                        "Le moteur audio a rencontré une erreur sur ce fichier : {}",
+                        panic_text(p)
+                    ));
                 }
             }
             Err(RecvTimeoutError::Timeout) => {}

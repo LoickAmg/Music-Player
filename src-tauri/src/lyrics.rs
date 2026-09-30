@@ -1,5 +1,5 @@
 //! Paroles : fichier `.lrc` posé à côté du morceau, paroles intégrées aux étiquettes, puis
-//! (si l'utilisateur l'autorise) recherche en ligne sur LRCLIB, service libre et sans clé.
+//! recherche automatique en ligne sur LRCLIB, service libre et sans clé (désactivable).
 //! Les réponses en ligne sont gardées en cache pour ne jamais redemander deux fois.
 
 use serde::{Deserialize, Serialize};
@@ -106,10 +106,11 @@ fn from_text(text: &str, source: &str) -> Lyrics {
 
 /// Paroles disponibles sans réseau : `Titre.lrc` à côté du fichier, puis étiquettes.
 pub fn local_lyrics(track_path: &Path) -> Option<Lyrics> {
-    let lrc = track_path.with_extension("lrc");
-    if let Ok(text) = std::fs::read_to_string(&lrc) {
-        if !text.trim().is_empty() {
-            return Some(from_text(&text, "fichier .lrc"));
+    for ext in ["lrc", "LRC"] {
+        if let Ok(text) = std::fs::read_to_string(track_path.with_extension(ext)) {
+            if !text.trim().is_empty() {
+                return Some(from_text(&text, "fichier .lrc"));
+            }
         }
     }
     library::embedded_lyrics(track_path).map(|text| from_text(&text, "étiquettes du fichier"))
@@ -202,6 +203,8 @@ pub fn search_terms(track: &Track) -> (Option<String>, String) {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LrclibRecord {
+    track_name: Option<String>,
+    artist_name: Option<String>,
     duration: Option<f64>,
     instrumental: Option<bool>,
     plain_lyrics: Option<String>,
@@ -209,6 +212,17 @@ struct LrclibRecord {
 }
 
 impl LrclibRecord {
+    fn has_content(&self) -> bool {
+        self.synced_lyrics
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
+            || self
+                .plain_lyrics
+                .as_deref()
+                .is_some_and(|s| !s.trim().is_empty())
+            || self.instrumental == Some(true)
+    }
+
     fn into_lyrics(self) -> Lyrics {
         if let Some(synced) = self.synced_lyrics.as_deref().and_then(parse_lrc) {
             return Lyrics {
@@ -228,76 +242,250 @@ impl LrclibRecord {
 }
 
 const LRCLIB: &str = "https://lrclib.net/api";
-const USER_AGENT: &str = "MusicPlayer/0.2 (application de bureau ; https://github.com/LoickAmg)";
+const USER_AGENT: &str = "MusicPlayer/0.4 (https://github.com/LoickAmg/Music-Player)";
 
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(8)))
+        .timeout_global(Some(Duration::from_secs(7)))
         .http_status_as_error(false)
         .build()
         .into()
 }
 
-/// Cherche sur LRCLIB : correspondance exacte (artiste, titre, album, durée), sinon
-/// recherche libre en retenant le résultat de durée la plus proche.
+/// Forme comparable d'un texte : minuscules, sans accents usuels ni ponctuation.
+fn normalize(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'â' | 'ä' | 'á' | 'ã' | 'å' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'î' | 'ï' | 'í' | 'ì' => 'i',
+            'ô' | 'ö' | 'ó' | 'ò' | 'õ' => 'o',
+            'ù' | 'û' | 'ü' | 'ú' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            '&' => ' ',
+            c if c.is_alphanumeric() => c,
+            _ => ' ',
+        })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Retire tout groupe entre parenthèses ou crochets.
+fn strip_groups(text: &str) -> String {
+    let mut out = String::new();
+    let mut depth = 0usize;
+    for ch in text.chars() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(ch),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Titre « nu » : sans invités (« feat. X »), ni mention de version (« - Remastered 2011 »,
+/// « (Radio Edit) »), pour les bases qui ne connaissent que le titre original.
+fn bare_title(title: &str) -> String {
+    let mut t = strip_groups(title);
+    for marker in [" feat. ", " feat ", " ft. ", " ft ", " featuring "] {
+        let lower = t.to_lowercase();
+        if lower.len() == t.len() {
+            if let Some(i) = lower.find(marker) {
+                t.truncate(i);
+            }
+        }
+    }
+    if let Some((head, tail)) = t.split_once(" - ") {
+        let tail = tail.to_lowercase();
+        const VERSION: &[&str] = &[
+            "remaster", "version", "edit", "live", "mono", "stereo", "mix", "demo", "acoustic",
+            "bonus", "single",
+        ];
+        if VERSION.iter().any(|w| tail.contains(w)) {
+            t = head.to_string();
+        }
+    }
+    t.trim().to_string()
+}
+
+/// Premier artiste d'une liste (« A, B & C », « A feat. B », « A x B »).
+fn main_artist(artist: &str) -> String {
+    let mut a = artist.to_string();
+    for sep in [
+        ", ", " & ", " feat. ", " feat ", " ft. ", " x ", " X ", " / ", "; ", " et ", " and ",
+    ] {
+        if let Some((head, _)) = a.split_once(sep) {
+            a = head.to_string();
+        }
+    }
+    a.trim().to_string()
+}
+
+/// Note d'un résultat de recherche (plus haut = meilleur), ou `None` s'il ne correspond pas
+/// au morceau : le titre doit concorder, et l'artiste ou, à défaut, la durée.
+fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64) -> Option<f64> {
+    if !record.has_content() {
+        return None;
+    }
+    let want = normalize(&bare_title(title));
+    let got = normalize(&bare_title(record.track_name.as_deref().unwrap_or("")));
+    if want.is_empty() || got.is_empty() {
+        return None;
+    }
+    let title_exact = want == got;
+    if !title_exact && !got.contains(&want) && !want.contains(&got) {
+        return None;
+    }
+    let artist_ok = artist.is_some_and(|a| {
+        let want = normalize(&main_artist(a));
+        let got = normalize(record.artist_name.as_deref().unwrap_or(""));
+        !want.is_empty() && (got.contains(&want) || want.contains(&got) && !got.is_empty())
+    });
+    let gap = match (record.duration, duration > 0.0) {
+        (Some(d), true) => Some((d - duration).abs()),
+        _ => None,
+    };
+    if gap.is_some_and(|g| g > 12.0) {
+        return None;
+    }
+    // Sans artiste reconnu, seule une durée quasi identique rend le résultat fiable.
+    if !artist_ok && gap.is_none_or(|g| g > 3.0) {
+        return None;
+    }
+    let mut s = 0.0;
+    if title_exact {
+        s += 30.0;
+    }
+    if artist_ok {
+        s += 40.0;
+    }
+    if record.synced_lyrics.is_some() {
+        s += 15.0;
+    }
+    s += 12.0 - gap.unwrap_or(6.0);
+    Some(s)
+}
+
+/// Cherche sur LRCLIB, du plus précis au plus large : correspondance exacte (artiste, titre,
+/// album, durée), recherche par champs, variantes du titre (sans invités ni mention de
+/// version) et de l'artiste (le principal), puis recherche libre. Le meilleur résultat est
+/// retenu selon le titre, l'artiste, la durée et la présence d'horodatages.
 pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
     let (artist, title) = search_terms(track);
     if title.is_empty() {
         return Ok(None);
     }
     let agent = agent();
+    let duration = track.duration_secs;
+    let mut reached = false;
+    let mut last_error = None;
+
     if let Some(artist) = &artist {
         let mut request = agent
             .get(format!("{LRCLIB}/get"))
             .header("User-Agent", USER_AGENT)
             .query("artist_name", artist)
-            .query("track_name", &title)
-            .query("duration", (track.duration_secs.round() as u64).to_string());
+            .query("track_name", &title);
+        if duration > 0.0 {
+            request = request.query("duration", (duration.round() as u64).to_string());
+        }
         if track.album != library::UNKNOWN_ALBUM {
             request = request.query("album_name", &track.album);
         }
-        let mut response = request.call().map_err(|e| e.to_string())?;
-        if response.status() == 200 {
-            let record: LrclibRecord =
-                response.body_mut().read_json().map_err(|e| e.to_string())?;
+        match request.call() {
+            Ok(mut response) => {
+                reached = true;
+                if response.status() == 200 {
+                    if let Ok(record) = response.body_mut().read_json::<LrclibRecord>() {
+                        if record.has_content() {
+                            return Ok(Some(record.into_lyrics()));
+                        }
+                    }
+                }
+            }
+            Err(e) => last_error = Some(e.to_string()),
+        }
+    }
+
+    let bare = bare_title(&title);
+    let lead = artist.as_deref().map(main_artist);
+    let mut searches: Vec<Vec<(&str, String)>> = Vec::new();
+    if let Some(a) = &artist {
+        searches.push(vec![
+            ("track_name", title.clone()),
+            ("artist_name", a.clone()),
+        ]);
+    }
+    if let Some(a) = &lead {
+        if Some(a) != artist.as_ref() || bare != title {
+            searches.push(vec![
+                ("track_name", bare.clone()),
+                ("artist_name", a.clone()),
+            ]);
+        }
+        searches.push(vec![("q", format!("{a} {bare}"))]);
+    }
+    searches.push(vec![("track_name", bare.clone())]);
+    if bare != title {
+        searches.push(vec![("q", title.clone())]);
+    }
+
+    let mut seen = std::collections::HashSet::new();
+    for params in searches {
+        if !seen.insert(params.clone()) {
+            continue;
+        }
+        let mut request = agent
+            .get(format!("{LRCLIB}/search"))
+            .header("User-Agent", USER_AGENT);
+        for (key, value) in &params {
+            request = request.query(*key, value);
+        }
+        let mut response = match request.call() {
+            Ok(r) => r,
+            Err(e) => {
+                last_error = Some(e.to_string());
+                continue;
+            }
+        };
+        reached = true;
+        if response.status() != 200 {
+            continue;
+        }
+        let Ok(results) = response.body_mut().read_json::<Vec<LrclibRecord>>() else {
+            continue;
+        };
+        let best = results
+            .into_iter()
+            .filter_map(|r| score(&r, &title, artist.as_deref(), duration).map(|s| (s, r)))
+            .max_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some((_, record)) = best {
             return Ok(Some(record.into_lyrics()));
         }
     }
-    let query = match &artist {
-        Some(a) => format!("{a} {title}"),
-        None => title.clone(),
-    };
-    let mut response = agent
-        .get(format!("{LRCLIB}/search"))
-        .header("User-Agent", USER_AGENT)
-        .query("q", &query)
-        .call()
-        .map_err(|e| e.to_string())?;
-    if response.status() != 200 {
-        return Ok(None);
+    match (reached, last_error) {
+        // Réseau injoignable : on ne retient pas l'absence, on réessaiera.
+        (false, Some(e)) => Err(e),
+        _ => Ok(None),
     }
-    let results: Vec<LrclibRecord> = response.body_mut().read_json().map_err(|e| e.to_string())?;
-    let best = results
-        .into_iter()
-        .filter(|r| {
-            r.synced_lyrics.is_some() || r.plain_lyrics.is_some() || r.instrumental == Some(true)
-        })
-        .min_by(|a, b| {
-            let da = (a.duration.unwrap_or(0.0) - track.duration_secs).abs();
-            let db = (b.duration.unwrap_or(0.0) - track.duration_secs).abs();
-            da.total_cmp(&db)
-        })
-        .filter(|r| {
-            track.duration_secs <= 0.0
-                || (r.duration.unwrap_or(0.0) - track.duration_secs).abs() < 15.0
-        });
-    Ok(best.map(LrclibRecord::into_lyrics))
 }
+
+/// Version du cache : l'augmenter relance la recherche des morceaux restés sans paroles
+/// (quand la recherche s'améliore).
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct CachedLyrics {
     lyrics: Option<Lyrics>,
     fetched_secs: u64,
+    #[serde(default)]
+    version: u32,
 }
 
 fn now_secs() -> u64 {
@@ -311,13 +499,14 @@ fn cache_path(cache_dir: &Path, track_id: &str) -> PathBuf {
     cache_dir.join(format!("{track_id}.json"))
 }
 
-/// Résultat en ligne mis en cache. Une absence de paroles est retenue une semaine, pour
+/// Résultat en ligne mis en cache. Une absence de paroles est retenue trois jours, pour
 /// retenter plus tard sans interroger le service à chaque écoute.
 fn read_cache(cache_dir: &Path, track_id: &str) -> Option<Option<Lyrics>> {
     let cached: CachedLyrics =
         serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()?;
-    let fresh =
-        cached.lyrics.is_some() || now_secs().saturating_sub(cached.fetched_secs) < 7 * 24 * 3600;
+    let fresh = cached.lyrics.is_some()
+        || (cached.version == CACHE_VERSION
+            && now_secs().saturating_sub(cached.fetched_secs) < 3 * 24 * 3600);
     fresh.then_some(cached.lyrics)
 }
 
@@ -326,6 +515,7 @@ fn write_cache(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>) {
         if let Ok(json) = serde_json::to_vec(&CachedLyrics {
             lyrics: lyrics.clone(),
             fetched_secs: now_secs(),
+            version: CACHE_VERSION,
         }) {
             let _ = std::fs::write(cache_path(cache_dir, track_id), json);
         }
@@ -427,6 +617,65 @@ mod tests {
         ));
         assert_eq!(artist.as_deref(), Some("美波 (Minami)"));
         assert_eq!(title, "Crying for Rain");
+    }
+
+    #[test]
+    fn title_and_artist_variants() {
+        assert_eq!(bare_title("Song (feat. X) - Remastered 2011"), "Song");
+        assert_eq!(bare_title("Song feat. X"), "Song");
+        assert_eq!(bare_title("Part 1 - Part 2"), "Part 1 - Part 2");
+        assert_eq!(main_artist("Nekfeu, Damso & SCH"), "Nekfeu");
+        assert_eq!(main_artist("Aya Nakamura feat. Ninho"), "Aya Nakamura");
+        assert_eq!(normalize("Évidemment !"), "evidemment");
+    }
+
+    #[test]
+    fn scoring_needs_title_and_artist_or_duration() {
+        let record = |title: &str, artist: &str, duration: f64| LrclibRecord {
+            track_name: Some(title.into()),
+            artist_name: Some(artist.into()),
+            duration: Some(duration),
+            instrumental: None,
+            plain_lyrics: Some("la".into()),
+            synced_lyrics: None,
+        };
+        assert!(score(
+            &record("Timeless", "The Weeknd & Playboi Carti", 256.0),
+            "Timeless",
+            Some("The Weeknd"),
+            250.0
+        )
+        .is_some());
+        assert!(score(
+            &record("Other", "The Weeknd", 250.0),
+            "Timeless",
+            Some("The Weeknd"),
+            250.0
+        )
+        .is_none());
+        // Artiste inconnu : il faut une durée quasi identique.
+        assert!(score(&record("Timeless", "X", 251.0), "Timeless", None, 250.0).is_some());
+        assert!(score(&record("Timeless", "X", 262.0), "Timeless", None, 250.0).is_none());
+    }
+
+    /// Interroge vraiment LRCLIB : `cargo test -- --ignored online`.
+    #[test]
+    #[ignore]
+    fn online_lookup_finds_variants() {
+        for (title, artist) in [
+            ("Blinding Lights", "The Weeknd"),
+            (
+                "Timeless (feat. Playboi Carti) - Official Video",
+                "The Weeknd",
+            ),
+            ("The Weeknd - Save Your Tears (Lyrics)", UNKNOWN_ARTIST),
+            ("Djadja", "Aya Nakamura"),
+        ] {
+            let mut t = track(title, artist);
+            t.duration_secs = 0.0;
+            let found = fetch_online(&t).unwrap();
+            assert!(found.is_some(), "rien pour {title}");
+        }
     }
 
     #[test]

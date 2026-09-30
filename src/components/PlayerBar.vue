@@ -72,7 +72,7 @@ function toggleMute() {
 
     <div class="lcd" :class="{ empty: !track }">
       <template v-if="track">
-        <button type="button" class="lcd-art" title="Afficher « À l'écoute »" aria-label="Afficher « À l'écoute »" @click="ui.nowPlayingOpen = true">
+        <button type="button" class="lcd-art" title="Afficher « À l'écoute »" aria-label="Afficher « À l'écoute »" @click="ui.openNowPlaying()">
           <Artwork :track="track" :radius="4" eager />
           <span class="expand"><Icon name="expand" :size="16" /></span>
         </button>

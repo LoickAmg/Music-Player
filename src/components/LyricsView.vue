@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useNow } from "@/lib/clock";
 import { activeLineIndex, useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
@@ -11,48 +11,107 @@ const player = usePlayerStore();
 const now = useNow();
 
 const container = ref<HTMLElement | null>(null);
-const lineEls = ref<HTMLElement[]>([]);
-let manualScrollUntil = 0;
+// Éléments des lignes (hors réactivité : on ne fait que les lire et leur donner --p).
+const lineEls: HTMLElement[] = [];
+/** Le texte suit la chanson ; faux pendant que l'utilisateur fait défiler au doigt. */
+const following = ref(true);
+let resumeTimer: ReturnType<typeof setTimeout> | undefined;
+let scrollFrame = 0;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
 // Légère avance : la ligne s'allume au moment où elle commence à être chantée.
-const active = computed(() =>
-  synced.value ? activeLineIndex(synced.value, player.positionAt(now.value) * 1000 + 250) : -1,
-);
+const positionMs = computed(() => player.positionAt(now.value) * 1000 + 150);
+const active = computed(() => (synced.value ? activeLineIndex(synced.value, positionMs.value) : -1));
 
 function isBreak(text: string) {
   return !text.trim() || /^[♪♫\s.…]+$/.test(text);
 }
 
-function scrollToActive(smooth = true) {
-  const el = lineEls.value[active.value];
+// Remplissage « karaoké » de la ligne chantée, image par image, sans rendu Vue : seule la
+// variable CSS --p de la ligne active change.
+watch(positionMs, (ms) => {
+  const lines = synced.value;
+  const i = active.value;
+  const el = lineEls[i];
+  if (!lines || i < 0 || !el) return;
+  const start = lines[i].time_ms;
+  const next = lines[i + 1]?.time_ms ?? start + 6000;
+  // La voix finit en général un peu avant la ligne suivante.
+  const span = Math.max(500, Math.min(next - start, 15000) * 0.88);
+  const p = Math.min(1, Math.max(0, (ms - start) / span));
+  el.style.setProperty("--p", p.toFixed(3));
+});
+
+/** Défilement doux maison : régulier même sur les téléphones modestes, et interrompu net
+ *  dès que le doigt touche l'écran. */
+function glideTo(target: number) {
   const box = container.value;
-  if (!el || !box || performance.now() < manualScrollUntil) return;
-  const target = el.offsetTop - box.clientHeight * 0.32;
-  box.scrollTo({ top: Math.max(0, target), behavior: smooth ? "smooth" : "auto" });
+  if (!box) return;
+  cancelAnimationFrame(scrollFrame);
+  const from = box.scrollTop;
+  const delta = Math.max(0, target) - from;
+  if (Math.abs(delta) < 2) return;
+  const t0 = performance.now();
+  const duration = Math.min(700, 380 + Math.abs(delta) * 0.25);
+  const step = (t: number) => {
+    const k = Math.min(1, (t - t0) / duration);
+    box.scrollTop = from + delta * (1 - Math.pow(1 - k, 3));
+    if (k < 1) scrollFrame = requestAnimationFrame(step);
+  };
+  scrollFrame = requestAnimationFrame(step);
+}
+
+function scrollToActive(smooth = true) {
+  const box = container.value;
+  if (!box || !following.value) return;
+  const el = lineEls[active.value];
+  const target = el ? el.offsetTop + el.offsetHeight / 2 - box.clientHeight * 0.38 : 0;
+  if (smooth) glideTo(target);
+  else box.scrollTop = Math.max(0, target);
 }
 
 watch(active, () => nextTick(() => scrollToActive()));
 watch(
   () => lyricsStore.lyrics,
   () => {
-    lineEls.value = [];
-    manualScrollUntil = 0;
-    nextTick(() => {
-      container.value?.scrollTo({ top: 0 });
-      scrollToActive(false);
-    });
+    lineEls.length = 0;
+    following.value = true;
+    clearTimeout(resumeTimer);
+    nextTick(() => scrollToActive(false));
   },
 );
 
-function onUserScroll() {
-  manualScrollUntil = performance.now() + 3500;
+function holdFollow() {
+  following.value = false;
+  cancelAnimationFrame(scrollFrame);
+  clearTimeout(resumeTimer);
+}
+
+function resumeLater(delay = 2600) {
+  clearTimeout(resumeTimer);
+  resumeTimer = setTimeout(resume, delay);
+}
+
+function resume() {
+  clearTimeout(resumeTimer);
+  following.value = true;
+  scrollToActive();
+}
+
+function onWheel() {
+  holdFollow();
+  resumeLater();
 }
 
 function seekTo(ms: number) {
-  manualScrollUntil = 0;
   void player.seek(ms / 1000);
+  resume();
 }
+
+onBeforeUnmount(() => {
+  cancelAnimationFrame(scrollFrame);
+  clearTimeout(resumeTimer);
+});
 </script>
 
 <template>
@@ -61,109 +120,143 @@ function seekTo(ms: number) {
 
     <div v-else-if="lyricsStore.loading" class="state">
       <span class="dots"><i /><i /><i /></span>
-    </div>
-
-    <div v-else-if="!lyricsStore.lyrics && lyricsStore.allowOnline === null" class="ask">
-      <p class="ask-title">Chercher les paroles en ligne&nbsp;?</p>
-      <p class="ask-text">
-        Aucune parole n'est enregistrée dans ce fichier. L'application peut les chercher sur LRCLIB,
-        une base libre de paroles synchronisées&nbsp;: seuls le titre, l'artiste, l'album et la durée du morceau sont envoyés.
-      </p>
-      <div class="ask-actions">
-        <button type="button" class="pill pill-accent" @click="lyricsStore.setAllowOnline(true)">Autoriser</button>
-        <button type="button" class="pill pill-ghost" @click="lyricsStore.setAllowOnline(false)">Non merci</button>
-      </div>
+      <p class="hint">Recherche des paroles…</p>
     </div>
 
     <div v-else-if="!lyricsStore.lyrics" class="state">
-      <p>Pas de paroles pour ce morceau.</p>
-      <p class="hint">
-        Astuce : posez un fichier <code>.lrc</code> du même nom à côté du morceau pour des paroles synchronisées.
-        <template v-if="lyricsStore.allowOnline === false">
-          <br /><button type="button" class="link" @click="lyricsStore.setAllowOnline(true)">Autoriser la recherche en ligne</button>
-        </template>
+      <p>Paroles introuvables pour ce morceau.</p>
+      <p v-if="!lyricsStore.allowOnline" class="hint">
+        <button type="button" class="link" @click="lyricsStore.setAllowOnline(true)">Activer la recherche automatique</button>
       </p>
     </div>
 
     <div v-else-if="lyricsStore.lyrics.instrumental" class="state instrumental">♪ Morceau instrumental</div>
 
-    <div v-else ref="container" class="scroller" @wheel.passive="onUserScroll" @touchmove.passive="onUserScroll">
-      <template v-if="synced">
-        <p
-          v-for="(line, i) in synced"
-          :key="i"
-          :ref="(el) => { if (el) lineEls[i] = el as HTMLElement }"
-          class="line"
-          :class="{ active: i === active, past: i < active, near: Math.abs(i - active) <= 1 }"
-          @click="seekTo(line.time_ms)"
+    <template v-else>
+      <div class="fade">
+        <div
+          ref="container"
+          class="scroller"
+          :class="{ browsing: !following }"
+          @touchstart.passive="holdFollow"
+          @touchend.passive="resumeLater()"
+          @touchcancel.passive="resumeLater()"
+          @wheel.passive="onWheel"
         >
-          <span v-if="isBreak(line.text)" class="dots"><i /><i /><i /></span>
-          <template v-else>{{ line.text }}</template>
-        </p>
-      </template>
-      <p v-else class="plain">{{ lyricsStore.lyrics.plain }}</p>
-      <p class="source">Paroles : {{ lyricsStore.lyrics.source }}</p>
-    </div>
+          <template v-if="synced">
+            <p
+              v-for="(line, i) in synced"
+              :key="i"
+              :ref="(el) => { if (el) lineEls[i] = el as HTMLElement }"
+              class="line"
+              :class="{ active: i === active, past: i < active }"
+              :style="{ '--d': Math.min(4, Math.abs(i - active)) }"
+              @click="seekTo(line.time_ms)"
+            >
+              <span v-if="isBreak(line.text)" class="dots"><i /><i /><i /></span>
+              <span v-else class="txt">{{ line.text }}</span>
+            </p>
+          </template>
+          <p v-else class="plain">{{ lyricsStore.lyrics.plain }}</p>
+          <p class="source">Paroles : {{ lyricsStore.lyrics.source }}</p>
+        </div>
+      </div>
+      <Transition name="pop">
+        <button v-if="synced && !following" type="button" class="resume" @click="resume">Reprendre</button>
+      </Transition>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .lyrics {
+  position: relative;
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
+/* Fondu haut et bas posé sur un parent qui ne défile pas : le défilement reste géré par
+   le compositeur (fluide au doigt). */
+.fade {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 56px, #000 calc(100% - 72px), transparent);
+}
 .scroller {
+  position: relative;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 22px 45vh;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+  padding: 26vh 22px 45vh;
   scrollbar-width: none;
-  mask-image: linear-gradient(to bottom, transparent 0, #000 60px, #000 calc(100% - 80px), transparent);
 }
 .scroller::-webkit-scrollbar {
   display: none;
 }
 .line {
-  margin: 0 0 18px;
+  margin: 0 0 0.72em;
   font-family: var(--font-display);
-  font-size: 23px;
-  font-weight: 700;
-  line-height: 1.25;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.22;
   letter-spacing: -0.01em;
-  color: rgba(255, 255, 255, 0.28);
+  color: #fff;
   cursor: pointer;
+  opacity: calc(0.46 - var(--d, 4) * 0.05);
+  transform: scale(0.955);
   transform-origin: left center;
-  transition: color 0.4s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease), text-shadow 0.6s var(--ease);
-  filter: blur(0.6px);
-}
-.line.near {
-  filter: none;
+  transition:
+    opacity 0.45s ease,
+    transform 0.6s cubic-bezier(0.2, 0.9, 0.25, 1);
+  -webkit-tap-highlight-color: transparent;
 }
 .line.past {
-  color: color-mix(in srgb, var(--amb-glow) 22%, rgba(255, 255, 255, 0.4));
+  opacity: 0.3;
 }
-/* Lueur de la ligne chantée : teinte de la pochette ; plus large et plus vive quand la
-   pochette est lumineuse, plus sourde quand elle est sombre (--amb-energy). */
 .line.active {
-  color: #fff;
-  transform: scale(1.03);
-  filter: none;
-  text-shadow:
-    0 0 calc(8px + var(--amb-energy) * 20px) color-mix(in srgb, var(--amb-glow) calc(40% + var(--amb-energy) * 45%), transparent),
-    0 0 2px color-mix(in srgb, var(--amb-glow) 50%, transparent);
+  opacity: 1;
+  transform: scale(1);
 }
-.line:hover {
-  color: rgba(255, 255, 255, 0.75);
-  filter: none;
+/* Ligne chantée : le blanc gagne la ligne au rythme de la voix ; la lueur prend la teinte
+   de la pochette, plus vive quand la pochette est lumineuse (--amb-energy). */
+.line.active .txt {
+  --fill: calc(var(--p, 0) * 108%);
+  background-image: linear-gradient(
+    90deg,
+    #fff calc(var(--fill) - 8%),
+    rgba(255, 255, 255, 0.4) var(--fill)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(
+    0 0 calc(5px + var(--amb-energy) * 10px)
+      color-mix(in srgb, var(--amb-glow) calc(35% + var(--amb-energy) * 40%), transparent)
+  );
+}
+/* Pendant qu'on fait défiler au doigt, tout le texte reste lisible. */
+.browsing .line {
+  opacity: 0.78;
+  transform: scale(0.98);
+}
+.browsing .line.active {
+  opacity: 1;
+}
+@media (hover: hover) {
+  .line:hover {
+    opacity: 0.85;
+  }
 }
 .large .scroller {
-  padding: 18vh 8% 50vh;
+  padding: 22vh 8% 50vh;
 }
 .large .line {
   font-size: clamp(28px, 3.2vw, 44px);
-  margin-bottom: 26px;
 }
 .plain {
   white-space: pre-line;
@@ -180,11 +273,38 @@ function seekTo(ms: number) {
   font-size: 11px;
   color: var(--text-3);
 }
+.resume {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  translate: -50% 0;
+  z-index: 2;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0a1030;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.pop-enter-active,
+.pop-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
 .state {
   flex: 1;
   display: grid;
   place-content: center;
-  gap: 6px;
+  justify-items: center;
+  gap: 8px;
   padding: 24px;
   text-align: center;
   color: var(--text-2);
@@ -202,30 +322,11 @@ function seekTo(ms: number) {
   font-weight: 700;
 }
 .link {
-  margin-top: 6px;
   border: 0;
   padding: 0;
   background: none;
   color: var(--accent);
-}
-.ask {
-  margin: auto 0;
-  padding: 24px;
-}
-.ask-title {
-  margin: 0 0 8px;
-  font-size: 17px;
-  font-weight: 700;
-}
-.ask-text {
-  margin: 0 0 16px;
-  color: var(--text-2);
   font-size: 13px;
-  line-height: 1.55;
-}
-.ask-actions {
-  display: flex;
-  gap: 8px;
 }
 .dots {
   display: inline-flex;
@@ -255,6 +356,19 @@ function seekTo(ms: number) {
   50% {
     opacity: 1;
     transform: scale(1);
+  }
+}
+/* Téléphone : pas de masque (coûteux pour les processeurs graphiques modestes), lueur plus
+   courte ; texte un peu plus grand. */
+@media (max-width: 760px) {
+  .fade {
+    mask-image: none;
+  }
+  .line {
+    font-size: 26px;
+  }
+  .line.active .txt {
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amb-glow) calc(30% + var(--amb-energy) * 40%), transparent));
   }
 }
 </style>

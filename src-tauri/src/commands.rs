@@ -272,12 +272,23 @@ pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
 /// terminée.
 #[tauri::command(async)]
 pub fn poll_auto_advance(state: State<'_, AppState>) -> Result<Option<Track>, String> {
+    auto_advance(&state).transpose().map(Option::flatten)
+}
+
+/// Évite qu'un morceau terminé soit enchaîné deux fois (fil de fond et interface).
+static ADVANCE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Enchaîne le morceau suivant quand le précédent est terminé : `None` si rien n'a changé,
+/// sinon la nouvelle piste (ou `None` en fin de file). Appelé par un fil Rust, car les
+/// minuteurs JavaScript sont ralentis, voire suspendus, écran éteint sur Android.
+pub fn auto_advance(state: &State<AppState>) -> Option<Result<Option<Track>, String>> {
+    let _guard = ADVANCE.lock().unwrap_or_else(|e| e.into_inner());
     if !state.audio.status().finished {
-        return Ok(None);
+        return None;
     }
     state.audio.clear_finished();
     let next_id = state.queue.lock().unwrap().next().cloned();
-    track_or_stop(&state, next_id)
+    Some(track_or_stop(state, next_id))
 }
 
 // ---------------------------------------------------------------------

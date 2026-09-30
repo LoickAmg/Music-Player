@@ -10,7 +10,7 @@ pub mod session;
 pub mod state;
 
 use state::AppState;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +36,23 @@ pub fn run() {
                     let _ = commands::run_scan(&handle, &root);
                 });
             }
+
+            // Enchaînement des morceaux côté Rust : continue écran éteint (Android), quand
+            // l'interface est en veille. L'interface est prévenue par un événement.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(std::time::Duration::from_millis(300));
+                let state = handle.state::<AppState>();
+                match commands::auto_advance(&state) {
+                    Some(Ok(track)) => {
+                        let _ = handle.emit("track-changed", track);
+                    }
+                    Some(Err(e)) => {
+                        let _ = handle.emit("playback-error", e);
+                    }
+                    None => {}
+                }
+            });
 
             // Sauvegarde la session quand la fenêtre principale se ferme,
             // pour retrouver piste/position/volume/EQ au prochain lancement.

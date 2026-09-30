@@ -41,6 +41,17 @@ partagé (Musique, Téléchargements…).
 Sur un écran étroit, l'interface passe en mode mobile : onglets en bas, mini-lecteur,
 écran « À l'écoute » plein écran avec pochette ou paroles.
 
+Sur le téléphone :
+- **commandes sur l'écran verrouillé** et dans le volet de notifications (précédent,
+  lecture/pause, suivant, position), aussi pilotables par un casque Bluetooth : un service
+  de lecture garde la musique active écran éteint, et les morceaux s'enchaînent côté Rust ;
+- **bouton retour** : revient à la page précédente (ou ferme « À l'écoute ») ; depuis
+  l'accueil, l'appli passe en arrière-plan sans couper la musique ;
+- **mises à jour sans désinstaller** : les APK publiés sont toujours signés avec la même clé
+  (secrets `ANDROID_KEYSTORE_B64` et `ANDROID_KEYSTORE_PASSWORD` du dépôt ; la CI refuse de
+  publier une version sans eux) ;
+- icône adaptative : l'image entière dans la zone visible, fond assorti.
+
 ## Lancer l'application depuis les sources
 
 Aucune commande à taper : après `npm run tauri build`, double-cliquez sur l'installateur
@@ -61,15 +72,21 @@ Les listes sont virtualisées : des milliers de morceaux restent fluides.
 
 ## Paroles synchronisées
 
-Panneau « Paroles » et écran « À l'écoute » : la ligne chantée s'allume, la vue défile toute
-seule, un clic sur une ligne saute à ce passage. Sources, dans l'ordre :
+Panneau « Paroles » et écran « À l'écoute » : la ligne chantée se remplit au rythme de la
+voix (effet karaoké), la vue suit la chanson ; on peut faire défiler librement au doigt ou à
+la molette (le suivi reprend seul après quelques secondes, ou avec « Reprendre »), et un
+clic sur une ligne saute à ce passage. Rien à télécharger : les paroles sont cherchées dès
+le début du morceau (et celles du suivant préparées en avance). Sources, dans l'ordre :
 
 1. un fichier `.lrc` du même nom posé à côté du morceau ;
 2. les paroles intégrées aux étiquettes du fichier (ID3 USLT, Vorbis `LYRICS`, MP4 `©lyr`) ;
-3. sur autorisation explicite (demandée une fois), [LRCLIB](https://lrclib.net), base libre et
-   sans clé : seuls titre, artiste, album et durée sont envoyés, les titres « de vidéo »
-   (« (Lyrics) », « [Official Video] », « Artiste - Titre »…) sont nettoyés avant la recherche,
-   et les réponses sont mises en cache (`lyrics/` dans le dossier de l'application).
+3. automatiquement (désactivable dans les Réglages), [LRCLIB](https://lrclib.net), base libre
+   et sans clé : seuls titre, artiste, album et durée sont envoyés. Les titres « de vidéo »
+   (« (Lyrics) », « [Official Video] », « Artiste - Titre »…) sont nettoyés, puis plusieurs
+   recherches sont tentées, de la plus précise à la plus large (sans invités « feat. », sans
+   mention « Remastered », artiste principal seul) ; le meilleur résultat est retenu selon le
+   titre, l'artiste, la durée et la présence d'horodatages. Les réponses sont mises en cache
+   (`lyrics/` dans le dossier de l'application).
 
 ## Fonctionnalités
 
