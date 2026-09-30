@@ -1,44 +1,24 @@
-@import "@fontsource/barlow/400.css";
-@import "@fontsource/barlow/500.css";
-@import "@fontsource/barlow/600.css";
-@import "@fontsource/barlow/700.css";
-@import "@fontsource/barlow-condensed/600-italic.css";
-@import "@fontsource/barlow-condensed/700-italic.css";
-@import "@fontsource/barlow-condensed/800-italic.css";
-
-/* Direction artistique inspirée de Persona 3 Reload : bleu nuit profond, cyan électrique,
-   typographie italique condensée, panneaux inclinés et ombres portées franches. */
 :root {
-  --navy-900: #020716;
-  --navy-800: #04102e;
-  --navy-700: #071a47;
-  --navy-600: #0b2766;
-  --blue: #1f6bff;
-  --cyan: #3fe0ff;
-  --cyan-soft: rgba(63, 224, 255, 0.14);
-  --ink: #031033;
-
-  --bg: var(--navy-900);
-  --bg-content: var(--navy-800);
-  --bg-sidebar: rgba(3, 11, 34, 0.92);
-  --bg-elevated: #0a1d4d;
-  --bg-hover: rgba(90, 170, 255, 0.09);
-  --bg-active: rgba(90, 170, 255, 0.16);
-  --text: #f2f7ff;
-  --text-2: rgba(196, 218, 255, 0.7);
-  --text-3: rgba(160, 190, 240, 0.42);
-  --separator: rgba(90, 160, 255, 0.16);
-  --accent: var(--cyan);
-  --accent-2: var(--blue);
-  --accent-soft: var(--cyan-soft);
-  --on-accent: #031033;
-  --radius: 4px;
-  --radius-sm: 3px;
-  --shadow: 0 16px 40px rgba(0, 4, 20, 0.6);
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --slant: 12px;
-  --font: "Barlow", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-display: "Barlow Condensed", "Barlow", "Segoe UI", sans-serif;
+  --bg: #1c1c1e;
+  --bg-content: #1e1e20;
+  --bg-sidebar: #232326;
+  --bg-elevated: #2c2c2f;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.1);
+  --text: #f5f5f7;
+  --text-2: rgba(235, 235, 245, 0.62);
+  --text-3: rgba(235, 235, 245, 0.34);
+  --separator: rgba(255, 255, 255, 0.08);
+  --accent: #fa2d55;
+  --accent-soft: rgba(250, 45, 85, 0.16);
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui,
+    sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI",
+    system-ui, sans-serif;
   color-scheme: dark;
   font-family: var(--font);
   font-size: 14px;
@@ -78,61 +58,52 @@ input {
   outline-offset: 2px;
 }
 
-::selection {
-  background: var(--cyan);
-  color: var(--ink);
-}
-
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(63, 224, 255, 0.22);
+  background: rgba(255, 255, 255, 0.14);
   border: 3px solid transparent;
   background-clip: padding-box;
-  border-radius: 2px;
+  border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(63, 224, 255, 0.4);
+  background-color: rgba(255, 255, 255, 0.24);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* Boutons en parallélogramme, texte italique en capitales */
+/* Boutons « pilule » partagés (Lire / Aléatoire…) */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 24px;
+  height: 34px;
+  padding: 0 18px;
   border: 0;
-  clip-path: polygon(var(--slant) 0, 100% 0, calc(100% - var(--slant)) 100%, 0 100%);
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 700;
-  font-size: 16px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  transition: filter 0.15s, transform 0.2s var(--ease), background 0.15s, color 0.15s;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  transition: filter 0.15s, transform 0.15s var(--ease), background 0.15s;
 }
 .pill:active {
-  transform: translateY(1px) scale(0.98);
+  transform: scale(0.97);
 }
 .pill-accent {
-  background: var(--cyan);
-  color: var(--on-accent);
+  background: var(--accent);
+  color: #fff;
 }
 .pill-accent:hover {
-  background: #fff;
+  filter: brightness(1.08);
 }
 .pill-ghost {
-  background: rgba(31, 107, 255, 0.28);
-  color: var(--text);
+  background: var(--bg-active);
+  color: var(--accent);
 }
 .pill-ghost:hover {
-  background: var(--blue);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .icon-btn {
@@ -141,18 +112,17 @@ input {
   width: 32px;
   height: 32px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
-  transition: color 0.15s, background 0.15s, transform 0.15s var(--ease);
+  transition: color 0.15s, background 0.15s;
 }
 .icon-btn:hover {
   color: var(--text);
   background: var(--bg-hover);
 }
 .icon-btn.on {
-  color: var(--cyan);
-  filter: drop-shadow(0 0 6px rgba(63, 224, 255, 0.55));
+  color: var(--accent);
 }
 .icon-btn:disabled {
   opacity: 0.35;
@@ -160,45 +130,17 @@ input {
 }
 
 .page {
-  padding: 46px 40px 60px;
+  padding: 46px 36px 60px;
 }
-/* Titre de page : capitales italiques, ombre bleue décalée, barre cyan inclinée dessous */
 .page-title {
-  position: relative;
-  display: inline-block;
-  margin: 0 0 26px;
-  padding-bottom: 6px;
+  margin: 4px 0 22px;
   font-family: var(--font-display);
-  font-size: 46px;
-  font-style: italic;
-  font-weight: 800;
-  line-height: 0.95;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
-  text-shadow: 3px 3px 0 var(--blue);
-}
-.page-title::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  right: -18px;
-  bottom: -4px;
-  height: 5px;
-  background: linear-gradient(90deg, var(--cyan), transparent);
-  transform: skewX(-30deg);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 .muted {
   color: var(--text-2);
-}
-
-/* Titre de section (h2) commun */
-.section-heading {
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 700;
-  font-size: 24px;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -208,4 +150,36 @@ input {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Ambiance du morceau en cours (stores/ambience.ts) : déclarées comme couleurs pour que
+   le passage d'une pochette à l'autre se fasse en fondu. */
+@property --amb-primary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #3a3a44;
+}
+@property --amb-secondary {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #26262e;
+}
+@property --amb-glow {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #c9c9d6;
+}
+@property --amb-base {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #151518;
+}
+@property --amb-energy {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0.4;
+}
+:root {
+  transition: --amb-primary 1.2s ease, --amb-secondary 1.2s ease, --amb-glow 1.2s ease, --amb-base 1.2s ease,
+    --amb-energy 1.2s ease;
 }

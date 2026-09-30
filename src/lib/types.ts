@@ -37,6 +37,8 @@ export interface Playlist {
   id: string;
   name: string;
   track_ids: string[];
+  /** Thème de la jaquette générée (voir lib/playlistThemes.ts). */
+  theme: string;
 }
 
 export interface LyricLine {

@@ -82,7 +82,9 @@ fn file_stem(path: &Path) -> String {
 }
 
 fn non_empty(value: Option<String>) -> Option<String> {
-    value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Lit les métadonnées d'un fichier audio. `None` seulement si l'extension n'est pas un
@@ -101,7 +103,9 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
         return Some(track);
     };
     let duration_secs = tagged_file.properties().duration().as_secs_f64();
-    let tag = tagged_file.primary_tag().or_else(|| tagged_file.first_tag());
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag());
 
     let title = non_empty(tag.and_then(|t| t.title().map(|s| s.to_string())));
     let artist = non_empty(tag.and_then(|t| t.artist().map(|s| s.to_string())));
@@ -137,7 +141,10 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
 const FOLDER_COVER_NAMES: &[&str] = &["cover", "folder", "front", "album", "albumart"];
 
 fn is_image(path: &Path) -> bool {
-    matches!(ffmpeg::extension_of(path).as_str(), "jpg" | "jpeg" | "png" | "webp")
+    matches!(
+        ffmpeg::extension_of(path).as_str(),
+        "jpg" | "jpeg" | "png" | "webp"
+    )
 }
 
 /// Choisit l'image de pochette d'un dossier parmi ses images (nom conventionnel d'abord,
@@ -170,10 +177,17 @@ pub fn scan_library(root: &Path) -> Vec<Track> {
 
 /// Parcourt `root` et lit toutes les pistes en parallèle. `on_progress(fait, total)` est
 /// appelé régulièrement pour afficher l'avancement.
-pub fn scan_library_with_progress(root: &Path, on_progress: impl Fn(usize, usize) + Sync) -> Vec<Track> {
+pub fn scan_library_with_progress(
+    root: &Path,
+    on_progress: impl Fn(usize, usize) + Sync,
+) -> Vec<Track> {
     let mut audio_files = Vec::new();
     let mut images_by_dir: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for entry in WalkDir::new(root).follow_links(true).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(root)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         if !entry.file_type().is_file() {
             continue;
         }
@@ -182,7 +196,10 @@ pub fn scan_library_with_progress(root: &Path, on_progress: impl Fn(usize, usize
             audio_files.push(path);
         } else if is_image(&path) {
             if let Some(dir) = path.parent() {
-                images_by_dir.entry(dir.to_path_buf()).or_default().push(path);
+                images_by_dir
+                    .entry(dir.to_path_buf())
+                    .or_default()
+                    .push(path);
             }
         }
     }
@@ -208,8 +225,20 @@ pub fn scan_library_with_progress(root: &Path, on_progress: impl Fn(usize, usize
         })
         .collect();
     tracks.sort_by(|a, b| {
-        (a.album_artist.to_lowercase(), a.album.to_lowercase(), a.disc_no, a.track_no, a.title.to_lowercase())
-            .cmp(&(b.album_artist.to_lowercase(), b.album.to_lowercase(), b.disc_no, b.track_no, b.title.to_lowercase()))
+        (
+            a.album_artist.to_lowercase(),
+            a.album.to_lowercase(),
+            a.disc_no,
+            a.track_no,
+            a.title.to_lowercase(),
+        )
+            .cmp(&(
+                b.album_artist.to_lowercase(),
+                b.album.to_lowercase(),
+                b.disc_no,
+                b.track_no,
+                b.title.to_lowercase(),
+            ))
     });
     tracks
 }
@@ -244,7 +273,10 @@ struct LibraryCache {
 }
 
 pub fn save_cache(file: &Path, root: &str, tracks: &[Track]) -> std::io::Result<()> {
-    let json = serde_json::to_vec(&LibraryCache { root: root.to_string(), tracks: tracks.to_vec() })?;
+    let json = serde_json::to_vec(&LibraryCache {
+        root: root.to_string(),
+        tracks: tracks.to_vec(),
+    })?;
     let tmp = file.with_extension("tmp");
     std::fs::write(&tmp, json)?;
     std::fs::rename(tmp, file)
@@ -401,7 +433,10 @@ mod tests {
         assert_eq!(*last.lock().unwrap(), (2, 2));
         let nested = tracks.iter().find(|t| t.title == "nested").unwrap();
         let root = tracks.iter().find(|t| t.title == "root").unwrap();
-        assert!(nested.has_cover, "le cover.jpg du dossier compte comme pochette");
+        assert!(
+            nested.has_cover,
+            "le cover.jpg du dossier compte comme pochette"
+        );
         assert!(!root.has_cover);
 
         let cache_dir = dir.path().join("cache");
@@ -413,9 +448,15 @@ mod tests {
     #[test]
     fn folder_cover_prefers_conventional_names() {
         let imgs = vec![PathBuf::from("x/scan.jpg"), PathBuf::from("x/Folder.JPG")];
-        assert_eq!(pick_folder_cover(&imgs), Some(PathBuf::from("x/Folder.JPG")));
+        assert_eq!(
+            pick_folder_cover(&imgs),
+            Some(PathBuf::from("x/Folder.JPG"))
+        );
         let lone = vec![PathBuf::from("x/whatever.png")];
-        assert_eq!(pick_folder_cover(&lone), Some(PathBuf::from("x/whatever.png")));
+        assert_eq!(
+            pick_folder_cover(&lone),
+            Some(PathBuf::from("x/whatever.png"))
+        );
         let many = vec![PathBuf::from("x/a.jpg"), PathBuf::from("x/b.jpg")];
         assert_eq!(pick_folder_cover(&many), None);
     }

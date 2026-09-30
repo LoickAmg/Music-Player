@@ -13,6 +13,13 @@ pub struct Playlist {
     pub id: String,
     pub name: String,
     pub track_ids: Vec<String>,
+    /// Thème de la jaquette générée (identifiant défini côté interface).
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "aurora".to_string()
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -41,14 +48,25 @@ impl PlaylistStore {
         fs::write(path, json)
     }
 
-    pub fn create(&mut self, name: String) -> String {
+    pub fn create(&mut self, name: String, theme: Option<String>) -> String {
         let id = Uuid::new_v4().to_string();
         self.playlists.push(Playlist {
             id: id.clone(),
             name,
             track_ids: Vec::new(),
+            theme: theme.unwrap_or_else(default_theme),
         });
         id
+    }
+
+    pub fn set_theme(&mut self, id: &str, theme: String) -> Result<(), PlaylistError> {
+        let playlist = self
+            .playlists
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or(PlaylistError::NotFound)?;
+        playlist.theme = theme;
+        Ok(())
     }
 
     pub fn delete(&mut self, id: &str) -> bool {
@@ -122,7 +140,7 @@ mod tests {
         let mut store = PlaylistStore::load(&path); // fichier absent -> vide
         assert!(store.playlists.is_empty());
 
-        let id = store.create("Route de vacances".to_string());
+        let id = store.create("Route de vacances".to_string(), Some("sunset".into()));
         store.add_track(&id, "track-1".to_string()).unwrap();
         store.add_track(&id, "track-2".to_string()).unwrap();
         store.save(&path).unwrap();
@@ -131,12 +149,28 @@ mod tests {
         let playlist = reloaded.get(&id).unwrap();
         assert_eq!(playlist.name, "Route de vacances");
         assert_eq!(playlist.track_ids, vec!["track-1", "track-2"]);
+        assert_eq!(playlist.theme, "sunset");
+    }
+
+    #[test]
+    fn old_files_without_theme_get_the_default_one() {
+        let json = r#"{"playlists":[{"id":"a","name":"Vieille","track_ids":[]}]}"#;
+        let store: PlaylistStore = serde_json::from_str(json).unwrap();
+        assert_eq!(store.playlists[0].theme, "aurora");
+    }
+
+    #[test]
+    fn set_theme_changes_the_cover_theme() {
+        let mut store = PlaylistStore::default();
+        let id = store.create("Test".to_string(), None);
+        store.set_theme(&id, "ocean".into()).unwrap();
+        assert_eq!(store.get(&id).unwrap().theme, "ocean");
     }
 
     #[test]
     fn add_track_is_idempotent() {
         let mut store = PlaylistStore::default();
-        let id = store.create("Test".to_string());
+        let id = store.create("Test".to_string(), None);
         store.add_track(&id, "t1".to_string()).unwrap();
         store.add_track(&id, "t1".to_string()).unwrap();
         assert_eq!(store.get(&id).unwrap().track_ids.len(), 1);
@@ -145,7 +179,7 @@ mod tests {
     #[test]
     fn remove_track_and_delete_playlist() {
         let mut store = PlaylistStore::default();
-        let id = store.create("Test".to_string());
+        let id = store.create("Test".to_string(), None);
         store.add_track(&id, "t1".to_string()).unwrap();
         store.remove_track(&id, "t1").unwrap();
         assert!(store.get(&id).unwrap().track_ids.is_empty());
@@ -158,7 +192,7 @@ mod tests {
     #[test]
     fn move_track_reorders_within_playlist() {
         let mut store = PlaylistStore::default();
-        let id = store.create("Test".to_string());
+        let id = store.create("Test".to_string(), None);
         for t in ["a", "b", "c"] {
             store.add_track(&id, t.to_string()).unwrap();
         }

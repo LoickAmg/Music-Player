@@ -48,11 +48,10 @@ async function addTo(playlistId: string, name: string) {
   ui.notify(`Ajouté à « ${name} »`);
   close();
 }
-async function addToNew() {
+function addToNew() {
   if (!track.value) return;
-  const name = `Nouvelle playlist ${playlists.items.length + 1}`;
-  const id = await playlists.create(name);
-  if (id) await addTo(id, name);
+  ui.playlistDialog = { mode: "create", addTrackId: track.value.id };
+  close();
 }
 async function removeFromPlaylist() {
   if (!track.value || !ui.menu?.playlistId) return;
@@ -108,7 +107,7 @@ async function removeFromPlaylist() {
   max-height: 70vh;
   overflow: auto;
   padding: 5px;
-  border-radius: 4px;
+  border-radius: 10px;
   background: rgba(44, 44, 48, 0.94);
   backdrop-filter: blur(24px) saturate(1.6);
   box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
@@ -141,7 +140,7 @@ button {
 }
 button:hover {
   background: var(--accent);
-  color: var(--on-accent);
+  color: #fff;
 }
 .sub {
   margin: 2px 0 2px 10px;

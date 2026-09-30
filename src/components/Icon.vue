@@ -33,6 +33,7 @@ const PATHS: Record<string, string> = {
   refresh: "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4",
   trash: "M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7",
   eq: "M6 4v16M12 4v16M18 4v16M4 14h4M10 8h4M16 12h4",
+  brush: "M14.5 4.5 19.5 9.5 11 18l-5 .9.9-5ZM12.5 6.5l5 5M4.5 20.5h6",
 };
 
 const FILLED = new Set(["play", "pause", "next", "prev"]);

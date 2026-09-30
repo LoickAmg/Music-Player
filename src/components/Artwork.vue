@@ -52,9 +52,8 @@ watch(
 );
 
 const fallback = computed(() => {
-  // Teintes restreintes aux bleus et cyans de la palette.
-  const hue = 195 + (hueFor(props.label || props.track?.album || props.track?.title || "?") % 50);
-  return `linear-gradient(145deg, hsl(${hue} 70% 38%), hsl(${hue + 20} 80% 14%))`;
+  const hue = hueFor(props.label || props.track?.album || props.track?.title || "?");
+  return `linear-gradient(145deg, hsl(${hue} 45% 34%), hsl(${(hue + 40) % 360} 50% 18%))`;
 });
 </script>
 

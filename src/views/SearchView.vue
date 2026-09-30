@@ -55,10 +55,7 @@ section {
 h2 {
   margin: 0 0 12px;
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 24px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 18px;
 }
 .chips {
   display: flex;

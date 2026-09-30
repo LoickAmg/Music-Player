@@ -102,9 +102,15 @@ pub fn get_library(state: State<AppState>) -> Vec<Track> {
 
 /// Chemin d'un fichier image de pochette (extrait dans le cache), ou `None`.
 #[tauri::command(async)]
-pub fn get_cover(state: State<'_, AppState>, path: String, track_id: String) -> Result<Option<String>, String> {
-    Ok(library::cover_file(Path::new(&path), &track_id, &state.covers_dir())
-        .map(|p| p.to_string_lossy().to_string()))
+pub fn get_cover(
+    state: State<'_, AppState>,
+    path: String,
+    track_id: String,
+) -> Result<Option<String>, String> {
+    Ok(
+        library::cover_file(Path::new(&path), &track_id, &state.covers_dir())
+            .map(|p| p.to_string_lossy().to_string()),
+    )
 }
 
 #[tauri::command(async)]
@@ -113,7 +119,9 @@ pub fn get_lyrics(
     track_id: String,
     allow_online: bool,
 ) -> Result<Option<Lyrics>, String> {
-    let track = state.find_track(&track_id).ok_or("Piste introuvable dans la bibliothèque.")?;
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
     lyrics::lyrics_for(&track, &state.lyrics_dir(), allow_online)
 }
 
@@ -137,7 +145,9 @@ pub fn play_queue(
 
 #[tauri::command(async)]
 pub fn play_track_now(
-    state: State<'_, AppState>, track_id: String) -> Result<Option<Track>, String> {
+    state: State<'_, AppState>,
+    track_id: String,
+) -> Result<Option<Track>, String> {
     let already_queued = {
         let mut queue = state.queue.lock().unwrap();
         queue.jump_to(&track_id)
@@ -165,15 +175,13 @@ pub fn toggle_play_pause(state: State<AppState>) -> Result<bool, String> {
 }
 
 #[tauri::command(async)]
-pub fn next_track(
-    state: State<'_, AppState>) -> Result<Option<Track>, String> {
+pub fn next_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
     let next_id = state.queue.lock().unwrap().next().cloned();
     track_or_stop(&state, next_id)
 }
 
 #[tauri::command(async)]
-pub fn previous_track(
-    state: State<'_, AppState>) -> Result<Option<Track>, String> {
+pub fn previous_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
     let prev_id = state.queue.lock().unwrap().previous().cloned();
     track_or_stop(&state, prev_id)
 }
@@ -246,8 +254,7 @@ pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
 /// piste si elle a changé, `None` si rien n'a changé ou si la file est
 /// terminée.
 #[tauri::command(async)]
-pub fn poll_auto_advance(
-    state: State<'_, AppState>) -> Result<Option<Track>, String> {
+pub fn poll_auto_advance(state: State<'_, AppState>) -> Result<Option<Track>, String> {
     if !state.audio.status().finished {
         return Ok(None);
     }
@@ -266,9 +273,9 @@ pub fn list_playlists(state: State<AppState>) -> Vec<Playlist> {
 }
 
 #[tauri::command]
-pub fn create_playlist(state: State<AppState>, name: String) -> String {
+pub fn create_playlist(state: State<AppState>, name: String, theme: Option<String>) -> String {
     let mut store = state.playlists.lock().unwrap();
-    let id = store.create(name);
+    let id = store.create(name, theme);
     let _ = store.save(&state.playlists_path());
     id
 }
@@ -287,6 +294,17 @@ pub fn rename_playlist(state: State<AppState>, id: String, name: String) -> Resu
     let mut store = state.playlists.lock().unwrap();
     store
         .rename(&id, name)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_playlist_theme(state: State<AppState>, id: String, theme: String) -> Result<(), String> {
+    let mut store = state.playlists.lock().unwrap();
+    store
+        .set_theme(&id, theme)
         .map_err(|_| "Playlist introuvable.".to_string())?;
     store
         .save(&state.playlists_path())

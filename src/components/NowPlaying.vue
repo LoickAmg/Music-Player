@@ -41,12 +41,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <section class="now-playing" role="dialog" aria-label="À l'écoute" :style="{ '--h': hue }">
+  <section class="now-playing" role="dialog" aria-label="À l'écoute" :class="{ paused: player.isPaused }" :style="{ '--h': hue }">
     <div class="backdrop" aria-hidden="true">
       <img v-if="bg" :src="bg" alt="" class="blob b1" />
       <img v-if="bg" :src="bg" alt="" class="blob b2" />
       <div v-else class="fallback" />
+      <!-- Nappes de lumière aux couleurs de la pochette, qui respirent pendant la lecture -->
+      <span class="aura a1" />
+      <span class="aura a2" />
+      <span class="aura a3" />
       <div class="veil" />
+      <div class="grain" />
     </div>
 
     <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.nowPlayingOpen = false">
@@ -55,7 +60,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
     <div v-if="track" class="layout">
       <div class="left">
-        <Artwork :track="track" :radius="3" eager class="hero-art" :class="{ paused: player.isPaused }" />
+        <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
         <div class="meta">
           <h2>{{ track.title }}</h2>
           <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
@@ -95,7 +100,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   inset: 0;
   z-index: 40;
   overflow: hidden;
-  background: #111;
+  background: var(--amb-base);
   animation: rise 0.45s var(--ease);
 }
 @keyframes rise {
@@ -113,8 +118,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   width: 90vmax;
   height: 90vmax;
   object-fit: cover;
-  filter: blur(90px) saturate(1.4) brightness(0.7);
-  opacity: 0.75;
+  filter: blur(90px) saturate(1.6) brightness(0.75);
+  opacity: 0.7;
 }
 .b1 {
   top: -35vmax;
@@ -135,24 +140,78 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .fallback {
   position: absolute;
   inset: 0;
-  background: radial-gradient(circle at 25% 30%, rgba(31, 107, 255, 0.55), transparent 60%),
-    radial-gradient(circle at 80% 75%, rgba(63, 224, 255, 0.25), transparent 55%), #04102e;
+  background: radial-gradient(circle at 25% 30%, hsl(var(--h) 60% 35%), transparent 60%),
+    radial-gradient(circle at 80% 75%, hsl(calc(var(--h) + 60) 55% 25%), transparent 55%), #121214;
+}
+.aura {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+  filter: blur(70px);
+  opacity: calc(0.28 + var(--amb-energy) * 0.35);
+  animation: breathe 9s ease-in-out infinite alternate, wander 26s ease-in-out infinite alternate;
+}
+.a1 {
+  width: 55vmax;
+  height: 55vmax;
+  top: -18vmax;
+  right: -12vmax;
+  background: radial-gradient(circle, var(--amb-primary), transparent 65%);
+}
+.a2 {
+  width: 45vmax;
+  height: 45vmax;
+  bottom: -20vmax;
+  left: -10vmax;
+  background: radial-gradient(circle, var(--amb-secondary), transparent 65%);
+  animation-delay: -4s, -9s;
+}
+.a3 {
+  width: 30vmax;
+  height: 30vmax;
+  top: 30%;
+  left: 28%;
+  background: radial-gradient(circle, var(--amb-glow), transparent 60%);
+  opacity: calc(0.1 + var(--amb-energy) * 0.18);
+  animation-duration: 6s, 34s;
+}
+.paused .aura,
+.paused .blob {
+  animation-play-state: paused;
+}
+.paused .aura {
+  opacity: 0.18;
+  transition: opacity 1.2s;
+}
+@keyframes breathe {
+  from {
+    scale: 0.9;
+  }
+  to {
+    scale: 1.12;
+  }
+}
+@keyframes wander {
+  from {
+    translate: -3vmax 2vmax;
+  }
+  to {
+    translate: 4vmax -3vmax;
+  }
 }
 .veil {
   position: absolute;
   inset: 0;
-  /* Teinte bleu nuit + rais de lumière diagonaux qui glissent lentement */
   background:
-    repeating-linear-gradient(115deg, transparent 0 60px, rgba(120, 200, 255, 0.05) 60px 64px, transparent 64px 140px),
-    linear-gradient(160deg, rgba(11, 39, 102, 0.55), rgba(2, 7, 22, 0.75));
-  background-size: 400px 400px, auto;
-  mix-blend-mode: normal;
-  animation: shafts 18s linear infinite;
+    radial-gradient(ellipse at center, transparent 40%, color-mix(in srgb, var(--amb-base) 70%, transparent) 100%),
+    color-mix(in srgb, var(--amb-base) 35%, transparent);
 }
-@keyframes shafts {
-  to {
-    background-position: 400px 0, 0 0;
-  }
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
 }
 .collapse {
   position: absolute;
@@ -179,8 +238,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .hero-art {
   width: 100%;
-  box-shadow: 10px 10px 0 var(--cyan), 0 30px 60px rgba(0, 4, 20, 0.6);
-  transition: transform 0.6s var(--ease);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45),
+    0 0 calc(40px + var(--amb-energy) * 60px) color-mix(in srgb, var(--amb-glow) 38%, transparent);
+  transition: transform 0.6s var(--ease), box-shadow 1.2s ease;
 }
 .hero-art.paused {
   transform: scale(0.88);
@@ -191,11 +251,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .meta h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 30px;
-  font-weight: 800;
-  text-transform: uppercase;
-  text-shadow: 2px 2px 0 var(--blue);
+  font-size: 22px;
+  font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -218,8 +275,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--blue), var(--cyan));
-  box-shadow: 0 0 12px var(--cyan);
+  background: color-mix(in srgb, var(--amb-glow) 45%, #fff);
   transform-origin: left;
 }
 .times {
@@ -248,12 +304,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   color: #fff !important;
   width: 56px !important;
   height: 56px !important;
-}
-.c-play {
-  width: 70px !important;
-  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
-  background: var(--cyan) !important;
-  color: var(--ink) !important;
+  border-radius: 50% !important;
 }
 .right {
   min-height: 0;

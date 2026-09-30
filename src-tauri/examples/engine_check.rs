@@ -9,9 +9,15 @@ fn main() {
     let result = audio.play(&path, 0.0);
     println!("play → {result:?} en {:.2} s", t.elapsed().as_secs_f64());
     std::thread::sleep(Duration::from_millis(1500));
-    println!("position après 1,5 s : {:.2} s", audio.status().position_secs);
+    println!(
+        "position après 1,5 s : {:.2} s",
+        audio.status().position_secs
+    );
     audio.seek(Duration::from_secs(60));
     std::thread::sleep(Duration::from_millis(700));
-    println!("position après saut à 60 s : {:.2} s", audio.status().position_secs);
+    println!(
+        "position après saut à 60 s : {:.2} s",
+        audio.status().position_secs
+    );
     println!("erreur : {:?}", audio.status().device_error);
 }

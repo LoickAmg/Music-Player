@@ -12,6 +12,7 @@ vi.mock("@/lib/api", () => ({
     addToPlaylist: vi.fn(),
     removeFromPlaylist: vi.fn(),
     moveTrackInPlaylist: vi.fn(),
+    setPlaylistTheme: vi.fn(),
   },
 }));
 
@@ -24,18 +25,18 @@ describe("playlists store", () => {
   it("create() crée puis recharge la liste", async () => {
     const store = usePlaylistsStore();
     vi.mocked(api.createPlaylist).mockResolvedValueOnce("pl-1");
-    vi.mocked(api.listPlaylists).mockResolvedValueOnce([{ id: "pl-1", name: "Route", track_ids: [] }]);
+    vi.mocked(api.listPlaylists).mockResolvedValueOnce([{ id: "pl-1", name: "Route", track_ids: [], theme: "aurora" }]);
 
-    await store.create("Route");
+    await store.create("Route", "ocean");
 
-    expect(api.createPlaylist).toHaveBeenCalledWith("Route");
+    expect(api.createPlaylist).toHaveBeenCalledWith("Route", "ocean");
     expect(store.items).toHaveLength(1);
     expect(store.items[0].name).toBe("Route");
   });
 
   it("byId retrouve une playlist par id", () => {
     const store = usePlaylistsStore();
-    store.items = [{ id: "a", name: "A", track_ids: [] }];
+    store.items = [{ id: "a", name: "A", track_ids: [], theme: "aurora" }];
     expect(store.byId("a")?.name).toBe("A");
     expect(store.byId("nope")).toBeNull();
   });
@@ -56,5 +57,13 @@ describe("playlists store", () => {
 
     expect(api.addToPlaylist).toHaveBeenCalledWith("pl-1", "t1");
     expect(store.items[0].track_ids).toEqual(["t1"]);
+  });
+
+  it("setTheme() enregistre le thème puis recharge", async () => {
+    const store = usePlaylistsStore();
+    vi.mocked(api.listPlaylists).mockResolvedValueOnce([{ id: "a", name: "A", track_ids: [], theme: "ember" }]);
+    await store.setTheme("a", "ember");
+    expect(api.setPlaylistTheme).toHaveBeenCalledWith("a", "ember");
+    expect(store.items[0].theme).toBe("ember");
   });
 });

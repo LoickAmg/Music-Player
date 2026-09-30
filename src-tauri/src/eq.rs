@@ -168,7 +168,9 @@ where
     /// Transmis à la source : sans cela, le curseur de position ne pouvait rien déplacer.
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         self.input.try_seek(pos)?;
-        self.state.iter_mut().for_each(|s| *s = [BiquadState::default(); 3]);
+        self.state
+            .iter_mut()
+            .for_each(|s| *s = [BiquadState::default(); 3]);
         self.channel_cursor = 0;
         Ok(())
     }

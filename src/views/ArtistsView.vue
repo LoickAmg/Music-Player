@@ -110,7 +110,7 @@ function initials(name: string) {
   width: 100%;
   padding: 5px 8px;
   border: 0;
-  border-radius: 3px;
+  border-radius: 8px;
   background: none;
   text-align: left;
 }
@@ -119,7 +119,7 @@ function initials(name: string) {
 }
 .artist-item.active {
   background: var(--accent);
-  color: var(--on-accent);
+  color: #fff;
 }
 .avatar {
   flex: none;
@@ -145,11 +145,8 @@ function initials(name: string) {
 h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 46px;
-  font-style: italic;
-  font-weight: 800;
-  text-transform: uppercase;
-  text-shadow: 3px 3px 0 var(--blue);
+  font-size: 30px;
+  letter-spacing: -0.02em;
 }
 header .muted {
   margin: 4px 0 16px;
@@ -162,10 +159,7 @@ header .muted {
 h2 {
   margin: 0 0 12px;
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 24px;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  font-size: 18px;
 }
 section {
   margin-bottom: 30px;

@@ -12,13 +12,20 @@
 import type { InitialState, Lyrics, Playlist, PlaybackStatus, QueueView, RepeatMode, Track } from "./types";
 
 const DEMO_ALBUMS = [
-  { album: "Nuit Blanche", artist: "Les Ondes", year: 2021 },
-  { album: "Horizon", artist: "Camille R.", year: 2019 },
-  { album: "Petites Machines", artist: "Studio Sud", year: 2023 },
-  { album: "Chambre 12", artist: "Aurore Vasseur", year: 2018 },
-  { album: "Lumière d'hiver", artist: "Les Ondes", year: 2024 },
-  { album: "Grand Large", artist: "Nils & Iris", year: 2022 },
+  { album: "Nuit Blanche", artist: "Les Ondes", year: 2021, colors: ["#1b1f4a", "#6a3cff", "#ff4fa3"] },
+  { album: "Horizon", artist: "Camille R.", year: 2019, colors: ["#ffb347", "#ff5e3a", "#6b1d3a"] },
+  { album: "Petites Machines", artist: "Studio Sud", year: 2023, colors: ["#0f3d3e", "#23c9a8", "#e8ffcf"] },
+  { album: "Chambre 12", artist: "Aurore Vasseur", year: 2018, colors: ["#2a0f12", "#c0283a", "#f2c6b4"] },
+  { album: "Lumière d'hiver", artist: "Les Ondes", year: 2024, colors: ["#dfe9f5", "#7fa8d9", "#1f3552"] },
+  { album: "Grand Large", artist: "Nils & Iris", year: 2022, colors: ["#04263f", "#0f7fb8", "#f5d76e"] },
 ];
+
+/** Pochette de démonstration : un petit SVG coloré propre à chaque album. */
+function demoCover(i: number): string {
+  const [a, b, c] = DEMO_ALBUMS[i % DEMO_ALBUMS.length].colors;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="100" height="100" fill="url(#g)"/><circle cx="68" cy="36" r="22" fill="${c}"/><rect x="10" y="70" width="80" height="6" fill="${c}" opacity=".7"/></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
 const DEMO_TITLES = [
   "Ouverture", "Rivière", "Minuit passé", "Les néons", "Ce qu'il reste", "Aube", "Sable", "Tempête douce",
   "Vertige", "Lettre ouverte", "Boulevard", "Encore une fois",
@@ -38,7 +45,7 @@ function makeTrack(i: number, overrides: Partial<Track> = {}): Track {
     year: a.year,
     genre: "Pop",
     duration_secs: 150 + ((i * 37) % 120),
-    has_cover: false,
+    has_cover: i % 7 !== 6,
     added_secs: 1_700_000_000 + i * 3600,
     ...overrides,
   };
@@ -64,7 +71,8 @@ export function installTauriMock() {
   let positionSecs = 0;
   let eqGains: [number, number, number] = [0, 0, 0];
   const playlists: Playlist[] = [
-    { id: "pl-1", name: "Favoris", track_ids: [library[0].id, library[3].id, library[7].id] },
+    { id: "pl-1", name: "Favoris", track_ids: [library[0].id, library[3].id, library[7].id], theme: "sunset" },
+    { id: "pl-2", name: "Soirée d'été entre amis", track_ids: [library[1].id], theme: "midnight" },
   ];
 
   let ticker: ReturnType<typeof setInterval> | null = null;
@@ -98,7 +106,7 @@ export function installTauriMock() {
     pick_library_folder: () => "/musique/demo",
     scan_library: () => library,
     get_library: () => library,
-    get_cover: () => null,
+    get_cover: ({ trackId }) => demoCover(Number(String(trackId).replace("mock-", "")) || 0),
     get_lyrics: () => DEMO_LYRICS,
 
     play_queue: ({ trackIds, startId }) => {
@@ -170,10 +178,14 @@ export function installTauriMock() {
     poll_auto_advance: () => null,
 
     list_playlists: () => playlists,
-    create_playlist: ({ name }) => {
+    create_playlist: ({ name, theme }) => {
       const id = `pl-${playlists.length + 1}`;
-      playlists.push({ id, name, track_ids: [] });
+      playlists.push({ id, name, track_ids: [], theme: theme ?? "aurora" });
       return id;
+    },
+    set_playlist_theme: ({ id, theme }) => {
+      const pl = playlists.find((p) => p.id === id);
+      if (pl) pl.theme = theme;
     },
     delete_playlist: ({ id }) => {
       const idx = playlists.findIndex((p) => p.id === id);
@@ -219,6 +231,7 @@ export function installTauriMock() {
   };
 
   (window as any).__TAURI_INTERNALS__ = {
+    convertFileSrc: (path: string) => path,
     invoke: async (cmd: string, args: any = {}) => {
       const handler = handlers[cmd];
       if (!handler) {

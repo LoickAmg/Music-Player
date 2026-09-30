@@ -20,6 +20,9 @@ export interface TrackMenu {
   playlistId?: string;
 }
 
+/** Fenêtre de création / personnalisation d'une playlist. */
+export type PlaylistDialog = { mode: "create"; addTrackId?: string } | { mode: "edit"; id: string };
+
 export const useUiStore = defineStore("ui", {
   state: () => ({
     route: { name: "recent" } as Route,
@@ -29,6 +32,7 @@ export const useUiStore = defineStore("ui", {
     search: "",
     toast: null as string | null,
     menu: null as TrackMenu | null,
+    playlistDialog: null as PlaylistDialog | null,
   }),
   getters: {
     canGoBack: (state) => state.history.length > 0,

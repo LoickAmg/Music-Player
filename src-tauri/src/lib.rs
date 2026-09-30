@@ -75,6 +75,7 @@ pub fn run() {
             commands::create_playlist,
             commands::delete_playlist,
             commands::rename_playlist,
+            commands::set_playlist_theme,
             commands::add_to_playlist,
             commands::remove_from_playlist,
             commands::move_track_in_playlist,

@@ -58,7 +58,7 @@ const albums = computed(() => {
   display: flex;
   gap: 2px;
   padding: 2px;
-  border-radius: 3px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
 }
 .sorts button {

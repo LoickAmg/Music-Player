@@ -17,10 +17,10 @@ export const usePlaylistsStore = defineStore("playlists", {
     async fetchAll() {
       this.items = await api.listPlaylists();
     },
-    async create(name: string): Promise<string | null> {
+    async create(name: string, theme?: string): Promise<string | null> {
       this.error = null;
       try {
-        const id = await api.createPlaylist(name);
+        const id = await api.createPlaylist(name, theme);
         await this.fetchAll();
         return id;
       } catch (e) {
@@ -41,6 +41,15 @@ export const usePlaylistsStore = defineStore("playlists", {
       this.error = null;
       try {
         await api.renamePlaylist(id, name);
+        await this.fetchAll();
+      } catch (e) {
+        this.error = String(e);
+      }
+    },
+    async setTheme(id: string, theme: string) {
+      this.error = null;
+      try {
+        await api.setPlaylistTheme(id, theme);
         await this.fetchAll();
       } catch (e) {
         this.error = String(e);

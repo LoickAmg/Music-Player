@@ -4,6 +4,7 @@ import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
+import PlaylistCover from "./PlaylistCover.vue";
 
 const ui = useUiStore();
 const library = useLibraryStore();
@@ -25,18 +26,13 @@ const progress = computed(() => {
   return Math.round((p.done / p.total) * 100);
 });
 
-async function newPlaylist() {
-  const id = await playlists.create(`Nouvelle playlist ${playlists.items.length + 1}`);
-  if (id) ui.go({ name: "playlist", id });
+function newPlaylist() {
+  ui.playlistDialog = { mode: "create" };
 }
 </script>
 
 <template>
   <aside class="sidebar">
-    <div class="brand">
-      <img src="/logo.png" alt="" />
-      <span>Music<br /><b>Player</b></span>
-    </div>
     <label class="search">
       <Icon name="search" :size="15" />
       <input
@@ -80,7 +76,7 @@ async function newPlaylist() {
         :class="{ active: ui.route.name === 'playlist' && ui.route.id === p.id }"
         @click="ui.go({ name: 'playlist', id: p.id })"
       >
-        <Icon name="playlist" :size="17" class="ico" />
+        <PlaylistCover :name="p.name" :theme="p.theme" :radius="4" mini class="pl-thumb" />
         <span class="ellipsis">{{ p.name }}</span>
       </button>
       <p v-if="!playlists.items.length" class="empty">Aucune playlist pour l'instant.</p>
@@ -111,40 +107,9 @@ async function newPlaylist() {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 16px 12px 10px;
-  background: linear-gradient(180deg, rgba(3, 11, 34, 0.95), rgba(2, 7, 22, 0.97));
-  border-right: 1px solid rgba(63, 224, 255, 0.18);
-  box-shadow: 1px 0 0 rgba(31, 107, 255, 0.2), 8px 0 30px rgba(0, 0, 0, 0.35);
-  position: relative;
-  z-index: 6;
-}
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 0 4px 18px;
-}
-.brand img {
-  width: 44px;
-  height: 44px;
-  clip-path: polygon(14% 0, 100% 0, 86% 100%, 0 100%);
-  filter: drop-shadow(3px 3px 0 var(--blue));
-}
-.brand span {
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 700;
-  font-size: 15px;
-  line-height: 0.95;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-.brand b {
-  font-weight: 800;
-  font-size: 22px;
-  color: var(--text);
-  text-shadow: 2px 2px 0 var(--blue);
+  padding: 14px 10px 10px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--separator);
 }
 .search {
   display: flex;
@@ -153,13 +118,13 @@ async function newPlaylist() {
   height: 30px;
   padding: 0 9px;
   margin: 0 4px 18px;
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
-  background: rgba(31, 107, 255, 0.18);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.07);
   color: var(--text-2);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
 }
 .search:focus-within {
-  background: rgba(63, 224, 255, 0.2);
-  color: var(--text);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 .search input {
   flex: 1;
@@ -188,14 +153,9 @@ async function newPlaylist() {
   align-items: center;
   justify-content: space-between;
   margin: 0 10px 6px;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--cyan);
-  opacity: 0.75;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 .add {
   display: grid;
@@ -212,52 +172,31 @@ async function newPlaylist() {
   background: var(--bg-hover);
 }
 .nav-item {
-  position: relative;
-  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 34px;
-  padding: 0 12px;
+  height: 30px;
+  padding: 0 10px;
   border: 0;
+  border-radius: 7px;
   background: none;
   text-align: left;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 600;
-  font-size: 17px;
-  letter-spacing: 0.03em;
+  font-size: 13.5px;
   min-width: 0;
-  transition: color 0.15s, transform 0.2s var(--ease);
-}
-.nav-item::before {
-  content: "";
-  position: absolute;
-  inset: 2px 0;
-  z-index: -1;
-  transform: skewX(-16deg);
-  transition: background 0.15s, box-shadow 0.2s var(--ease);
 }
 .nav-item:hover {
-  transform: translateX(3px);
-}
-.nav-item:hover::before {
   background: var(--bg-hover);
 }
-/* Sélection façon menu P3R : barre blanche inclinée, texte bleu nuit, ombre cyan décalée */
 .nav-item.active {
-  color: var(--ink);
-}
-.nav-item.active::before {
-  background: #fff;
-  box-shadow: 5px 4px 0 var(--cyan);
-}
-.nav-item.active .ico {
-  color: var(--blue);
+  background: var(--bg-active);
 }
 .ico {
   flex: none;
-  color: var(--cyan);
+  color: var(--accent);
+}
+.pl-thumb {
+  flex: none;
+  width: 20px;
 }
 .ellipsis {
   overflow: hidden;

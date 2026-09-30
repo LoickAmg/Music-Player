@@ -126,40 +126,43 @@ function seekTo(ms: number) {
   display: none;
 }
 .line {
-  margin: 0 0 16px;
+  margin: 0 0 18px;
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 27px;
+  font-size: 23px;
   font-weight: 700;
-  line-height: 1.12;
-  letter-spacing: 0.01em;
-  color: rgba(150, 190, 255, 0.3);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.28);
   cursor: pointer;
   transform-origin: left center;
-  transition: color 0.4s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
+  transition: color 0.4s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease), text-shadow 0.6s var(--ease);
   filter: blur(0.6px);
 }
 .line.near {
   filter: none;
 }
 .line.past {
-  color: rgba(150, 190, 255, 0.45);
+  color: color-mix(in srgb, var(--amb-glow) 22%, rgba(255, 255, 255, 0.4));
 }
+/* Lueur de la ligne chantée : teinte de la pochette ; plus large et plus vive quand la
+   pochette est lumineuse, plus sourde quand elle est sombre (--amb-energy). */
 .line.active {
   color: #fff;
-  transform: translateX(6px) scale(1.04);
-  text-shadow: 0 0 18px rgba(63, 224, 255, 0.75), 3px 3px 0 var(--blue);
+  transform: scale(1.03);
   filter: none;
+  text-shadow:
+    0 0 calc(8px + var(--amb-energy) * 20px) color-mix(in srgb, var(--amb-glow) calc(40% + var(--amb-energy) * 45%), transparent),
+    0 0 2px color-mix(in srgb, var(--amb-glow) 50%, transparent);
 }
 .line:hover {
-  color: var(--cyan);
+  color: rgba(255, 255, 255, 0.75);
   filter: none;
 }
 .large .scroller {
   padding: 18vh 8% 50vh;
 }
 .large .line {
-  font-size: clamp(32px, 3.6vw, 52px);
+  font-size: clamp(28px, 3.2vw, 44px);
   margin-bottom: 26px;
 }
 .plain {

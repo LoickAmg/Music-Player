@@ -6,8 +6,8 @@ import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
-import Artwork from "@/components/Artwork.vue";
 import Icon from "@/components/Icon.vue";
+import PlaylistCover from "@/components/PlaylistCover.vue";
 import TrackRow from "@/components/TrackRow.vue";
 
 const props = defineProps<{ id: string }>();
@@ -22,18 +22,6 @@ const tracks = computed(
 );
 const ids = computed(() => tracks.value.map((t) => t.id));
 const duration = computed(() => tracks.value.reduce((s, t) => s + t.duration_secs, 0));
-// Mosaïque de 4 pochettes différentes, comme les playlists d'Apple Music.
-const mosaic = computed(() => {
-  const seen = new Set<string>();
-  const out: Track[] = [];
-  for (const t of tracks.value) {
-    if (!t.has_cover || seen.has(t.album)) continue;
-    seen.add(t.album);
-    out.push(t);
-    if (out.length === 4) break;
-  }
-  return out;
-});
 
 const editing = ref(false);
 const draft = ref("");
@@ -61,12 +49,10 @@ async function remove() {
 <template>
   <div v-if="playlist" class="page">
     <header class="hero">
-      <div class="cover" :class="{ grid: mosaic.length === 4 }">
-        <template v-if="mosaic.length === 4">
-          <Artwork v-for="t in mosaic" :key="t.id" :track="t" :radius="0" />
-        </template>
-        <Artwork v-else :track="mosaic[0] ?? null" :label="playlist.name" :radius="3" />
-      </div>
+      <button type="button" class="cover" title="Personnaliser la jaquette" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }">
+        <PlaylistCover :name="playlist.name" :theme="playlist.theme" :radius="10" />
+        <span class="cover-edit">Personnaliser</span>
+      </button>
       <div class="info">
         <p class="kicker">Playlist</p>
         <input v-if="editing" ref="input" v-model="draft" class="title-input" aria-label="Nom de la playlist" @keydown.enter="commitEdit" @keydown.esc="editing = false" @blur="commitEdit" />
@@ -75,6 +61,7 @@ async function remove() {
         <div class="actions">
           <button type="button" class="pill pill-accent" :disabled="!ids.length" @click="player.playQueue(ids, ids[0])"><Icon name="play" :size="14" /> Lire</button>
           <button type="button" class="pill pill-ghost" :disabled="!ids.length" @click="player.playShuffled(ids)"><Icon name="shuffle" :size="15" /> Aléatoire</button>
+          <button type="button" class="icon-btn" title="Personnaliser (nom, jaquette)" aria-label="Personnaliser la playlist" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }"><Icon name="brush" :size="17" /></button>
           <button type="button" class="icon-btn" title="Supprimer la playlist" aria-label="Supprimer la playlist" @click="remove"><Icon name="trash" :size="17" /></button>
         </div>
       </div>
@@ -98,15 +85,29 @@ async function remove() {
   margin-bottom: 28px;
 }
 .cover {
+  position: relative;
   width: 230px;
   flex: none;
-  border-radius: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
   overflow: hidden;
+  background: none;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
 }
-.cover.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.cover-edit {
+  position: absolute;
+  inset: auto 0 0;
+  padding: 10px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.cover:hover .cover-edit {
+  opacity: 1;
 }
 .kicker {
   margin: 0;
@@ -120,12 +121,9 @@ h1,
 .title-input {
   margin: 4px 0 4px;
   font-family: var(--font-display);
-  font-size: 46px;
-  font-style: italic;
-  font-weight: 800;
-  line-height: 0.98;
-  text-transform: uppercase;
-  text-shadow: 3px 3px 0 var(--blue);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 h1 {
   cursor: text;

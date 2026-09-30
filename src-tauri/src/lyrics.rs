@@ -54,7 +54,9 @@ pub fn parse_lrc(text: &str) -> Option<Vec<LyricLine>> {
         let mut rest = raw.trim();
         let mut stamps = Vec::new();
         while let Some(stripped) = rest.strip_prefix('[') {
-            let Some((tag, after)) = stripped.split_once(']') else { break };
+            let Some((tag, after)) = stripped.split_once(']') else {
+                break;
+            };
             if let Some(value) = tag.strip_prefix("offset:") {
                 offset = value.trim().parse().unwrap_or(0);
             } else if let Some(ms) = parse_timestamp(tag) {
@@ -66,7 +68,10 @@ pub fn parse_lrc(text: &str) -> Option<Vec<LyricLine>> {
         for ms in stamps {
             // Un offset positif avance les paroles (convention LRC).
             let time_ms = (ms as i64 - offset).max(0) as u64;
-            lines.push(LyricLine { time_ms, text: text.clone() });
+            lines.push(LyricLine {
+                time_ms,
+                text: text.clone(),
+            });
         }
     }
     if lines.is_empty() {
@@ -79,7 +84,13 @@ pub fn parse_lrc(text: &str) -> Option<Vec<LyricLine>> {
 fn from_text(text: &str, source: &str) -> Lyrics {
     match parse_lrc(text) {
         Some(synced) => Lyrics {
-            plain: Some(synced.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")),
+            plain: Some(
+                synced
+                    .iter()
+                    .map(|l| l.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             synced: Some(synced),
             instrumental: false,
             source: source.to_string(),
@@ -107,8 +118,23 @@ pub fn local_lyrics(track_path: &Path) -> Option<Lyrics> {
 /// Mentions ajoutées aux titres des vidéos (« (Lyrics) », « [Official Video] »…), qui
 /// empêchent de trouver le morceau.
 const NOISE: &[&str] = &[
-    "lyrics", "lyric", "paroles", "official", "officiel", "video", "vidéo", "clip", "audio",
-    "visualizer", "visualiser", "hd", "hq", "4k", "remastered", "explicit", "music",
+    "lyrics",
+    "lyric",
+    "paroles",
+    "official",
+    "officiel",
+    "video",
+    "vidéo",
+    "clip",
+    "audio",
+    "visualizer",
+    "visualiser",
+    "hd",
+    "hq",
+    "4k",
+    "remastered",
+    "explicit",
+    "music",
 ];
 
 fn strip_noise(title: &str) -> String {
@@ -232,7 +258,8 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
         }
         let mut response = request.call().map_err(|e| e.to_string())?;
         if response.status() == 200 {
-            let record: LrclibRecord = response.body_mut().read_json().map_err(|e| e.to_string())?;
+            let record: LrclibRecord =
+                response.body_mut().read_json().map_err(|e| e.to_string())?;
             return Ok(Some(record.into_lyrics()));
         }
     }
@@ -252,13 +279,18 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
     let results: Vec<LrclibRecord> = response.body_mut().read_json().map_err(|e| e.to_string())?;
     let best = results
         .into_iter()
-        .filter(|r| r.synced_lyrics.is_some() || r.plain_lyrics.is_some() || r.instrumental == Some(true))
+        .filter(|r| {
+            r.synced_lyrics.is_some() || r.plain_lyrics.is_some() || r.instrumental == Some(true)
+        })
         .min_by(|a, b| {
             let da = (a.duration.unwrap_or(0.0) - track.duration_secs).abs();
             let db = (b.duration.unwrap_or(0.0) - track.duration_secs).abs();
             da.total_cmp(&db)
         })
-        .filter(|r| track.duration_secs <= 0.0 || (r.duration.unwrap_or(0.0) - track.duration_secs).abs() < 15.0);
+        .filter(|r| {
+            track.duration_secs <= 0.0
+                || (r.duration.unwrap_or(0.0) - track.duration_secs).abs() < 15.0
+        });
     Ok(best.map(LrclibRecord::into_lyrics))
 }
 
@@ -282,21 +314,30 @@ fn cache_path(cache_dir: &Path, track_id: &str) -> PathBuf {
 /// Résultat en ligne mis en cache. Une absence de paroles est retenue une semaine, pour
 /// retenter plus tard sans interroger le service à chaque écoute.
 fn read_cache(cache_dir: &Path, track_id: &str) -> Option<Option<Lyrics>> {
-    let cached: CachedLyrics = serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()?;
-    let fresh = cached.lyrics.is_some() || now_secs().saturating_sub(cached.fetched_secs) < 7 * 24 * 3600;
+    let cached: CachedLyrics =
+        serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()?;
+    let fresh =
+        cached.lyrics.is_some() || now_secs().saturating_sub(cached.fetched_secs) < 7 * 24 * 3600;
     fresh.then_some(cached.lyrics)
 }
 
 fn write_cache(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>) {
     if std::fs::create_dir_all(cache_dir).is_ok() {
-        if let Ok(json) = serde_json::to_vec(&CachedLyrics { lyrics: lyrics.clone(), fetched_secs: now_secs() }) {
+        if let Ok(json) = serde_json::to_vec(&CachedLyrics {
+            lyrics: lyrics.clone(),
+            fetched_secs: now_secs(),
+        }) {
             let _ = std::fs::write(cache_path(cache_dir, track_id), json);
         }
     }
 }
 
 /// Paroles d'une piste : locales d'abord, puis cache, puis LRCLIB si `allow_online`.
-pub fn lyrics_for(track: &Track, cache_dir: &Path, allow_online: bool) -> Result<Option<Lyrics>, String> {
+pub fn lyrics_for(
+    track: &Track,
+    cache_dir: &Path,
+    allow_online: bool,
+) -> Result<Option<Lyrics>, String> {
     if let Some(local) = local_lyrics(Path::new(&track.path)) {
         return Ok(Some(local));
     }
@@ -340,9 +381,18 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                LyricLine { time_ms: 4_500, text: "Refrain".into() },
-                LyricLine { time_ms: 12_000, text: "Première".into() },
-                LyricLine { time_ms: 29_623, text: "Refrain".into() },
+                LyricLine {
+                    time_ms: 4_500,
+                    text: "Refrain".into()
+                },
+                LyricLine {
+                    time_ms: 12_000,
+                    text: "Première".into()
+                },
+                LyricLine {
+                    time_ms: 29_623,
+                    text: "Refrain".into()
+                },
             ]
         );
     }
@@ -358,14 +408,23 @@ mod tests {
     #[test]
     fn cleans_video_style_titles() {
         assert_eq!(strip_noise("Timeless (Lyrics)"), "Timeless");
-        assert_eq!(strip_noise("Song [Official Music Video] (feat. X)"), "Song (feat. X)");
-        let (artist, title) = search_terms(&track("The Weeknd - Timeless (Official Video)", UNKNOWN_ARTIST));
+        assert_eq!(
+            strip_noise("Song [Official Music Video] (feat. X)"),
+            "Song (feat. X)"
+        );
+        let (artist, title) = search_terms(&track(
+            "The Weeknd - Timeless (Official Video)",
+            UNKNOWN_ARTIST,
+        ));
         assert_eq!(artist.as_deref(), Some("The Weeknd"));
         assert_eq!(title, "Timeless");
         let (artist, title) = search_terms(&track("Damso - Θ. Macarena", "Damso"));
         assert_eq!(artist.as_deref(), Some("Damso"));
         assert_eq!(title, "Θ. Macarena");
-        let (artist, title) = search_terms(&track("\"Crying for Rain\" - 美波 (Minami) MV", UNKNOWN_ARTIST));
+        let (artist, title) = search_terms(&track(
+            "\"Crying for Rain\" - 美波 (Minami) MV",
+            UNKNOWN_ARTIST,
+        ));
         assert_eq!(artist.as_deref(), Some("美波 (Minami)"));
         assert_eq!(title, "Crying for Rain");
     }

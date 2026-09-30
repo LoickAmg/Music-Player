@@ -18,7 +18,7 @@ function play() {
 <template>
   <div class="album-card">
     <button type="button" class="cover" :aria-label="`Ouvrir ${album.title}`" @click="ui.go({ name: 'album', key: album.key })">
-      <Artwork :track="album.coverTrack" :label="album.title" :radius="3" />
+      <Artwork :track="album.coverTrack" :label="album.title" :radius="8" />
       <span class="play" role="button" :aria-label="`Lire ${album.title}`" @click.stop="play">
         <Icon name="play" :size="16" />
       </span>
@@ -39,14 +39,14 @@ function play() {
   padding: 0;
   border: 0;
   background: none;
-  border-radius: 3px;
+  border-radius: 8px;
   transition: transform 0.25s var(--ease);
 }
 .cover:hover {
-  transform: translate(-3px, -3px) rotate(-1.2deg);
+  transform: translateY(-2px);
 }
 .cover:hover :deep(.art) {
-  box-shadow: 6px 6px 0 var(--cyan), 0 16px 30px rgba(0, 4, 20, 0.6);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
 }
 .play {
   position: absolute;
@@ -56,9 +56,8 @@ function play() {
   place-items: center;
   width: 34px;
   height: 34px;
-  clip-path: polygon(20% 0, 100% 0, 80% 100%, 0 100%);
-  width: 42px !important;
-  background: rgba(4, 16, 46, 0.85);
+  border-radius: 50%;
+  background: rgba(20, 20, 22, 0.72);
   backdrop-filter: blur(10px);
   color: #fff;
   opacity: 0;
@@ -70,8 +69,7 @@ function play() {
   transform: none;
 }
 .play:hover {
-  background: var(--cyan);
-  color: var(--ink);
+  background: var(--accent);
 }
 .title,
 .artist {
@@ -84,12 +82,9 @@ function play() {
   text-overflow: ellipsis;
 }
 .title {
-  margin-top: 9px;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  margin-top: 8px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .artist {
   font-size: 12.5px;

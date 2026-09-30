@@ -37,7 +37,8 @@ export const api = {
   pollAutoAdvance: () => invoke<Track | null>("poll_auto_advance"),
 
   listPlaylists: () => invoke<Playlist[]>("list_playlists"),
-  createPlaylist: (name: string) => invoke<string>("create_playlist", { name }),
+  createPlaylist: (name: string, theme?: string) => invoke<string>("create_playlist", { name, theme: theme ?? null }),
+  setPlaylistTheme: (id: string, theme: string) => invoke<void>("set_playlist_theme", { id, theme }),
   deletePlaylist: (id: string) => invoke<void>("delete_playlist", { id }),
   renamePlaylist: (id: string, name: string) => invoke<void>("rename_playlist", { id, name }),
   addToPlaylist: (playlistId: string, trackId: string) =>

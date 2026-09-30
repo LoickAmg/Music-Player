@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { api, onScanEvents } from "@/lib/api";
 import { SCROLLER } from "@/lib/virtual";
+import { useAmbienceStore } from "@/stores/ambience";
 import { useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
@@ -10,6 +11,7 @@ import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 import NowPlaying from "@/components/NowPlaying.vue";
+import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
@@ -29,6 +31,7 @@ const playlists = usePlaylistsStore();
 const eq = useEqStore();
 const ui = useUiStore();
 const lyrics = useLyricsStore();
+const ambience = useAmbienceStore();
 
 const ready = ref(false);
 const demoMode = "__MP_DEMO__" in window;
@@ -40,6 +43,13 @@ provide(SCROLLER, scroller);
 watch(
   () => ui.route,
   () => scroller.value?.scrollTo({ top: 0 }),
+);
+
+// Les couleurs de l'interface suivent la pochette du morceau en cours.
+watch(
+  () => player.currentTrack,
+  (track) => void ambience.follow(track),
+  { immediate: true },
 );
 
 // Les paroles ne sont chargées que lorsqu'elles sont visibles.
@@ -131,7 +141,11 @@ onBeforeUnmount(() => {
       </Transition>
 
       <div class="body">
-        <div ref="scroller" class="content" :class="{ flush: ui.route.name === 'artists' }">
+        <div
+          ref="scroller"
+          class="content"
+          :class="{ flush: ui.route.name === 'artists', home: !library.root || ui.route.name === 'recent', ambient: !!player.currentTrack }"
+        >
           <div v-if="!library.root" class="welcome">
             <img class="welcome-art" src="/logo.png" alt="" />
             <h1>Bienvenue</h1>
@@ -167,6 +181,7 @@ onBeforeUnmount(() => {
       <NowPlaying v-if="ui.nowPlayingOpen" />
     </Transition>
     <TrackMenu />
+    <PlaylistDialog />
     <Transition name="fade">
       <div v-if="ui.toast" class="toast" role="status">{{ ui.toast }}</div>
     </Transition>
@@ -177,13 +192,8 @@ onBeforeUnmount(() => {
 .app {
   height: 100%;
   display: grid;
-  grid-template-columns: 244px 1fr;
-  /* Fond « nuit bleue » : dégradé profond, lueur cyan et fines rayures diagonales */
-  background:
-    radial-gradient(ellipse 60% 45% at 85% 0%, rgba(31, 107, 255, 0.35), transparent 70%),
-    radial-gradient(ellipse 50% 40% at 10% 100%, rgba(63, 224, 255, 0.12), transparent 70%),
-    repeating-linear-gradient(115deg, rgba(120, 180, 255, 0.025) 0 2px, transparent 2px 14px),
-    linear-gradient(160deg, #071a47 0%, #04102e 45%, #020716 100%);
+  grid-template-columns: 236px 1fr;
+  background: var(--bg-content);
 }
 .main {
   display: flex;
@@ -201,6 +211,26 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+}
+/* Hors accueil : un halo discret aux couleurs de la pochette en cours. */
+.content.ambient {
+  background:
+    radial-gradient(ellipse 90% 55% at 50% -12%, color-mix(in srgb, var(--amb-primary) 34%, transparent), transparent 72%),
+    radial-gradient(ellipse 50% 40% at 100% 0%, color-mix(in srgb, var(--amb-secondary) 18%, transparent), transparent 70%);
+}
+/* Accueil : palette de Persona 3 Reload (bleu nuit, bleu électrique, cyan), couleurs seulement. */
+.content.home {
+  --accent: #3fb8ff;
+  --accent-soft: rgba(63, 184, 255, 0.16);
+  --bg-hover: rgba(63, 184, 255, 0.08);
+  --bg-active: rgba(63, 184, 255, 0.16);
+  --text-2: rgba(205, 225, 255, 0.68);
+  --text-3: rgba(170, 200, 245, 0.42);
+  --separator: rgba(120, 170, 255, 0.12);
+  background:
+    radial-gradient(ellipse 70% 50% at 90% -5%, rgba(31, 107, 255, 0.42), transparent 70%),
+    radial-gradient(ellipse 55% 45% at 0% 105%, rgba(63, 224, 255, 0.14), transparent 70%),
+    linear-gradient(165deg, #0a2361 0%, #061640 40%, #030b24 100%);
 }
 .content.flush {
   overflow: hidden;
@@ -220,12 +250,12 @@ onBeforeUnmount(() => {
   font-size: 12.5px;
 }
 .demo {
-  background: rgba(31, 107, 255, 0.25);
-  color: #cfe6ff;
+  background: #3b2d10;
+  color: #ffd98a;
 }
 .error {
-  background: linear-gradient(90deg, #6b0f24, #3a0a1a);
-  color: #ffd6de;
+  background: #4a1620;
+  color: #ffd1d8;
 }
 .welcome {
   height: 100%;
@@ -238,13 +268,9 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 .welcome h1 {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   font-family: var(--font-display);
-  font-size: 48px;
-  font-style: italic;
-  font-weight: 800;
-  text-transform: uppercase;
-  text-shadow: 3px 3px 0 var(--blue);
+  font-size: 28px;
 }
 .welcome p {
   max-width: 420px;
@@ -253,17 +279,18 @@ onBeforeUnmount(() => {
   line-height: 1.55;
 }
 .welcome-art {
-  width: 128px;
-  height: 128px;
-  clip-path: polygon(10% 0, 100% 0, 90% 100%, 0 100%);
-  filter: drop-shadow(6px 6px 0 var(--blue));
+  width: 112px;
+  height: 112px;
+  border-radius: 26px;
+  object-fit: cover;
+  box-shadow: 0 16px 40px rgba(0, 10, 40, 0.5);
 }
 .big-spinner {
   width: 34px;
   height: 34px;
   border-radius: 50%;
   border: 3px solid rgba(255, 255, 255, 0.12);
-  border-top-color: var(--cyan);
+  border-top-color: var(--accent);
   animation: spin 0.9s linear infinite;
 }
 @keyframes spin {
@@ -272,12 +299,6 @@ onBeforeUnmount(() => {
   }
 }
 .toast {
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 600;
-  font-size: 15px !important;
-  letter-spacing: 0.03em;
-  border-left: 4px solid var(--cyan);
   position: fixed;
   left: 50%;
   bottom: 28px;
@@ -285,7 +306,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   padding: 9px 16px;
   border-radius: 10px;
-  background: rgba(7, 26, 71, 0.95);
+  background: rgba(50, 50, 54, 0.95);
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
   font-size: 13px;

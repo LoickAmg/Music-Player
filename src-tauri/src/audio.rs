@@ -74,12 +74,14 @@ impl AudioHandle {
     pub fn play(&self, path: &str, volume: f32) -> Result<(), String> {
         let (reply, answer) = mpsc::channel();
         self.send(AudioCommand::Play(path.to_string(), volume, Some(reply)));
-        answer.recv_timeout(Duration::from_secs(60)).unwrap_or_else(|_| {
-            Err(self
-                .status()
-                .device_error
-                .unwrap_or_else(|| "Le moteur audio ne répond pas.".to_string()))
-        })
+        answer
+            .recv_timeout(Duration::from_secs(60))
+            .unwrap_or_else(|_| {
+                Err(self
+                    .status()
+                    .device_error
+                    .unwrap_or_else(|| "Le moteur audio ne répond pas.".to_string()))
+            })
     }
 
     pub fn pause(&self) {
@@ -159,8 +161,12 @@ fn native_decoder(path: &Path) -> Result<BoxedSource, String> {
             offset = leading_id3_len(&header).min(len);
         }
     }
-    file.seek(SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(OffsetReader { inner: file, offset });
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|e| e.to_string())?;
+    let reader = BufReader::new(OffsetReader {
+        inner: file,
+        offset,
+    });
     let decoder = Decoder::builder()
         .with_data(reader)
         .with_byte_len(len - offset)
@@ -277,7 +283,11 @@ impl Engine {
     }
 }
 
-fn audio_thread_main(rx: Receiver<AudioCommand>, status: Arc<Mutex<AudioStatus>>, eq_gains: EqGains) {
+fn audio_thread_main(
+    rx: Receiver<AudioCommand>,
+    status: Arc<Mutex<AudioStatus>>,
+    eq_gains: EqGains,
+) {
     let mut device = match DeviceSinkBuilder::open_default_sink() {
         Ok(d) => d,
         Err(e) => {
@@ -335,7 +345,10 @@ mod tests {
     #[test]
     fn offset_reader_hides_the_leading_bytes() {
         let data = b"JUNKfLaCdata".to_vec();
-        let mut r = OffsetReader { inner: Cursor::new(data), offset: 4 };
+        let mut r = OffsetReader {
+            inner: Cursor::new(data),
+            offset: 4,
+        };
         r.seek(SeekFrom::Start(0)).unwrap();
         let mut buf = [0u8; 4];
         r.read_exact(&mut buf).unwrap();

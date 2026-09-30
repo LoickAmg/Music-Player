@@ -24,7 +24,7 @@ const others = computed(() =>
 <template>
   <div v-if="album" class="page">
     <header class="hero">
-      <Artwork :track="album.coverTrack" :label="album.title" :radius="3" eager class="art" />
+      <Artwork :track="album.coverTrack" :label="album.title" :radius="10" eager class="art" />
       <div class="info">
         <p class="kicker">Album</p>
         <h1>{{ album.title }}</h1>
@@ -90,12 +90,9 @@ const others = computed(() =>
 h1 {
   margin: 4px 0 2px;
   font-family: var(--font-display);
-  font-size: 46px;
-  font-style: italic;
-  font-weight: 800;
-  line-height: 0.98;
-  text-transform: uppercase;
-  text-shadow: 3px 3px 0 var(--blue);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.12;
 }
 .artist {
