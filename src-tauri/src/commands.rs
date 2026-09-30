@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
+#[cfg(not(target_os = "android"))]
 use tauri_plugin_dialog::DialogExt;
 
 #[derive(Debug, Serialize)]
@@ -65,15 +66,16 @@ pub async fn pick_library_folder(app: tauri::AppHandle) -> Option<String> {
     #[cfg(target_os = "android")]
     {
         let _ = app;
-        return Some(ANDROID_STORAGE.to_string());
+        Some(ANDROID_STORAGE.to_string())
     }
     #[cfg(not(target_os = "android"))]
-    let (tx, rx) = std::sync::mpsc::channel();
-    app.dialog().file().pick_folder(move |folder| {
-        let _ = tx.send(folder);
-    });
-    #[cfg(not(target_os = "android"))]
-    rx.recv().ok().flatten().map(|p| p.to_string())
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.dialog().file().pick_folder(move |folder| {
+            let _ = tx.send(folder);
+        });
+        rx.recv().ok().flatten().map(|p| p.to_string())
+    }
 }
 
 /// Racine du stockage partagé sur Android.
