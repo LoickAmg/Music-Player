@@ -116,26 +116,27 @@ jobs:
   # « app-v* » (et joint à la release) ou à la demande depuis l'onglet Actions.
   android:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch'
+    # Aussi sur un push dont le message contient « [android] » (test sans publier).
+    if: startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android]')
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      NDK_VERSION: "27.2.12479018"
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
+      # Le SDK et le NDK Android sont préinstallés sur les machines Ubuntu de GitHub.
       - name: SDK et NDK Android
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;${NDK_VERSION}"
-          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-35" "build-tools;35.0.0"
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "NDK : $ANDROID_NDK_LATEST_HOME"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
