@@ -76,7 +76,7 @@ const ui = useUiStore();
   background: rgba(255, 255, 255, 0.14);
   color: var(--text);
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .top {
     flex-direction: column;
     align-items: stretch;

@@ -108,7 +108,7 @@ function play(index: number) {
   font-size: 8px;
   margin-left: 3px;
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .header {
     display: none;
   }

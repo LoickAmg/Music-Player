@@ -36,7 +36,7 @@ const ui = useUiStore();
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: calc(env(safe-area-inset-top) + 10px) 12px 10px;
+  padding: calc(var(--safe-top) + 10px) 12px 10px;
   background: linear-gradient(rgba(5, 13, 36, 0.96), rgba(5, 13, 36, 0.82));
   backdrop-filter: blur(20px);
 }

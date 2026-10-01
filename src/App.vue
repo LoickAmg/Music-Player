@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { api, onScanEvents } from "@/lib/api";
-import { installAndroidMedia } from "@/lib/androidMedia";
+import { installAndroidMedia, installInsets } from "@/lib/androidMedia";
 import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
@@ -54,11 +54,41 @@ watch(
   () => scroller.value?.scrollTo({ top: 0 }),
 );
 
-// Téléphone ou fenêtre étroite : interface mobile (onglets en bas, lecteur compact).
-const narrow = window.matchMedia("(max-width: 760px)");
+installInsets();
+
+// Téléphone, fenêtre étroite, ou écran tactile jusqu'à 1100 px (tablette, pliable ouvert en
+// paysage) : interface tactile (onglets en bas, lecteur compact). Même requête que les
+// règles CSS « mobiles ».
+const narrow = window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-width: 1100px)");
 ui.isMobile = narrow.matches;
 narrow.addEventListener("change", (e) => (ui.isMobile = e.matches));
+const coarse = window.matchMedia("(pointer: coarse)");
+ui.isTouch = coarse.matches;
+coarse.addEventListener("change", (e) => (ui.isTouch = e.matches));
 const onAndroid = /Android/i.test(navigator.userAgent);
+
+// WebView trop ancienne pour les couleurs dynamiques (color-mix, Chrome 111+) : conseil
+// de mise à jour affiché une fois.
+const WEBVIEW_NOTICE = "mp:webview-notice";
+const oldWebView = ref(
+  onAndroid &&
+    !CSS.supports("color", "color-mix(in srgb, red, blue)") &&
+    (() => {
+      try {
+        return localStorage.getItem(WEBVIEW_NOTICE) !== "1";
+      } catch {
+        return true;
+      }
+    })(),
+);
+function dismissWebViewNotice() {
+  oldWebView.value = false;
+  try {
+    localStorage.setItem(WEBVIEW_NOTICE, "1");
+  } catch {
+    // stockage indisponible
+  }
+}
 
 // Les couleurs de l'interface suivent la pochette du morceau en cours.
 watch(
@@ -179,8 +209,11 @@ onBeforeUnmount(() => {
       <div v-if="demoMode" class="banner demo">
         Mode démonstration (navigateur) : pistes fictives, pas de son. L'application de bureau lit vos vrais fichiers.
       </div>
+      <!-- Messages : bandeaux en haut sur ordinateur ; sur téléphone, cartes au-dessus du
+           mini-lecteur, à portée de pouce (en haut, elles passaient sous la barre d'état). -->
+      <div class="notices">
       <Transition name="fade">
-        <div v-if="updater.available && !updater.dismissed" class="banner update" role="status">
+        <div v-if="updater.available && !updater.dismissed && !(ui.isMobile && ui.nowPlayingOpen)" class="banner update" role="status">
           <span v-if="updater.installing">
             Téléchargement de la version {{ updater.available.version }}…
             <template v-if="updater.progress !== null">{{ Math.round(updater.progress * 100) }} %</template>
@@ -200,6 +233,16 @@ onBeforeUnmount(() => {
           <button type="button" class="icon-btn" aria-label="Fermer" @click="player.error = null"><Icon name="close" :size="14" /></button>
         </div>
       </Transition>
+      <Transition name="fade">
+        <div v-if="oldWebView" class="banner error" role="status">
+          <span>
+            Le composant d'affichage de ce téléphone est ancien : mettez à jour « Android System WebView »
+            (Play Store ou boutique du téléphone) pour un affichage correct.
+          </span>
+          <button type="button" class="icon-btn" aria-label="Fermer" @click="dismissWebViewNotice"><Icon name="close" :size="14" /></button>
+        </div>
+      </Transition>
+      </div>
 
       <div class="body">
         <div
@@ -261,16 +304,19 @@ onBeforeUnmount(() => {
 }
 .app.mobile {
   grid-template-columns: 1fr;
+  /* Encoche ou caméra sur le côté (paysage, pliables) */
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 /* Espace réservé sous le contenu pour les onglets (+ le mini-lecteur s'il y a un morceau) */
 .app.mobile .content {
-  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  padding-bottom: calc(76px + var(--safe-bottom));
 }
 .app.mobile.has-track .content {
-  padding-bottom: calc(140px + env(safe-area-inset-bottom));
+  padding-bottom: calc(140px + var(--safe-bottom));
 }
 .app.mobile .toast {
-  bottom: calc(150px + env(safe-area-inset-bottom));
+  bottom: calc(150px + var(--safe-bottom));
 }
 .main {
   display: flex;
@@ -343,6 +389,48 @@ onBeforeUnmount(() => {
 .update .pill {
   padding: 5px 14px;
   font-size: 12px;
+}
+/* Téléphone : cartes au-dessus du mini-lecteur (et des onglets), larges et lisibles. */
+.app.mobile .notices {
+  position: fixed;
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  bottom: calc(84px + var(--safe-bottom));
+  z-index: 45;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.app.mobile.has-track .notices {
+  bottom: calc(150px + var(--safe-bottom));
+}
+.app.mobile .notices .banner {
+  pointer-events: auto;
+  padding: 14px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+.app.mobile .notices .update {
+  flex-direction: column;
+  align-items: stretch;
+  background: #10306e;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.app.mobile .notices .update .banner-actions {
+  gap: 10px;
+}
+.app.mobile .notices .update .pill {
+  flex: 1;
+  padding: 12px 16px;
+  font-size: 15px;
+}
+.app.mobile .notices .error {
+  background: #4a1230;
+}
+.app.mobile .demo {
+  padding-top: calc(var(--safe-top) + 7px);
 }
 .error {
   background: #3a0f24;

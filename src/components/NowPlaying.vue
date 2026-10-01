@@ -13,6 +13,13 @@ import LyricsView from "./LyricsView.vue";
 
 const player = usePlayerStore();
 const ui = useUiStore();
+// Écran étroit (téléphone, écran extérieur d'un pliable) : une colonne, pochette ou paroles.
+// À partir de 600 px (pliable ouvert, tablette) : pochette et paroles côte à côte.
+const narrowQuery = window.matchMedia("(max-width: 599px)");
+const narrow = ref(narrowQuery.matches);
+const onNarrow = (e: MediaQueryListEvent) => (narrow.value = e.matches);
+narrowQuery.addEventListener("change", onNarrow);
+onBeforeUnmount(() => narrowQuery.removeEventListener("change", onNarrow));
 const now = useNow();
 
 const track = computed(() => player.currentTrack);
@@ -29,7 +36,7 @@ const showLyrics = ref(false);
 // Écran gardé allumé tant que les paroles défilent (paroles affichées, lecture en cours).
 const lyrics = useLyricsStore();
 watch(
-  () => (!ui.isMobile || showLyrics.value) && !player.isPaused && !!lyrics.lyrics?.synced,
+  () => (!narrow.value || showLyrics.value) && !player.isPaused && !!lyrics.lyrics?.synced,
   (on) => keepScreenOn(on),
   { immediate: true },
 );
@@ -105,7 +112,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       <Icon name="collapse" :size="18" />
     </button>
 
-    <div v-if="track" class="layout" :class="{ 'm-lyrics': ui.isMobile && showLyrics }">
+    <div v-if="track" class="layout" :class="{ 'm-lyrics': narrow && showLyrics }">
       <div class="left">
         <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
         <div class="meta">
@@ -147,7 +154,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <span v-if="player.repeat === 'one'" class="rep-one">1</span>
           </button>
         </div>
-        <div v-if="ui.isMobile" class="m-extra">
+        <div v-if="narrow" class="m-extra">
           <button type="button" class="icon-btn" :class="{ on: showLyrics }" aria-label="Paroles" @click="showLyrics = !showLyrics">
             <Icon name="lyrics" :size="22" />
           </button>
@@ -155,7 +162,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       </div>
       <!-- Paroles sur téléphone : petite pochette, titre et artiste en haut (comme Apple
            Music) ; un appui revient à la grande pochette. -->
-      <button v-if="ui.isMobile && showLyrics" type="button" class="m-head" aria-label="Afficher la pochette" @click="showLyrics = false">
+      <button v-if="narrow && showLyrics" type="button" class="m-head" aria-label="Afficher la pochette" @click="showLyrics = false">
         <Artwork :track="track" :radius="8" eager class="m-head-art" />
         <span class="m-head-text">
           <span class="t">{{ track.title }}</span>
@@ -302,8 +309,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .collapse {
   position: absolute;
-  top: 18px;
-  left: 18px;
+  top: calc(var(--safe-top) + 14px);
+  left: calc(var(--safe-left) + 14px);
   z-index: 2;
   color: rgba(255, 255, 255, 0.8);
 }
@@ -312,9 +319,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   z-index: 1;
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(300px, 0.9fr) 1.1fr;
+  grid-template-columns: minmax(240px, 0.9fr) minmax(0, 1.1fr);
   gap: 4vw;
-  padding: 0 6vw;
+  padding: var(--safe-top) calc(6vw + var(--safe-right)) var(--safe-bottom) calc(6vw + var(--safe-left));
 }
 .left {
   align-self: center;
@@ -437,13 +444,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   justify-content: center;
   margin-top: 10px;
 }
-@media (max-width: 760px) {
+@media (max-width: 599px) {
   .layout {
     display: flex;
     flex-direction: column;
     justify-content: center;
     gap: 0;
-    padding: calc(env(safe-area-inset-top) + 56px) 24px calc(env(safe-area-inset-bottom) + 24px);
+    padding: calc(var(--safe-top) + 56px) 24px calc(var(--safe-bottom) + 24px);
   }
   .left {
     width: 100%;
@@ -462,9 +469,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
      passent jamais sous la barre de progression. */
   .layout.m-lyrics {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
     justify-content: stretch;
-    padding-top: calc(env(safe-area-inset-top) + 52px);
+    padding-top: calc(var(--safe-top) + 52px);
   }
   .m-lyrics .right {
     display: block;
@@ -525,7 +533,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     margin-top: 4px;
   }
   .collapse {
-    top: calc(env(safe-area-inset-top) + 12px);
+    top: calc(var(--safe-top) + 12px);
   }
   /* Fond allégé pour les téléphones modestes : un flou calculé une fois (plus d'image
      floutée qui tourne), des nappes de lumière sans flou ni fusion, sur leur propre
@@ -564,5 +572,42 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 :root[data-perf="lite"] .hero-art {
   box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+}
+/* Pliable à moitié ouvert, charnière horizontale (mode Flex du Z Flip, Z Fold posé…) :
+   paroles dans la moitié haute, titre, progression et commandes sous la charnière. Ne
+   s'applique que sur les appareils qui signalent cette posture (segments d'affichage). */
+@media (vertical-viewport-segments: 2) {
+  .layout,
+  .layout.m-lyrics {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: env(viewport-segment-height 0 0) env(viewport-segment-height 0 1);
+    row-gap: calc(env(viewport-segment-top 0 1) - env(viewport-segment-bottom 0 0));
+    padding: 0 calc(24px + var(--safe-right)) 0 calc(24px + var(--safe-left));
+  }
+  .right,
+  .m-lyrics .right {
+    display: block;
+    grid-row: 1;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+    padding-top: calc(var(--safe-top) + 48px);
+  }
+  .left,
+  .m-lyrics .left {
+    grid-row: 2;
+    align-self: center;
+    justify-self: center;
+    width: min(100%, 520px);
+  }
+  .hero-art,
+  .m-head,
+  .m-extra {
+    display: none;
+  }
+  .m-lyrics .meta {
+    display: block;
+  }
 }
 </style>

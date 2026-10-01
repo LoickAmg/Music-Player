@@ -155,7 +155,7 @@ h1 {
 .empty p {
   margin: 4px;
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .hero {
     flex-direction: column;
     align-items: center;

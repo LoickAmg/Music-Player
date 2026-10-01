@@ -75,7 +75,13 @@ jobs:
           body: |
             Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
             Choisis le fichier correspondant à ton système ci-dessous.
-            Les applications déjà installées (à partir de la 0.4.3) proposent la mise à jour d'elles-mêmes.
+            Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
+
+            Configuration requise :
+            - Android 8.0 ou plus (ARM 64/32 bits), Android System WebView à jour (111+) : Music-Player-android.apk
+            - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
+            - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
+            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
 
   release:
     needs: [test, create-release]
@@ -139,9 +145,15 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Music Player ${{ github.ref_name }}"
           releaseBody: |
-            Installeurs générés automatiquement par la CI pour Windows, macOS et Linux.
+            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
             Choisis le fichier correspondant à ton système ci-dessous.
-            Les applications déjà installées (à partir de la 0.4.3) proposent la mise à jour d'elles-mêmes.
+            Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
+
+            Configuration requise :
+            - Android 8.0 ou plus (ARM 64/32 bits), Android System WebView à jour (111+) : Music-Player-android.apk
+            - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
+            - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
+            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
           releaseDraft: false
           prerelease: false
 

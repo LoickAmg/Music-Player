@@ -17,6 +17,7 @@ const lineEls: HTMLElement[] = [];
 /** Le texte suit la chanson ; faux pendant que l'utilisateur fait défiler au doigt. */
 const following = ref(true);
 let resumeTimer: ReturnType<typeof setTimeout> | undefined;
+let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
 // Légère avance : la ligne s'allume au moment où elle commence à être chantée.
@@ -54,6 +55,15 @@ function scrollToActive(smooth = true) {
   const target = Math.max(0, el ? el.offsetTop + el.offsetHeight / 2 - box.clientHeight * 0.3 : 0);
   if (Math.abs(target - box.scrollTop) < 2) return;
   box.scrollTo({ top: target, behavior: smooth ? "smooth" : "auto" });
+  // Téléphone surchargé (enregistrement d'écran sur une puce modeste…) : le défilement doux
+  // peut être abandonné en route. Ligne placée directement s'il n'est pas arrivé.
+  clearTimeout(snapTimer);
+  if (smooth) {
+    snapTimer = setTimeout(() => {
+      const max = box.scrollHeight - box.clientHeight;
+      if (following.value && Math.abs(box.scrollTop - Math.min(target, max)) > 4) box.scrollTop = target;
+    }, 900);
+  }
 }
 
 watch(active, () => nextTick(() => scrollToActive()));
@@ -70,6 +80,7 @@ watch(
 function holdFollow() {
   following.value = false;
   clearTimeout(resumeTimer);
+  clearTimeout(snapTimer);
 }
 
 function resumeLater(delay = 2600) {
@@ -93,7 +104,10 @@ function seekTo(ms: number) {
   resume();
 }
 
-onBeforeUnmount(() => clearTimeout(resumeTimer));
+onBeforeUnmount(() => {
+  clearTimeout(resumeTimer);
+  clearTimeout(snapTimer);
+});
 </script>
 
 <template>
@@ -350,7 +364,7 @@ onBeforeUnmount(() => clearTimeout(resumeTimer));
 }
 /* Téléphone : les paroles commencent juste sous l'en-tête (pochette, titre) et s'effacent
    avant la barre de progression ; lueur plus courte ; texte un peu plus grand. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .fade {
     mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 40px), transparent);
   }
@@ -358,7 +372,9 @@ onBeforeUnmount(() => clearTimeout(resumeTimer));
     padding: 14px 4px 55vh;
   }
   .line {
-    font-size: 25px;
+    /* Proportionnel à la largeur : lisible sur l'écran extérieur d'un Z Flip comme sur un
+       grand téléphone. */
+    font-size: clamp(20px, 6.4vw, 26px);
   }
   .line.active .txt {
     filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amb-glow) calc(30% + var(--amb-energy) * 40%), transparent));

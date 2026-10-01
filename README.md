@@ -1,8 +1,32 @@
 # Music Player
 
-Lecteur de musique de bureau, léger et multiplateforme (Windows/macOS/Linux) :
+Lecteur de musique léger et multiplateforme (Windows, macOS, Linux et Android) :
 bibliothèque locale, playlists, file d'attente avec lecture aléatoire et
-répétition, et un mini égaliseur 3 bandes appliqué en direct.
+répétition, paroles synchronisées trouvées automatiquement, et un mini égaliseur
+3 bandes appliqué en direct.
+
+## Configuration requise
+
+| Système | Minimum | Fichier à télécharger |
+| --- | --- | --- |
+| **Android** | Android 8.0 (API 26) ou plus, processeur ARM 64 bits (arm64-v8a) ou 32 bits (armeabi-v7a), **Android System WebView à jour** (version 111 ou plus, mise à jour par le Play Store ou la boutique du téléphone) | `Music-Player-android.apk` |
+| **Windows** | Windows 10 ou 11, 64 bits (x64) ; WebView2, déjà présent sur Windows 10/11 | `Music.Player_x.y.z_x64-setup.exe` (ou `.msi`) |
+| **macOS** | macOS 10.15 ou plus, **Mac Apple Silicon** (M1 et suivants) ; la CI ne produit pas encore de version pour Mac Intel | `Music.Player_x.y.z_aarch64.dmg` |
+| **Linux** | x86_64 avec WebKitGTK 4.1 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) | `.deb`, `.rpm` ou `.AppImage` |
+
+Recommandé partout : **2 Go de mémoire** ou plus, une centaine de Mo libres (application,
+plus le cache des pochettes et des paroles, qui grandit avec la bibliothèque). Une connexion
+internet n'est utile que pour trouver les paroles et les mises à jour.
+
+**Large gamme d'appareils** : l'interface s'adapte de l'écran extérieur d'un pliable
+(dès 280 px de large) aux tablettes et aux pliables ouverts (Galaxy Z Flip et Z Fold,
+Huawei Mate X, Pixel Fold…).
+- **Téléphones :** interface tactile en portrait, sans jamais passer sous la barre d'état,
+  la barre de navigation ou l'encoche (dimensions transmises par Android).
+- **Pliables :** pochette et paroles côte à côte quand l'appareil est ouvert ; paroles en
+  haut et commandes sous la charnière quand il est à moitié plié.
+- **Téléphones modestes :** un **affichage léger** automatique (Réglages → Affichage) leur
+  épargne les effets coûteux.
 
 ## Stack
 
@@ -20,7 +44,17 @@ build.
 
 Bibliothèques Rust clés : `rodio` (lecture audio, décodage via
 `symphonia` — mp3/flac/ogg/wav/m4a/aac), `lofty` (métadonnées + pochettes),
-`walkdir` (scan récursif), `tauri-plugin-dialog` (sélecteur de dossier).
+`walkdir` (scan récursif), `tauri-plugin-dialog` (sélecteur de dossier), `ureq`
+(paroles LRCLIB, versions GitHub), `tauri-plugin-updater` (mise à jour automatique sur
+ordinateur).
+
+Android : même application Tauri (Rust + Vue) compilée pour ARM, complétée par de petites
+classes **Kotlin** générées par `scripts/android-patch.mjs` :
+- service de lecture et notification (écran verrouillé) ;
+- bouton retour ;
+- dimensions des barres système ;
+- orientation ;
+- installation des mises à jour.
 
 ## Installer (Windows)
 

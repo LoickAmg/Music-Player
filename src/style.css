@@ -1,4 +1,11 @@
 :root {
+  /* Marges des barres système, encoches et charnières : le maximum entre ce que donne la
+     vue web (env) et ce que l'activité Android transmet (--sa-*), car selon les téléphones
+     et les versions d'Android la vue web ne connaît pas toujours ces dimensions. */
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--sa-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sa-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--sa-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--sa-right, 0px));
   --bg: #050d24;
   --bg-content: #071433;
   --bg-sidebar: #040b20;
@@ -186,14 +193,14 @@ input {
 /* Téléphone : pas de glissement des couleurs. Animer ces variables héritées recalcule et
    redessine toute la page à chaque image pendant 1,2 s, ce qui ralentissait l'affichage
    (et les paroles) à chaque changement de morceau. Le fond « À l'écoute » fait un fondu. */
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   :root {
     transition: none;
   }
 }
 
 /* ---------------------------------------------------------------- téléphone */
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   :root {
     font-size: 15px;
   }
@@ -211,4 +218,12 @@ input {
   .pill {
     height: 40px;
   }
+}
+
+/* Mode léger : aucun flou d'arrière-plan. Les barres fixes (onglets, en-tête) floutaient le
+   contenu à chaque défilement de liste, coûteux pour les puces graphiques modestes. Leurs
+   fonds, presque opaques, suffisent. */
+:root[data-perf="lite"] * {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }

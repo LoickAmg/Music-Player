@@ -53,6 +53,8 @@ export const useUiStore = defineStore("ui", {
     playlistDialog: null as PlaylistDialog | null,
     /** Écran de téléphone : navigation par onglets en bas, lecteur compact. */
     isMobile: false,
+    /** Écran tactile (téléphone, tablette, pliable ouvert) : un appui lance un morceau. */
+    isTouch: false,
   }),
   getters: {
     canGoBack: (state) => state.history.length > 0,

@@ -192,7 +192,7 @@ section {
   color: var(--accent);
   font-size: 15px;
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .artists {
     display: block;
     height: auto;

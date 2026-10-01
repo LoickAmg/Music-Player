@@ -36,7 +36,7 @@ function openMenu(event: MouseEvent) {
     role="row"
     tabindex="0"
     @dblclick="emit('play')"
-    @click="ui.isMobile && emit('play')"
+    @click="(ui.isMobile || ui.isTouch) && emit('play')"
     @keydown.enter="emit('play')"
     @contextmenu.prevent="openMenu"
   >
@@ -243,7 +243,7 @@ function openMenu(event: MouseEvent) {
 .mobile-only {
   display: none;
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .track-row,
   .track-row.album {
     grid-template-columns: 44px minmax(0, 1fr) 40px;

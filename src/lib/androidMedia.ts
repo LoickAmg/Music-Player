@@ -10,6 +10,7 @@ interface AndroidMediaBridge {
   update(json: string): void;
   clear(): void;
   keepScreenOn(on: boolean): void;
+  insets?(): string;
 }
 
 interface AndroidUpdateBridge {
@@ -22,6 +23,27 @@ declare global {
     AndroidUpdate?: AndroidUpdateBridge;
     __mpMedia?: (command: string, arg: number) => void;
     __mpUpdate?: (stage: string, value: number | string) => void;
+    __mpInsets?: (insets: Partial<Record<"top" | "bottom" | "left" | "right", number>>) => void;
+  }
+}
+
+/** Marges réelles des barres système et de l'encoche, transmises par l'activité Android
+ *  (au démarrage, puis à chaque rotation, pliage ou dépliage) : variables --sa-* utilisées
+ *  par --safe-* (style.css). */
+export function installInsets() {
+  const apply: NonNullable<Window["__mpInsets"]> = (insets) => {
+    const root = document.documentElement.style;
+    for (const side of ["top", "bottom", "left", "right"] as const) {
+      const v = insets[side];
+      if (typeof v === "number" && Number.isFinite(v)) root.setProperty(`--sa-${side}`, `${v}px`);
+    }
+  };
+  window.__mpInsets = apply;
+  try {
+    const initial = window.AndroidMedia?.insets?.();
+    if (initial) apply(JSON.parse(initial));
+  } catch {
+    // ancienne activité Android : les marges du navigateur (env) s'appliquent seules
   }
 }
 

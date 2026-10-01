@@ -7,6 +7,9 @@
 //   suivant (session média Android, aussi pilotable par un casque Bluetooth) ;
 // - icône adaptative propre (image entière dans la zone visible) et icône de notification ;
 // - écran gardé allumé pendant la lecture des paroles ;
+// - dimensions réelles des barres système, de l'encoche et de la charnière (pliables)
+//   transmises à la page (--sa-top…), orientation : portrait sur les téléphones et les
+//   écrans extérieurs des pliables, libre sur tablettes et pliables ouverts ;
 // - mise à jour depuis l'appli : téléchargement de l'APK de la dernière version GitHub puis
 //   ouverture de l'installateur d'Android (installation par-dessus, même signature).
 // Lancé par la CI après `tauri android init` et `tauri icon`, avant `tauri android build`.
@@ -86,11 +89,16 @@ fs.writeFileSync(
   `package ${pkg}
 
 import android.Manifest
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
 ${edgeToEdge ? "import androidx.activity.enableEdgeToEdge\n" : ""}import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -99,6 +107,7 @@ class MainActivity : TauriActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
 ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceState)
+    applyOrientation()
     // Lecture de la musique du téléphone et notification de lecture (demandées une fois).
     val wanted = mutableListOf(
       if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_AUDIO
@@ -111,8 +120,42 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1)
   }
 
+  /**
+   * Téléphones (et écrans extérieurs des pliables : Z Flip, Z Fold fermé…) : portrait,
+   * comme les lecteurs de musique courants. Tablettes et pliables ouverts (plus petit côté
+   * d'au moins 600 dp) : rotation libre. Réévalué à chaque pliage ou dépliage.
+   */
+  private fun applyOrientation() {
+    requestedOrientation =
+      if (resources.configuration.smallestScreenWidthDp < 600) ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+      else ActivityInfo.SCREEN_ORIENTATION_FULL_USER
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    applyOrientation()
+  }
+
   override fun onWebViewCreate(webView: WebView) {
     MediaCommands.webView = webView
+    // Barres système, encoche et charnière : dimensions en px CSS transmises à la page,
+    // sans consommer les marges (la page dessine sous les barres, edge-to-edge).
+    ViewCompat.setOnApplyWindowInsetsListener(webView) { view, insets ->
+      val bars = insets.getInsets(
+        WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+      )
+      val density = resources.displayMetrics.density
+      MediaCommands.insets = JSONObject()
+        .put("top", (bars.top / density).toDouble())
+        .put("bottom", (bars.bottom / density).toDouble())
+        .put("left", (bars.left / density).toDouble())
+        .put("right", (bars.right / density).toDouble())
+        .toString()
+      view.post {
+        webView.evaluateJavascript("window.__mpInsets && window.__mpInsets(" + MediaCommands.insets + ")", null)
+      }
+      insets
+    }
     webView.addJavascriptInterface(MediaBridge(applicationContext), "AndroidMedia")
     updates = UpdateBridge(this).also { webView.addJavascriptInterface(it, "AndroidUpdate") }
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
@@ -153,6 +196,8 @@ import org.json.JSONObject
 /** Commandes de la notification, de l'écran verrouillé ou d'un casque vers l'interface. */
 object MediaCommands {
   @Volatile var webView: WebView? = null
+  /** Dernières marges système connues (JSON, px CSS), relues par la page au démarrage. */
+  @Volatile var insets: String = "{}"
 
   fun send(command: String, arg: Long = 0) {
     val view = webView ?: return
@@ -191,6 +236,10 @@ class MediaBridge(private val context: Context) {
 
   @JavascriptInterface
   fun clear() = MediaService.hide()
+
+  /** Marges des barres système, de l'encoche et de la charnière (JSON, px CSS). */
+  @JavascriptInterface
+  fun insets(): String = MediaCommands.insets
 
   /** Garde l'écran allumé tant que les paroles défilent (vrai), ou rend la veille (faux). */
   @JavascriptInterface

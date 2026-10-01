@@ -66,7 +66,7 @@ function active(route: Route) {
   right: 0;
   bottom: 0;
   z-index: 30;
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
   background: rgba(4, 11, 32, 0.94);
   backdrop-filter: blur(24px) saturate(1.4);
   border-top: 1px solid var(--separator);
