@@ -48,6 +48,8 @@ fn track_or_stop(state: &State<AppState>, id: Option<String>) -> Result<Option<T
                 .find_track(&id)
                 .ok_or("Piste introuvable dans la bibliothèque.")?;
             start_playback(state, &track.path)?;
+            // Nouveau morceau lancé : l'ancienne position de reprise ne vaut plus.
+            *state.resume_at.lock().unwrap() = 0.0;
             Ok(Some(track))
         }
     }
@@ -182,11 +184,22 @@ pub fn play_track_now(
     track_or_stop(&state, Some(track_id))
 }
 
-#[tauri::command]
-pub fn toggle_play_pause(state: State<AppState>) -> Result<bool, String> {
+#[tauri::command(async)]
+pub fn toggle_play_pause(state: State<'_, AppState>) -> Result<bool, String> {
     let status = state.audio.status();
     if status.current_path.is_none() {
-        return Err("Aucune piste chargée.".to_string());
+        // Réouverture de l'appli : le dernier morceau est affiché mais pas encore chargé.
+        // « Lecture » le charge et reprend là où l'écoute s'était arrêtée.
+        let current = state.queue.lock().unwrap().current().cloned();
+        let track = current
+            .and_then(|id| state.find_track(&id))
+            .ok_or("Aucune piste chargée.")?;
+        start_playback(&state, &track.path)?;
+        let resume_at = std::mem::take(&mut *state.resume_at.lock().unwrap());
+        if resume_at > 1.0 && resume_at < track.duration_secs - 1.0 {
+            state.audio.seek(Duration::from_secs_f64(resume_at));
+        }
+        return Ok(false);
     }
     if status.is_paused {
         state.audio.resume();
@@ -212,7 +225,9 @@ pub fn previous_track(state: State<'_, AppState>) -> Result<Option<Track>, Strin
 #[tauri::command]
 pub fn seek(state: State<AppState>, position_secs: f64) -> Result<(), String> {
     if state.audio.status().current_path.is_none() {
-        return Err("Aucune piste chargée.".to_string());
+        // Rien de chargé (réouverture) : la lecture démarrera à cette position.
+        *state.resume_at.lock().unwrap() = position_secs.max(0.0);
+        return Ok(());
     }
     state
         .audio
@@ -440,7 +455,9 @@ pub fn get_initial_state(state: State<AppState>) -> InitialState {
             repeat: queue.repeat(),
         },
         current_track: current_id.and_then(|id| state.find_track(&id)),
-        position_secs: 0.0, // la lecture n'est pas relancée automatiquement au démarrage
+        // La lecture n'est pas relancée automatiquement au démarrage ; l'interface affiche
+        // la position où elle reprendra.
+        position_secs: *state.resume_at.lock().unwrap(),
         volume: *state.volume.lock().unwrap(),
         eq_gains: *state.eq_gains.lock().unwrap(),
         playlists: state.playlists.lock().unwrap().playlists.clone(),
@@ -455,7 +472,14 @@ pub fn save_session(state: State<AppState>) -> Result<(), String> {
 
 pub fn persist_session(state: &State<AppState>) -> std::io::Result<()> {
     let queue = state.queue.lock().unwrap();
-    let position_secs = state.audio.status().position_secs;
+    let status = state.audio.status();
+    // Morceau pas encore relancé depuis l'ouverture : on garde la position de reprise
+    // (sinon la sauvegarde automatique l'écrasait par 0).
+    let position_secs = if status.current_path.is_some() {
+        status.position_secs
+    } else {
+        *state.resume_at.lock().unwrap()
+    };
 
     let session = SessionState {
         library_root: state.library_root.lock().unwrap().clone(),
@@ -491,6 +515,7 @@ pub fn restore_state(state: &AppState, data_dir: &Path) -> Option<String> {
     let mut queue = state.queue.lock().unwrap();
     if !session.queue.is_empty() {
         queue.set_items(session.queue, session.current_track_id.as_deref());
+        *state.resume_at.lock().unwrap() = session.position_secs.max(0.0);
         // Remarque : si le shuffle était actif à la fermeture, l'ordre exact
         // n'est pas restauré tel quel (on retire un nouveau tirage aléatoire
         // plutôt que l'ordre sauvegardé) — simplification volontaire, sans

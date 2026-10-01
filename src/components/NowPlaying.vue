@@ -38,15 +38,40 @@ const hue = computed(() => hueFor(track.value?.album || track.value?.title || ""
 
 const duration = computed(() => track.value?.duration_secs ?? 0);
 // À la seconde près pour le texte ; la barre avance à chaque image, mise à jour directement.
-const position = computed(() => Math.floor(player.positionAt(now.value)));
+// Position visée pendant qu'on fait glisser la barre (null sinon).
+const dragging = ref<number | null>(null);
+const position = computed(() => Math.floor(dragging.value ?? player.positionAt(now.value)));
 const fill = ref<HTMLElement | null>(null);
+function paintFill(pos: number) {
+  if (fill.value) fill.value.style.transform = `scaleX(${duration.value ? Math.min(1, pos / duration.value) : 0})`;
+}
 useFrame((t) => {
-  if (fill.value) fill.value.style.transform = `scaleX(${duration.value ? Math.min(1, player.positionAt(t) / duration.value) : 0})`;
+  if (dragging.value === null) paintFill(player.positionAt(t));
 });
 
-function seekClick(e: MouseEvent) {
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  void player.seek(((e.clientX - rect.left) / rect.width) * duration.value);
+// Barre de progression : appui ou glissement du doigt (grande zone tactile autour de la
+// barre fine) ; le saut se fait au relâchement.
+const bar = ref<HTMLElement | null>(null);
+function positionFromEvent(e: PointerEvent) {
+  const rect = bar.value!.getBoundingClientRect();
+  return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * duration.value;
+}
+function startSeek(e: PointerEvent) {
+  if (!duration.value) return;
+  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  dragging.value = positionFromEvent(e);
+  paintFill(dragging.value);
+}
+function moveSeek(e: PointerEvent) {
+  if (dragging.value === null) return;
+  dragging.value = positionFromEvent(e);
+  paintFill(dragging.value);
+}
+async function endSeek() {
+  if (dragging.value === null) return;
+  const target = dragging.value;
+  await player.seek(target);
+  dragging.value = null;
 }
 
 const REPEAT_LABEL = { off: "Répéter : non", all: "Répéter : toute la liste", one: "Répéter : ce morceau" } as const;
@@ -87,8 +112,22 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <h2>{{ track.title }}</h2>
           <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
         </div>
-        <div class="bar" role="slider" aria-label="Position" :aria-valuenow="Math.round(position)" @click="seekClick">
-          <div ref="fill" class="bar-fill" />
+        <div
+          class="seek"
+          :class="{ dragging: dragging !== null }"
+          role="slider"
+          aria-label="Position dans le morceau"
+          :aria-valuemin="0"
+          :aria-valuemax="Math.round(duration)"
+          :aria-valuenow="position"
+          @pointerdown="startSeek"
+          @pointermove="moveSeek"
+          @pointerup="endSeek"
+          @pointercancel="dragging = null"
+        >
+          <div ref="bar" class="bar">
+            <div ref="fill" class="bar-fill" />
+          </div>
         </div>
         <div class="times">
           <span>{{ formatDuration(position) }}</span>
@@ -313,13 +352,24 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Zone tactile de 34 px de haut autour d'une barre fine : facile à attraper au doigt. */
+.seek {
+  padding: 14px 0;
+  margin: -14px 0;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
 .bar {
   position: relative;
   height: 6px;
   border-radius: 3px;
   background: rgba(255, 255, 255, 0.2);
   overflow: hidden;
-  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+.seek.dragging .bar {
+  transform: scaleY(1.6);
 }
 .bar-fill {
   height: 100%;

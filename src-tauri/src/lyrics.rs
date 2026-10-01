@@ -557,9 +557,37 @@ pub fn lyrics_for(
     allow_online: bool,
     refresh: bool,
 ) -> Result<Option<Lyrics>, String> {
-    if let Some(local) = local_lyrics(Path::new(&track.path)) {
-        return Ok(Some(local));
+    // Un `.lrc` posé à côté du morceau est un choix de l'utilisateur : toujours prioritaire.
+    // Les paroles des étiquettes viennent de qui a diffusé le fichier : nettoyées de leurs
+    // pubs, et remplacées par une version synchronisée en ligne quand elles ne le sont pas.
+    let local = local_lyrics(Path::new(&track.path)).and_then(|l| {
+        if l.source == "fichier .lrc" {
+            Some(l)
+        } else {
+            clean_embedded(l)
+        }
+    });
+    if let Some(local) = &local {
+        if local.source == "fichier .lrc" || local.synced.is_some() {
+            return Ok(Some(local.clone()));
+        }
     }
+    let online = online_lyrics(track, cache_dir, allow_online, refresh);
+    match (online, local) {
+        // Synchronisées en ligne : mieux que des paroles fixes du fichier.
+        (Ok(Some(found)), _) if found.synced.is_some() => Ok(Some(found)),
+        (_, Some(local)) => Ok(Some(local)),
+        (online, None) => online,
+    }
+}
+
+/// Paroles en ligne (cache, sinon LRCLIB).
+fn online_lyrics(
+    track: &Track,
+    cache_dir: &Path,
+    allow_online: bool,
+    refresh: bool,
+) -> Result<Option<Lyrics>, String> {
     if !refresh {
         if let Some(cached) = read_cache(cache_dir, &track.id) {
             return Ok(cached);
@@ -571,6 +599,66 @@ pub fn lyrics_for(
     let found = fetch_online(track)?.filter(|l| !l.is_empty());
     write_cache(cache_dir, &track.id, &found);
     Ok(found)
+}
+
+/// Ligne publicitaire glissée dans les étiquettes par qui a diffusé le fichier
+/// (« follow me on Instagram: @… », lien, chaîne Telegram…).
+fn is_promo(line: &str) -> bool {
+    let l = line.to_lowercase();
+    const MARKERS: &[&str] = &[
+        "http",
+        "www.",
+        ".com",
+        ".net",
+        ".org",
+        "t.me/",
+        "instagram",
+        "telegram",
+        "tiktok",
+        "youtube",
+        "follow me",
+        "follow us",
+        "subscribe",
+        "abonne",
+        "download",
+        "télécharg",
+        "telecharg",
+        "lyrics by",
+        "paroles par",
+        "uploaded by",
+        "ripped by",
+    ];
+    MARKERS.iter().any(|m| l.contains(m))
+        || l.split_whitespace()
+            .any(|w| w.len() > 2 && w.starts_with('@'))
+}
+
+/// Paroles des étiquettes débarrassées des lignes publicitaires ; `None` s'il ne reste
+/// presque rien (moins de 4 lignes : ce n'étaient pas de vraies paroles).
+fn clean_embedded(lyrics: Lyrics) -> Option<Lyrics> {
+    let synced = lyrics.synced.map(|lines| {
+        lines
+            .into_iter()
+            .filter(|l| !is_promo(&l.text))
+            .collect::<Vec<_>>()
+    });
+    let plain = lyrics.plain.map(|text| {
+        text.lines()
+            .filter(|l| !is_promo(l))
+            .collect::<Vec<_>>()
+            .join("\n")
+    });
+    let real_lines = match (&synced, &plain) {
+        (Some(lines), _) => lines.iter().filter(|l| !l.text.trim().is_empty()).count(),
+        (None, Some(text)) => text.lines().filter(|l| !l.trim().is_empty()).count(),
+        (None, None) => 0,
+    };
+    (real_lines >= 4).then(|| Lyrics {
+        synced: synced.filter(|l| !l.is_empty()),
+        plain: plain.filter(|p| !p.trim().is_empty()),
+        instrumental: lyrics.instrumental,
+        source: lyrics.source,
+    })
 }
 
 #[cfg(test)]
@@ -724,6 +812,22 @@ mod tests {
             let found = fetch_online(&t).unwrap();
             assert!(found.is_some(), "rien pour {title}");
         }
+    }
+
+    #[test]
+    fn promo_tags_are_not_lyrics() {
+        let promo = from_text(
+            "follow Me On Instagram:\n@cozy_sway",
+            "étiquettes du fichier",
+        );
+        assert!(clean_embedded(promo).is_none());
+        let real = from_text(
+            "Première ligne\nDeuxième ligne\nTroisième ligne\nQuatrième ligne\nDownload more at www.site.com",
+            "étiquettes du fichier",
+        );
+        let cleaned = clean_embedded(real).unwrap();
+        assert_eq!(cleaned.plain.as_deref().map(|p| p.lines().count()), Some(4));
+        assert!(!cleaned.plain.unwrap().contains("www"));
     }
 
     #[test]

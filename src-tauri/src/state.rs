@@ -20,6 +20,9 @@ pub struct AppState {
     pub playlists: Mutex<PlaylistStore>,
     pub eq_gains: EqGains,
     pub volume: Mutex<f32>,
+    /// Position (s) où reprendre le morceau en cours quand aucun n'est encore chargé dans le
+    /// moteur : celle de la dernière session au démarrage, ou un saut demandé avant lecture.
+    pub resume_at: Mutex<f64>,
     /// Dossier de données de l'app, où vivent `playlists.json`, `session.json`,
     /// `library.json` et les caches de pochettes et de paroles.
     pub data_dir: PathBuf,
@@ -37,6 +40,7 @@ impl AppState {
             playlists: Mutex::new(PlaylistStore::default()),
             eq_gains,
             volume: Mutex::new(1.0),
+            resume_at: Mutex::new(0.0),
             data_dir,
         }
     }
