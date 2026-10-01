@@ -10,6 +10,8 @@
 // - dimensions réelles des barres système, de l'encoche et de la charnière (pliables)
 //   transmises à la page (--sa-top…), orientation : portrait sur les téléphones et les
 //   écrans extérieurs des pliables, libre sur tablettes et pliables ouverts ;
+// - « Ouvrir avec Music Player » pour les fichiers audio, et bibliothèque tenue à jour toute
+//   seule quand la musique du téléphone change (téléchargement, copie, suppression) ;
 // - mise à jour depuis l'appli : téléchargement de l'APK de la dernière version GitHub puis
 //   ouverture de l'installateur d'Android (installation par-dessus, même signature).
 // Lancé par la CI après `tauri android init` et `tauri icon`, avant `tauri android build`.
@@ -70,6 +72,27 @@ if (!manifest.includes(".MediaService")) {
     `    <service android:name="${pkg}.MediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>`,
   );
 }
+if (!manifest.includes("audio/*")) {
+  // « Ouvrir avec » : fichiers audio venant du gestionnaire de fichiers, des
+  // téléchargements, des messageries… (adresse content:// ou file://).
+  const filter = `
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="application/ogg" />
+                <data android:mimeType="application/x-flac" />
+            </intent-filter>
+        </activity>`;
+  manifest = manifest.replace(/<\/activity>/, filter);
+}
+// Une seule instance de l'appli : un fichier ouvert depuis une autre appli arrive dans
+// celle qui tourne déjà (onNewIntent) au lieu d'en lancer une deuxième.
+if (!/android:launchMode=/.test(manifest)) {
+  manifest = manifest.replace(/<activity\b/, '<activity android:launchMode="singleTask"');
+}
 if (!manifest.includes(".UpdateFileProvider")) {
   // Fournisseur propre (classe dérivée, nom unique) : aucun conflit possible avec un autre
   // FileProvider déclaré par Tauri ou un greffon.
@@ -91,9 +114,14 @@ fs.writeFileSync(
 import android.Manifest
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.content.Intent
 import android.content.res.Configuration
+import android.database.ContentObserver
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
@@ -104,6 +132,17 @@ import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
   private var updates: UpdateBridge? = null
+  private val main = Handler(Looper.getMainLooper())
+
+  // Musique du téléphone modifiée (téléchargement, copie, suppression) : la page met la
+  // bibliothèque à jour, quelques secondes après la dernière modification.
+  private val notifyLibrary = Runnable { MediaCommands.libraryChanged() }
+  private val mediaObserver = object : ContentObserver(main) {
+    override fun onChange(selfChange: Boolean) {
+      main.removeCallbacks(notifyLibrary)
+      main.postDelayed(notifyLibrary, 4000)
+    }
+  }
 
   override fun onCreate(savedInstanceState: Bundle?) {
 ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceState)
@@ -118,6 +157,23 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
       ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
     }
     if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1)
+    contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
+    handleOpenIntent(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    handleOpenIntent(intent)
+  }
+
+  /** « Ouvrir avec Music Player » : fichier transmis à la page, qui le lit tout de suite. */
+  private fun handleOpenIntent(intent: Intent?) {
+    if (intent?.action != Intent.ACTION_VIEW) return
+    val uri = intent.data ?: return
+    val type = intent.type
+    Thread {
+      AudioFiles.resolve(this, uri, type)?.let { MediaCommands.openFile(it) }
+    }.start()
   }
 
   /**
@@ -174,6 +230,8 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
   }
 
   override fun onDestroy() {
+    contentResolver.unregisterContentObserver(mediaObserver)
+    main.removeCallbacks(notifyLibrary)
     if (isFinishing) MediaCommands.webView = null
     super.onDestroy()
   }
@@ -198,6 +256,20 @@ object MediaCommands {
   @Volatile var webView: WebView? = null
   /** Dernières marges système connues (JSON, px CSS), relues par la page au démarrage. */
   @Volatile var insets: String = "{}"
+  /** Fichier audio à ouvrir, en attente que la page le prenne (takeOpenedFile). */
+  @Volatile var openedFile: String? = null
+
+  fun openFile(path: String) {
+    openedFile = path
+    run("window.__mpOpenFile && window.__mpOpenFile()")
+  }
+
+  fun libraryChanged() = run("window.__mpLibraryChanged && window.__mpLibraryChanged()")
+
+  private fun run(script: String) {
+    val view = webView ?: return
+    view.post { view.evaluateJavascript(script, null) }
+  }
 
   fun send(command: String, arg: Long = 0) {
     val view = webView ?: return
@@ -240,6 +312,14 @@ class MediaBridge(private val context: Context) {
   /** Marges des barres système, de l'encoche et de la charnière (JSON, px CSS). */
   @JavascriptInterface
   fun insets(): String = MediaCommands.insets
+
+  /** Fichier audio reçu par « Ouvrir avec » (chemin), ou "" ; n'est remis qu'une fois. */
+  @JavascriptInterface
+  fun takeOpenedFile(): String {
+    val path = MediaCommands.openedFile ?: return ""
+    MediaCommands.openedFile = null
+    return path
+  }
 
   /** Garde l'écran allumé tant que les paroles défilent (vrai), ou rend la veille (faux). */
   @JavascriptInterface
@@ -583,6 +663,63 @@ class UpdateBridge(private val activity: Activity) {
       view.evaluateJavascript("window.__mpUpdate && window.__mpUpdate('" + stage + "', " + value + ")", null)
     }
   }
+}
+`,
+);
+
+fs.writeFileSync(
+  path.join(kotlinDir, "AudioFiles.kt"),
+  `package ${pkg}
+
+import android.content.Context
+import android.net.Uri
+import android.provider.MediaStore
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import java.io.File
+
+/** Chemin lisible d'un fichier audio reçu par « Ouvrir avec ». */
+object AudioFiles {
+  fun resolve(context: Context, uri: Uri, type: String?): String? {
+    if (uri.scheme == "file") return uri.path
+    // Chemin réel quand le fournisseur le connaît (musique, téléchargements…).
+    try {
+      context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)?.use { c ->
+        val i = c.getColumnIndex(MediaStore.MediaColumns.DATA)
+        if (i >= 0 && c.moveToFirst()) {
+          val p = c.getString(i)
+          if (p != null && File(p).canRead()) return p
+        }
+      }
+    } catch (e: Exception) {
+      // fournisseur sans chemin (messagerie, nuage…) : copie ci-dessous
+    }
+    // Sinon copie dans l'espace de l'appli (WhatsApp, Drive…).
+    return try {
+      var name = displayName(context, uri) ?: "morceau"
+      name = name.filter { it.isLetterOrDigit() || it in " ._-()[]&,!'" }.ifBlank { "morceau" }
+      if (!name.contains('.')) {
+        val ext = MimeTypeMap.getSingleton().getExtensionFromMimeType(type ?: context.contentResolver.getType(uri))
+        if (ext != null) name = name + "." + ext
+      }
+      val dir = File(context.filesDir, "ouverts").apply { mkdirs() }
+      val out = File(dir, name)
+      val input = context.contentResolver.openInputStream(uri) ?: return null
+      input.use { src -> out.outputStream().use { src.copyTo(it) } }
+      out.absolutePath
+    } catch (e: Exception) {
+      null
+    }
+  }
+
+  private fun displayName(context: Context, uri: Uri): String? =
+    try {
+      context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+        if (c.moveToFirst()) c.getString(0) else null
+      }
+    } catch (e: Exception) {
+      null
+    }
 }
 `,
 );

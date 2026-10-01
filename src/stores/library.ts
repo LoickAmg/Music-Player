@@ -127,6 +127,16 @@ export const useLibraryStore = defineStore("library", {
       this.scanning = false;
       this.progress = null;
     },
+    /** Mise à jour discrète de la bibliothèque (nouveaux morceaux, fichiers supprimés) :
+     *  seuls les fichiers nouveaux ou modifiés sont relus côté Rust. */
+    async refresh() {
+      if (!this.root || this.scanning) return;
+      try {
+        this.applyScanResult(await api.scanLibrary(this.root));
+      } catch {
+        // scan déjà en cours, dossier momentanément inaccessible : au prochain coup
+      }
+    },
     async chooseFolderAndScan() {
       const folder = await api.pickLibraryFolder();
       if (!folder) return;

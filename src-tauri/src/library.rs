@@ -210,6 +210,19 @@ pub fn scan_library_with_progress(
     root: &Path,
     on_progress: impl Fn(usize, usize) + Sync,
 ) -> Vec<Track> {
+    scan_library_incremental(root, &[], on_progress)
+}
+
+/// Scan de `root` qui reprend tels quels les morceaux de `previous` dont le fichier n'a pas
+/// changé (même date de modification) : seuls les fichiers nouveaux ou modifiés sont lus.
+/// Un nouveau scan après un téléchargement prend ainsi un instant, même sur une grande
+/// bibliothèque (il relisait toutes les étiquettes).
+pub fn scan_library_incremental(
+    root: &Path,
+    previous: &[Track],
+    on_progress: impl Fn(usize, usize) + Sync,
+) -> Vec<Track> {
+    let known: HashMap<&str, &Track> = previous.iter().map(|t| (t.path.as_str(), t)).collect();
     let mut audio_files = Vec::new();
     let mut images_by_dir: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for entry in scan_roots(root)
@@ -250,7 +263,13 @@ pub fn scan_library_with_progress(
         .par_iter()
         .filter_map(|path| {
             let folder_has_cover = path.parent().is_some_and(|d| covered_dirs.contains(d));
-            let track = read_track_with_folder_cover(path, folder_has_cover);
+            let unchanged = path.to_str().and_then(|p| known.get(p)).filter(|t| {
+                t.added_secs == modified_secs(path) && (t.has_cover || !folder_has_cover)
+            });
+            let track = match unchanged {
+                Some(t) => Some((*t).clone()),
+                None => read_track_with_folder_cover(path, folder_has_cover),
+            };
             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
             if n.is_multiple_of(64) || n == total {
                 on_progress(n, total);
@@ -401,6 +420,25 @@ mod tests {
         f.write_all(&data_size.to_le_bytes()).unwrap();
         f.write_all(&vec![0u8; data_size as usize]).unwrap();
         path
+    }
+
+    #[test]
+    fn incremental_scan_reuses_unchanged_tracks() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.wav");
+        std::fs::write(&a, b"RIFF").unwrap();
+        let mut known = read_track(&a).expect("piste lisible même mal formée");
+        known.title = "Titre déjà connu".into();
+        let tracks = scan_library_incremental(dir.path(), std::slice::from_ref(&known), |_, _| {});
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(
+            tracks[0].title, "Titre déjà connu",
+            "le fichier inchangé n'est pas relu"
+        );
+        // Un fichier nouveau est bien lu.
+        std::fs::write(dir.path().join("b.wav"), b"RIFF").unwrap();
+        let tracks = scan_library_incremental(dir.path(), &[known], |_, _| {});
+        assert_eq!(tracks.len(), 2);
     }
 
     #[test]

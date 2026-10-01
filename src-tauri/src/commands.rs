@@ -98,7 +98,13 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
         return Err("Un scan de la bibliothèque est déjà en cours.".to_string());
     }
     let _ = app.emit("scan-progress", ScanProgress { done: 0, total: 0 });
-    let tracks = library::scan_library_with_progress(Path::new(root), |done, total| {
+    // Même dossier : les morceaux déjà connus et inchangés ne sont pas relus.
+    let previous = if state.library_root.lock().unwrap().as_deref() == Some(root) {
+        state.library.lock().unwrap().clone()
+    } else {
+        Vec::new()
+    };
+    let tracks = library::scan_library_incremental(Path::new(root), &previous, |done, total| {
         let _ = app.emit("scan-progress", ScanProgress { done, total });
     });
     *state.library.lock().unwrap() = tracks.clone();
@@ -112,6 +118,42 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
 #[tauri::command(async)]
 pub fn scan_library(app: AppHandle, root: String) -> Result<Vec<Track>, String> {
     run_scan(&app, &root)
+}
+
+/// Ouvre un fichier audio donné par le système (« Ouvrir avec Music Player ») : lu tout de
+/// suite, et ajouté à la bibliothèque s'il n'y était pas encore.
+#[tauri::command(async)]
+pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, String> {
+    let state = app.state::<AppState>();
+    let track = match state
+        .library
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|t| t.path == path)
+        .cloned()
+    {
+        Some(track) => track,
+        None => {
+            let track = library::read_track(Path::new(&path))
+                .ok_or("Ce fichier n'est pas un fichier audio lisible.")?;
+            let tracks = {
+                let mut library = state.library.lock().unwrap();
+                library.push(track.clone());
+                library.clone()
+            };
+            if let Some(root) = state.library_root.lock().unwrap().clone() {
+                let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
+            }
+            let _ = app.emit("library-updated", &tracks);
+            track
+        }
+    };
+    {
+        let mut queue = state.queue.lock().unwrap();
+        queue.set_items(vec![track.id.clone()], Some(&track.id));
+    }
+    track_or_stop(&state, Some(track.id))
 }
 
 #[tauri::command]

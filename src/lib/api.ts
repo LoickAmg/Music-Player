@@ -18,6 +18,7 @@ export const api = {
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
   getLibrary: () => invoke<Track[]>("get_library"),
+  openAudioFile: (path: string) => invoke<Track | null>("open_audio_file", { path }),
   getCover: (path: string, trackId: string) => invoke<string | null>("get_cover", { path, trackId }),
   getLyrics: (trackId: string, allowOnline: boolean, refresh = false) =>
     invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline, refresh }),

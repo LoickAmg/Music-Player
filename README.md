@@ -97,6 +97,12 @@ Sur le téléphone :
 - mise à jour depuis l'appli : la dernière version publiée est détectée au démarrage et
   proposée dans une fenêtre centrée ; « Mettre à jour » télécharge l'APK et ouvre
   l'installation d'Android (par-dessus) ;
+- **« Ouvrir avec Music Player »** pour les fichiers audio (téléchargements, gestionnaire
+  de fichiers, messageries) : le morceau est lu tout de suite et ajouté à la bibliothèque ;
+- **bibliothèque tenue à jour toute seule** : l'appli est prévenue par Android quand la
+  musique du téléphone change (téléchargement, copie, suppression), et vérifie aussi au
+  retour dans l'appli. Seuls les fichiers nouveaux ou modifiés sont lus : le scan est
+  incrémental, sur toutes les plateformes ;
 - sortie audio rétablie toute seule quand le système la coupe (enregistrement d'écran qui
   capte le son, casque ou Bluetooth branché ou débranché…) : le moteur rouvre la sortie et
   reprend le morceau au même endroit, aussi quand la lecture cesse d'avancer sans prévenir.

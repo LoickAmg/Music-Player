@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { api, onScanEvents } from "@/lib/api";
-import { installAndroidMedia, installInsets } from "@/lib/androidMedia";
+import { installAndroidFiles, installAndroidMedia, installInsets } from "@/lib/androidMedia";
 import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
@@ -153,6 +153,26 @@ function onKey(e: KeyboardEvent) {
 }
 
 let unlisten: (() => void) | null = null;
+
+// Fichier ouvert depuis une autre appli : lu tout de suite, écran « À l'écoute » affiché.
+async function openFile(path: string) {
+  try {
+    const track = await api.openAudioFile(path);
+    await player.afterTrackChange(track);
+    if (track) ui.openNowPlaying();
+  } catch (e) {
+    player.error = String(e);
+  }
+}
+
+// Retour dans l'appli : bibliothèque mise à jour (morceaux téléchargés entre-temps), au plus
+// une fois par minute.
+let lastRefresh = performance.now();
+function onReturn() {
+  if (document.hidden || performance.now() - lastRefresh < 60_000) return;
+  lastRefresh = performance.now();
+  void library.refresh();
+}
 const offPlayback: (() => void)[] = [];
 const onPopState = () => ui.onPopState();
 let saveInterval: ReturnType<typeof setInterval> | null = null;
@@ -185,6 +205,11 @@ onMounted(async () => {
   window.history.replaceState({ mp: "root" }, "");
   window.addEventListener("popstate", onPopState);
   installAndroidMedia(player);
+  installAndroidFiles({
+    open: (path) => void openFile(path),
+    libraryChanged: () => void library.refresh(),
+  });
+  document.addEventListener("visibilitychange", onReturn);
   // Nouvelle version publiée ? (vérifiée une fois l'interface affichée)
   if (!demoMode) setTimeout(() => void updater.check(), 4000);
   saveInterval = setInterval(() => void api.saveSession(), 15_000);
@@ -196,6 +221,7 @@ onBeforeUnmount(() => {
   unlisten?.();
   offPlayback.forEach((off) => off());
   window.removeEventListener("popstate", onPopState);
+  document.removeEventListener("visibilitychange", onReturn);
   if (saveInterval) clearInterval(saveInterval);
   window.removeEventListener("keydown", onKey);
 });

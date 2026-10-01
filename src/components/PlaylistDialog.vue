@@ -240,4 +240,52 @@ h2 {
   gap: 8px;
   margin-top: 22px;
 }
+/* Téléphone : une seule colonne (la jaquette de 220 px à côté du formulaire repoussait le
+   bouton « Créer » hors de l'écran) ; grands boutons ; défilement si le clavier réduit
+   l'écran ; jamais sous les barres du système. */
+@media (max-width: 640px) {
+  .scrim {
+    padding: calc(var(--safe-top) + 16px) calc(var(--safe-right) + 12px) calc(var(--safe-bottom) + 16px)
+      calc(var(--safe-left) + 12px);
+    overflow-y: auto;
+  }
+  .dialog {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    width: 100%;
+    max-width: 420px;
+    max-height: 100%;
+    overflow-y: auto;
+    padding: 20px 18px 18px;
+    border-radius: 20px;
+  }
+  .preview {
+    justify-self: center;
+    width: 128px;
+  }
+  h2 {
+    text-align: center;
+  }
+  .field input {
+    height: 46px;
+    font-size: 16px;
+  }
+  .swatches {
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 10px;
+  }
+  .theme-name {
+    text-align: center;
+  }
+  .actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .actions .pill {
+    justify-content: center;
+    min-height: 48px;
+    font-size: 15px;
+  }
+}
 </style>

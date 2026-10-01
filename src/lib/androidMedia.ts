@@ -11,6 +11,7 @@ interface AndroidMediaBridge {
   clear(): void;
   keepScreenOn(on: boolean): void;
   insets?(): string;
+  takeOpenedFile?(): string;
 }
 
 interface AndroidUpdateBridge {
@@ -24,6 +25,8 @@ declare global {
     __mpMedia?: (command: string, arg: number) => void;
     __mpUpdate?: (stage: string, value: number | string) => void;
     __mpInsets?: (insets: Partial<Record<"top" | "bottom" | "left" | "right", number>>) => void;
+    __mpOpenFile?: () => void;
+    __mpLibraryChanged?: () => void;
   }
 }
 
@@ -45,6 +48,22 @@ export function installInsets() {
   } catch {
     // ancienne activité Android : les marges du navigateur (env) s'appliquent seules
   }
+}
+
+/** « Ouvrir avec Music Player » (fichier audio venant d'une autre appli) et musique du
+ *  téléphone modifiée (téléchargement, copie, suppression). */
+export function installAndroidFiles(handlers: { open: (path: string) => void; libraryChanged: () => void }) {
+  const take = () => {
+    try {
+      const path = window.AndroidMedia?.takeOpenedFile?.();
+      if (path) handlers.open(path);
+    } catch {
+      // ancienne activité Android
+    }
+  };
+  window.__mpOpenFile = take;
+  window.__mpLibraryChanged = handlers.libraryChanged;
+  take(); // fichier reçu au lancement de l'appli
 }
 
 /** Empêche (vrai) ou rend possible (faux) la mise en veille de l'écran du téléphone. */
