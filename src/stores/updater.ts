@@ -4,8 +4,9 @@ import { api } from "@/lib/api";
 import type { UpdateInfo } from "@/lib/types";
 
 // Mise à jour : vérifiée au démarrage, installée en un clic. Ordinateur : par Tauri
-// (installateur signé, redémarrage). Android : l'activité télécharge l'APK puis ouvre
-// l'installateur d'Android (window.AndroidUpdate).
+// (installateur signé, redémarrage). Android : le service de téléchargement d'Android
+// récupère l'APK (connexion lente, coupure, nouvel essai), puis l'installateur d'Android
+// s'ouvre (window.AndroidUpdate). Android vérifie aussi en arrière-plan, appli fermée.
 export const useUpdaterStore = defineStore("updater", {
   state: () => ({
     available: null as UpdateInfo | null,
@@ -16,7 +17,14 @@ export const useUpdaterStore = defineStore("updater", {
     /** Part téléchargée (0 à 1), ou null si la taille est inconnue. */
     progress: null as number | null,
     message: null as string | null,
+    /** Le téléchargement a échoué : « Réessayer » ou « Télécharger avec le navigateur ». */
+    failed: false,
   }),
+  getters: {
+    /** Taille lisible de l'APK (« 17 Mo »), si connue. */
+    sizeLabel: (state) =>
+      state.available?.size ? `${Math.max(1, Math.round(state.available.size / 1_000_000))} Mo` : null,
+  },
   actions: {
     async check(manual = false) {
       this.checking = true;
@@ -34,15 +42,24 @@ export const useUpdaterStore = defineStore("updater", {
         this.checking = false;
       }
     },
+    /** Secours : téléchargement de l'APK par le navigateur. */
+    openInBrowser() {
+      const url = this.available?.url;
+      if (url) window.AndroidUpdate?.openInBrowser(url);
+    },
     async install() {
       this.installing = true;
       this.progress = null;
       this.message = null;
+      this.failed = false;
       const url = this.available?.url;
       if (url && window.AndroidUpdate) {
         window.__mpUpdate = (stage, value) => {
           if (stage === "progress") {
             this.progress = Number(value) >= 0 ? Number(value) : null;
+            this.message = null;
+          } else if (stage === "waiting") {
+            this.message = String(value);
           } else if (stage === "permission") {
             this.message =
               "Autorise « Installer des applis inconnues » pour Music Player, puis reviens : l'installation reprendra.";
@@ -51,10 +68,11 @@ export const useUpdaterStore = defineStore("updater", {
             this.message = "Installation lancée : confirme « Mettre à jour » dans la fenêtre d'Android.";
           } else if (stage === "error") {
             this.installing = false;
+            this.failed = true;
             this.message = `Téléchargement impossible : ${value}`;
           }
         };
-        window.AndroidUpdate.install(url);
+        window.AndroidUpdate.download(url, this.available?.version ?? "");
         return;
       }
       let off: UnlistenFn | null = null;

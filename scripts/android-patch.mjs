@@ -12,6 +12,8 @@
 //   écrans extérieurs des pliables, libre sur tablettes et pliables ouverts ;
 // - « Ouvrir avec Music Player » pour les fichiers audio, et bibliothèque tenue à jour toute
 //   seule quand la musique du téléphone change (téléchargement, copie, suppression) ;
+// - mises à jour : vérification en arrière-plan (même appli fermée) avec notification
+//   « Mettre à jour », téléchargement par le service de téléchargement d'Android ;
 // - mise à jour depuis l'appli : téléchargement de l'APK de la dernière version GitHub puis
 //   ouverture de l'installateur d'Android (installation par-dessus, même signature).
 // Lancé par la CI après `tauri android init` et `tauri icon`, avant `tauri android build`.
@@ -57,6 +59,7 @@ const permissions = [
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
   '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
+  '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
 ];
 for (const p of permissions) {
   const name = p.match(/android:name="([^"]+)"/)[1];
@@ -101,6 +104,21 @@ if (!manifest.includes(".UpdateFileProvider")) {
     `    <provider android:name="${pkg}.UpdateFileProvider" android:authorities="\${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
         </provider>
+    </application>`,
+  );
+}
+if (!manifest.includes(".UpdateCheckJob")) {
+  // Vérification des mises à jour en arrière-plan, bouton « Mettre à jour » des
+  // notifications, et fin de téléchargement (même appli fermée).
+  manifest = manifest.replace(
+    /<\/application>/,
+    `    <service android:name="${pkg}.UpdateCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <receiver android:name="${pkg}.UpdateNowReceiver" android:exported="false" />
+        <receiver android:name="${pkg}.UpdateDownloadedReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
     </application>`,
   );
 }
@@ -159,6 +177,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 1)
     contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
     handleOpenIntent(intent)
+    Updates.schedule(this)
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -566,13 +585,27 @@ fs.writeFileSync(
   `package ${pkg}
 
 import android.app.Activity
+import android.app.DownloadManager
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.os.SystemClock
+import android.os.Environment
+import android.os.PowerManager
 import android.provider.Settings
 import android.webkit.JavascriptInterface
 import androidx.core.content.FileProvider
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
@@ -580,65 +613,330 @@ import java.net.URL
 
 class UpdateFileProvider : FileProvider()
 
-/**
- * Mise à jour depuis l'appli (window.AndroidUpdate) : télécharge l'APK de la dernière
- * version, puis ouvre l'installateur d'Android. Avancement renvoyé à la page par
- * window.__mpUpdate(étape, valeur) : « progress » (0 à 1, ou -1 si taille inconnue),
- * « permission » (autorisation d'installer demandée), « ready », « error ».
- */
-class UpdateBridge(private val activity: Activity) {
-  @Volatile private var pending: File? = null
+data class Release(val version: String, val url: String, val size: Long)
 
-  @JavascriptInterface
-  fun install(url: String) {
-    Thread {
-      try {
-        val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
-        val apk = File(dir, "Music-Player.apk")
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.instanceFollowRedirects = true
-        connection.connectTimeout = 15000
-        connection.readTimeout = 30000
-        connection.setRequestProperty("User-Agent", "MusicPlayer")
-        val total = connection.contentLengthLong
-        connection.inputStream.use { input ->
-          apk.outputStream().use { output ->
-            val buffer = ByteArray(64 * 1024)
-            var received = 0L
-            var last = 0L
-            while (true) {
-              val n = input.read(buffer)
-              if (n < 0) break
-              output.write(buffer, 0, n)
-              received += n
-              val now = SystemClock.uptimeMillis()
-              if (now - last > 200) {
-                last = now
-                report("progress", if (total > 0) (received.toDouble() / total).toString() else "-1")
-              }
-            }
-          }
-        }
-        report("progress", "1")
-        activity.runOnUiThread { launchInstaller(apk) }
-      } catch (e: Exception) {
-        report("error", JSONObject.quote(e.message ?: e.toString()))
-      }
-    }.start()
+/**
+ * Mises à jour : recherche de la dernière version sur GitHub (APK du processeur du
+ * téléphone de préférence), téléchargement confié au service de téléchargement d'Android
+ * (connexion lente, coupure, nouvel essai, appli fermée), installation, et notifications
+ * « Mise à jour disponible » / « Prête à installer ».
+ */
+object Updates {
+  private const val RELEASES = "https://api.github.com/repos/LoickAmg/Music-Player/releases?per_page=15"
+  private const val PREFS = "music-player-updates"
+  private const val CHANNEL = "updates"
+  private const val NOTIFY_AVAILABLE = 21
+  private const val NOTIFY_READY = 22
+  private const val JOB_ID = 4242
+  private const val APK_NAME = "Music-Player-mise-a-jour.apk"
+
+  /** Vrai pendant que la page suit le téléchargement (pas de notification « prête » en double). */
+  @Volatile var watchedByPage = false
+
+  fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  fun abi(): String =
+    when (Build.SUPPORTED_ABIS.firstOrNull()) {
+      "arm64-v8a" -> "arm64"
+      "armeabi-v7a" -> "armv7"
+      "x86_64" -> "x86_64"
+      else -> "x86"
+    }
+
+  private fun versionKey(v: String): List<Int> =
+    v.trimStart('v', 'V').split('.', '-').map { it.toIntOrNull() ?: -1 }.takeWhile { it >= 0 }
+
+  private fun newer(a: List<Int>, b: List<Int>): Boolean {
+    for (i in 0 until maxOf(a.size, b.size)) {
+      val x = a.getOrElse(i) { 0 }
+      val y = b.getOrElse(i) { 0 }
+      if (x != y) return x > y
+    }
+    return false
   }
 
-  /** Après le passage par les réglages d'Android : relance l'installation si autorisée. */
-  fun resumePending() {
-    val apk = pending ?: return
-    if (Build.VERSION.SDK_INT < 26 || activity.packageManager.canRequestPackageInstalls()) {
-      pending = null
-      launchInstaller(apk)
+  fun installedVersion(context: Context): String =
+    try {
+      context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0"
+    } catch (e: Exception) {
+      "0"
+    }
+
+  /** Version publiée plus récente que celle installée, ou null. */
+  fun latest(context: Context): Release? {
+    val connection = URL(RELEASES).openConnection() as HttpURLConnection
+    connection.connectTimeout = 20000
+    connection.readTimeout = 30000
+    connection.setRequestProperty("User-Agent", "MusicPlayer")
+    connection.setRequestProperty("Accept", "application/vnd.github+json")
+    val releases = JSONArray(connection.inputStream.bufferedReader().use { it.readText() })
+    var best: Release? = null
+    var bestKey = versionKey(installedVersion(context))
+    for (i in 0 until releases.length()) {
+      val r = releases.getJSONObject(i)
+      if (r.optBoolean("draft") || r.optBoolean("prerelease")) continue
+      val version = r.optString("tag_name").removePrefix("app-v").removePrefix("v")
+      val key = versionKey(version)
+      if (!newer(key, bestKey)) continue
+      val assets = r.optJSONArray("assets") ?: continue
+      var own: JSONObject? = null
+      var universal: JSONObject? = null
+      var any: JSONObject? = null
+      for (j in 0 until assets.length()) {
+        val a = assets.getJSONObject(j)
+        val name = a.optString("name")
+        if (!name.endsWith(".apk")) continue
+        if (name == "Music-Player-android-" + abi() + ".apk") own = a
+        if (name == "Music-Player-android.apk") universal = a
+        if (any == null) any = a
+      }
+      val chosen = own ?: universal ?: any ?: continue
+      best = Release(version, chosen.optString("browser_download_url"), chosen.optLong("size"))
+      bestKey = key
+    }
+    return best
+  }
+
+  fun apkFile(context: Context): File =
+    File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), APK_NAME)
+
+  /** Lance le téléchargement par Android ; renvoie son identifiant. */
+  fun download(context: Context, url: String, version: String): Long {
+    val dm = context.getSystemService(DownloadManager::class.java)
+    val previous = prefs(context).getLong("download", -1L)
+    if (previous >= 0) dm.remove(previous)
+    apkFile(context).delete()
+    val request = DownloadManager.Request(Uri.parse(url))
+      .setTitle("Music Player " + version)
+      .setDescription("Téléchargement de la mise à jour")
+      .setMimeType("application/vnd.android.package-archive")
+      .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
+      .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, APK_NAME)
+      .setAllowedOverMetered(true)
+      .setAllowedOverRoaming(true)
+    val id = dm.enqueue(request)
+    prefs(context).edit().putLong("download", id).putString("download_version", version).apply()
+    context.getSystemService(NotificationManager::class.java).cancel(NOTIFY_AVAILABLE)
+    return id
+  }
+
+  /** État d'un téléchargement : statut, raison, octets reçus, taille totale. */
+  fun query(context: Context, id: Long): LongArray? {
+    val dm = context.getSystemService(DownloadManager::class.java)
+    dm.query(DownloadManager.Query().setFilterById(id))?.use { c ->
+      if (!c.moveToFirst()) return null
+      return longArrayOf(
+        c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS)).toLong(),
+        c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON)).toLong(),
+        c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)),
+        c.getLong(c.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)),
+      )
+    }
+    return null
+  }
+
+  fun reasonText(status: Int, reason: Int): String =
+    when (reason) {
+      DownloadManager.PAUSED_WAITING_FOR_NETWORK -> "En attente du réseau…"
+      DownloadManager.PAUSED_WAITING_TO_RETRY -> "Connexion lente ou coupée : nouvel essai automatique…"
+      DownloadManager.PAUSED_QUEUED_FOR_WIFI -> "En attente du Wi-Fi…"
+      DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Espace de stockage insuffisant."
+      DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "Connexion interrompue."
+      DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Stockage indisponible."
+      else -> if (status == DownloadManager.STATUS_FAILED) "Téléchargement interrompu (code " + reason + ")." else "Téléchargement en pause…"
+    }
+
+  fun installIntent(context: Context): Intent =
+    Intent(Intent.ACTION_VIEW)
+      .setDataAndType(
+        FileProvider.getUriForFile(context, context.packageName + ".updates", apkFile(context)),
+        "application/vnd.android.package-archive",
+      )
+      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+
+  private fun ensureChannel(context: Context) {
+    val channel = NotificationChannel(CHANNEL, "Mises à jour", NotificationManager.IMPORTANCE_DEFAULT)
+    channel.description = "Nouvelle version de Music Player disponible ou prête à installer"
+    context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+  }
+
+  private fun smallIcon(context: Context): Int =
+    context.resources.getIdentifier("ic_stat_music", "drawable", context.packageName)
+      .takeIf { it != 0 } ?: android.R.drawable.stat_sys_download_done
+
+  /** Notification « Mise à jour disponible », une seule fois par version. */
+  fun notifyAvailable(context: Context, release: Release) {
+    val prefs = prefs(context)
+    if (prefs.getString("notified", null) == release.version) return
+    prefs.edit()
+      .putString("notified", release.version)
+      .putString("pending_url", release.url)
+      .putString("pending_version", release.version)
+      .apply()
+    ensureChannel(context)
+    val open = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+      PendingIntent.getActivity(context, 1, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val update = PendingIntent.getBroadcast(
+      context,
+      2,
+      Intent(context, UpdateNowReceiver::class.java),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val megabytes = if (release.size > 0) " (" + (release.size / 1_000_000) + " Mo)" else ""
+    val notification = Notification.Builder(context, CHANNEL)
+      .setSmallIcon(smallIcon(context))
+      .setContentTitle("Mise à jour disponible")
+      .setContentText("Music Player " + release.version + " est prête à être installée" + megabytes + ".")
+      .setContentIntent(open)
+      .setAutoCancel(true)
+      .addAction(
+        Notification.Action.Builder(
+          android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.stat_sys_download),
+          "Mettre à jour",
+          update,
+        ).build(),
+      )
+      .build()
+    context.getSystemService(NotificationManager::class.java).notify(NOTIFY_AVAILABLE, notification)
+  }
+
+  /** Notification « Prête à installer » : un appui ouvre l'installation d'Android. */
+  fun notifyReady(context: Context, version: String) {
+    ensureChannel(context)
+    val install = PendingIntent.getActivity(
+      context,
+      3,
+      installIntent(context),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    val notification = Notification.Builder(context, CHANNEL)
+      .setSmallIcon(smallIcon(context))
+      .setContentTitle("Mise à jour prête")
+      .setContentText("Touchez pour installer Music Player " + version + ".")
+      .setContentIntent(install)
+      .setAutoCancel(true)
+      .build()
+    context.getSystemService(NotificationManager::class.java).notify(NOTIFY_READY, notification)
+  }
+
+  /** Vérification périodique (environ 3 fois par jour), même appli fermée ou après un redémarrage. */
+  fun schedule(context: Context) {
+    val scheduler = context.getSystemService(JobScheduler::class.java)
+    if (scheduler.getPendingJob(JOB_ID) != null) return
+    val job = JobInfo.Builder(JOB_ID, ComponentName(context, UpdateCheckJob::class.java))
+      .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+      .setPeriodic(8 * 60 * 60 * 1000L)
+      .setPersisted(true)
+      .build()
+    try {
+      scheduler.schedule(job)
+    } catch (e: Exception) {
+      // planification refusée par le système : la vérification au lancement suffit
+    }
+  }
+}
+
+/** Vérification en arrière-plan. */
+class UpdateCheckJob : JobService() {
+  override fun onStartJob(params: JobParameters): Boolean {
+    Thread {
+      try {
+        Updates.latest(this)?.let { Updates.notifyAvailable(this, it) }
+      } catch (e: Exception) {
+        // hors ligne : prochaine vérification plus tard
+      }
+      jobFinished(params, false)
+    }.start()
+    return true
+  }
+
+  override fun onStopJob(params: JobParameters): Boolean = true
+}
+
+/** Bouton « Mettre à jour » de la notification : téléchargement de la version annoncée. */
+class UpdateNowReceiver : BroadcastReceiver() {
+  override fun onReceive(context: Context, intent: Intent) {
+    val prefs = Updates.prefs(context)
+    val url = prefs.getString("pending_url", null) ?: return
+    Updates.download(context, url, prefs.getString("pending_version", null) ?: "")
+  }
+}
+
+/** Téléchargement terminé (appli ouverte ou non) : notification « Prête à installer ». */
+class UpdateDownloadedReceiver : BroadcastReceiver() {
+  override fun onReceive(context: Context, intent: Intent) {
+    val id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1L)
+    val prefs = Updates.prefs(context)
+    if (id < 0 || id != prefs.getLong("download", -1L) || Updates.watchedByPage) return
+    val state = Updates.query(context, id) ?: return
+    if (state[0].toInt() == DownloadManager.STATUS_SUCCESSFUL) {
+      Updates.notifyReady(context, prefs.getString("download_version", null) ?: "")
+    }
+  }
+}
+
+/**
+ * Mise à jour depuis l'appli (window.AndroidUpdate) : téléchargement par Android, puis
+ * installation. Avancement renvoyé à la page par window.__mpUpdate(étape, valeur) :
+ * « progress » (0 à 1, ou -1), « waiting » (message), « permission », « ready », « error ».
+ */
+class UpdateBridge(private val activity: Activity) {
+  @Volatile private var installPending = false
+
+  @JavascriptInterface
+  fun download(url: String, version: String) {
+    val id = try {
+      Updates.download(activity, url, version)
+    } catch (e: Exception) {
+      report("error", JSONObject.quote(e.message ?: e.toString()))
+      return
+    }
+    Updates.watchedByPage = true
+    Thread { watch(id) }.start()
+  }
+
+  private fun watch(id: Long) {
+    while (true) {
+      val state = Updates.query(activity, id)
+      if (state == null) {
+        Updates.watchedByPage = false
+        report("error", JSONObject.quote("Téléchargement annulé."))
+        return
+      }
+      val status = state[0].toInt()
+      when (status) {
+        DownloadManager.STATUS_SUCCESSFUL -> {
+          Updates.watchedByPage = false
+          report("progress", "1")
+          activity.runOnUiThread { launchInstaller() }
+          return
+        }
+        DownloadManager.STATUS_FAILED -> {
+          Updates.watchedByPage = false
+          report("error", JSONObject.quote(Updates.reasonText(status, state[1].toInt())))
+          return
+        }
+        DownloadManager.STATUS_PAUSED ->
+          report("waiting", JSONObject.quote(Updates.reasonText(status, state[1].toInt())))
+        else -> report("progress", if (state[3] > 0) (state[2].toDouble() / state[3]).toString() else "-1")
+      }
+      Thread.sleep(500)
     }
   }
 
-  private fun launchInstaller(apk: File) {
+  /** Après le passage par les réglages d'Android : l'installation reprend si autorisée. */
+  fun resumePending() {
+    if (!installPending) return
+    if (Build.VERSION.SDK_INT < 26 || activity.packageManager.canRequestPackageInstalls()) {
+      installPending = false
+      launchInstaller()
+    }
+  }
+
+  private fun launchInstaller() {
     if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
-      pending = apk
+      installPending = true
       report("permission", "0")
       activity.startActivity(
         Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.packageName)),
@@ -646,14 +944,31 @@ class UpdateBridge(private val activity: Activity) {
       return
     }
     try {
-      val uri = FileProvider.getUriForFile(activity, activity.packageName + ".updates", apk)
-      val intent = Intent(Intent.ACTION_VIEW)
-        .setDataAndType(uri, "application/vnd.android.package-archive")
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-      activity.startActivity(intent)
+      activity.startActivity(Updates.installIntent(activity))
       report("ready", "1")
     } catch (e: Exception) {
       report("error", JSONObject.quote(e.message ?: e.toString()))
+    }
+  }
+
+  /** Secours : la page de téléchargement du projet dans le navigateur (adresses du projet seulement). */
+  @JavascriptInterface
+  fun openInBrowser(url: String) {
+    if (!url.startsWith("https://github.com/LoickAmg/Music-Player/")) return
+    activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+  }
+
+  /** Faux si l'économiseur de batterie peut empêcher la vérification en arrière-plan. */
+  @JavascriptInterface
+  fun backgroundAllowed(): Boolean =
+    activity.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(activity.packageName)
+
+  @JavascriptInterface
+  fun openBatterySettings() {
+    try {
+      activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+    } catch (e: Exception) {
+      activity.startActivity(Intent(Settings.ACTION_SETTINGS))
     }
   }
 
@@ -755,6 +1070,7 @@ fs.writeFileSync(
   `<?xml version="1.0" encoding="utf-8"?>
 <paths>
     <cache-path name="updates" path="updates/" />
+    <external-files-path name="downloads" path="Download/" />
 </paths>
 `,
 );

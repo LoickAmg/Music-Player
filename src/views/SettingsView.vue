@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { formatCollection } from "@/lib/format";
 import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
@@ -21,6 +21,26 @@ const PERF_CHOICES: { value: PerfSetting; label: string }[] = [
 ];
 const showLegal = ref(false);
 const onAndroid = /Android/i.test(navigator.userAgent);
+
+// Android : l'économiseur de batterie (très strict sur Huawei, Xiaomi…) peut retarder la
+// vérification des mises à jour en arrière-plan. Relu au retour des réglages d'Android.
+const backgroundAllowed = ref(true);
+const AndroidUpdate = window.AndroidUpdate;
+function readBackground() {
+  try {
+    backgroundAllowed.value = window.AndroidUpdate?.backgroundAllowed?.() ?? true;
+  } catch {
+    backgroundAllowed.value = true;
+  }
+}
+function onVisible() {
+  if (!document.hidden) readBackground();
+}
+onMounted(() => {
+  readBackground();
+  document.addEventListener("visibilitychange", onVisible);
+});
+onBeforeUnmount(() => document.removeEventListener("visibilitychange", onVisible));
 const version = ref<string | null>(null);
 onMounted(async () => {
   try {
@@ -60,8 +80,14 @@ const shortcuts = [
     <section class="card">
       <h2><Icon name="refresh" :size="17" /> Mises à jour</h2>
       <p v-if="onAndroid" class="muted">
-        Version installée : {{ version ?? "—" }}. Au démarrage, l'application vérifie si une nouvelle version est publiée ;
-        « Installer » la télécharge puis ouvre l'installation d'Android, par-dessus la version actuelle (rien n'est perdu).
+        Version installée : {{ version ?? "—" }}. L'application vérifie au démarrage, et en arrière-plan quelques fois par
+        jour même fermée, si une nouvelle version est publiée : une notification « Mettre à jour » vous prévient. Android
+        télécharge alors l'APK (même sur une connexion lente, avec reprise), puis ouvre l'installation, par-dessus la
+        version actuelle (rien n'est perdu).
+      </p>
+      <p v-if="onAndroid && !backgroundAllowed" class="muted small">
+        Sur certains téléphones (Huawei, Xiaomi…), l'économiseur de batterie retarde cette vérification en arrière-plan.
+        <button type="button" class="link-btn" @click="AndroidUpdate?.openBatterySettings?.()">Autoriser Music Player en arrière-plan</button>
       </p>
       <p v-else class="muted">
         Version installée : {{ version ?? "—" }}. Au démarrage, l'application vérifie si une nouvelle version est publiée
@@ -76,6 +102,9 @@ const shortcuts = [
         </button>
       </div>
       <p v-if="updater.message" class="muted small">{{ updater.message }}</p>
+      <div v-if="updater.failed" class="actions">
+        <button type="button" class="pill pill-ghost" @click="updater.openInBrowser()">Télécharger avec le navigateur</button>
+      </div>
     </section>
 
     <section class="card">

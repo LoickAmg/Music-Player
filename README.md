@@ -9,7 +9,7 @@ répétition, paroles synchronisées trouvées automatiquement, et un mini égal
 
 | Système | Minimum | Fichier à télécharger |
 | --- | --- | --- |
-| **Android** | Android 8.0 (API 26) ou plus, processeur ARM 64 bits (arm64-v8a) ou 32 bits (armeabi-v7a), **Android System WebView à jour** (version 111 ou plus, mise à jour par le Play Store ou la boutique du téléphone) | `Music-Player-android.apk` |
+| **Android** | Android 8.0 (API 26) ou plus, processeur ARM 64 bits (arm64-v8a) ou 32 bits (armeabi-v7a), **Android System WebView à jour** (version 111 ou plus, mise à jour par le Play Store ou la boutique du téléphone) | `Music-Player-android-arm64.apk` (la plupart des téléphones, deux fois plus léger), `Music-Player-android-armv7.apk` (anciens téléphones 32 bits), ou `Music-Player-android.apk` (complet, pour tous) |
 | **Windows** | Windows 10 ou 11, 64 bits (x64) ; WebView2, déjà présent sur Windows 10/11 | `Music.Player_x.y.z_x64-setup.exe` (ou `.msi`) |
 | **macOS** | macOS 10.15 ou plus, **Mac Apple Silicon** (M1 et suivants) ; la CI ne produit pas encore de version pour Mac Intel | `Music.Player_x.y.z_aarch64.dmg` |
 | **Linux** | x86_64 avec WebKitGTK 4.1 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) | `.deb`, `.rpm` ou `.AppImage` |
@@ -115,10 +115,15 @@ Sur le téléphone :
   `tauri.conf.json`, s'installe puis l'application redémarre, sans perdre la bibliothèque ni
   les réglages. Les versions sont signées par la CI (secrets `TAURI_SIGNING_PRIVATE_KEY` et
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) ; sans eux, la CI refuse de publier.
-- **Android** : à partir de la 0.4.4, l'application détecte la nouvelle version (liste des
-  versions GitHub), télécharge l'APK et ouvre l'installation d'Android, par-dessus l'ancienne
-  (même signature, voir plus haut). Android demande une fois d'autoriser l'installation
-  d'applis depuis Music Player.
+- **Android** : l'application détecte la nouvelle version (liste des versions GitHub) au
+  démarrage, et en arrière-plan quelques fois par jour même fermée : une notification
+  « Mettre à jour » prévient. Le téléchargement est confié au service de téléchargement
+  d'Android (connexion lente, coupure et reprise, appli fermée, avancement dans les
+  notifications) et ne récupère que l'APK du processeur du téléphone ; une notification
+  « Prête à installer » ouvre ensuite l'installation d'Android, par-dessus l'ancienne
+  version (même signature). En cas d'échec : « Réessayer » ou « Télécharger avec le
+  navigateur ». Android demande une fois d'autoriser l'installation d'applis depuis
+  Music Player.
 
 ## Lancer l'application depuis les sources
 

@@ -15,6 +15,36 @@ pub struct UpdateInfo {
     pub notes: Option<String>,
     /// Android : adresse de l'APK à télécharger.
     pub url: Option<String>,
+    /// Android : taille de l'APK (octets).
+    pub size: Option<u64>,
+}
+
+/// APK de ce téléphone : chaque version publie un APK par type de processeur (deux fois plus
+/// léger que l'APK complet), plus l'APK complet. Le binaire en cours connaît son processeur.
+fn apk_abi() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else if cfg!(target_arch = "arm") {
+        "armv7"
+    } else if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        "x86"
+    }
+}
+
+/// Meilleur APK d'une version : celui du processeur, sinon l'APK complet, sinon un autre.
+fn pick_apk<'a>(assets: &'a [serde_json::Value], abi: &str) -> Option<&'a serde_json::Value> {
+    let name = |a: &serde_json::Value| a["name"].as_str().unwrap_or("").to_string();
+    let apks: Vec<&serde_json::Value> = assets
+        .iter()
+        .filter(|a| name(a).ends_with(".apk"))
+        .collect();
+    apks.iter()
+        .find(|a| name(a) == format!("Music-Player-android-{abi}.apk"))
+        .or_else(|| apks.iter().find(|a| name(a) == "Music-Player-android.apk"))
+        .or_else(|| apks.first())
+        .copied()
 }
 
 /// « 0.4.10 » → (0, 4, 10), pour comparer les versions.
@@ -28,6 +58,10 @@ fn version_key(v: &str) -> Vec<u64> {
 /// Version la plus récente publiée sur GitHub avec un APK, si elle est plus récente que
 /// `current`. Les versions sont triées par numéro (et non par date de publication).
 pub fn newest_apk(releases: &serde_json::Value, current: &str) -> Option<UpdateInfo> {
+    newest_apk_for(releases, current, apk_abi())
+}
+
+fn newest_apk_for(releases: &serde_json::Value, current: &str, abi: &str) -> Option<UpdateInfo> {
     let mut best: Option<(Vec<u64>, UpdateInfo)> = None;
     for release in releases.as_array()? {
         if release["draft"].as_bool() == Some(true) || release["prerelease"].as_bool() == Some(true)
@@ -39,12 +73,13 @@ pub fn newest_apk(releases: &serde_json::Value, current: &str) -> Option<UpdateI
             .trim_start_matches("app-v")
             .trim_start_matches('v')
             .to_string();
-        let Some(url) = release["assets"].as_array().and_then(|assets| {
-            assets
-                .iter()
-                .find(|a| a["name"].as_str().is_some_and(|n| n.ends_with(".apk")))
-                .and_then(|a| a["browser_download_url"].as_str())
-        }) else {
+        let Some(asset) = release["assets"]
+            .as_array()
+            .and_then(|assets| pick_apk(assets, abi))
+        else {
+            continue;
+        };
+        let Some(url) = asset["browser_download_url"].as_str() else {
             continue;
         };
         let key = version_key(&version);
@@ -58,6 +93,7 @@ pub fn newest_apk(releases: &serde_json::Value, current: &str) -> Option<UpdateI
                 current: current.to_string(),
                 notes: release["body"].as_str().map(str::to_string),
                 url: Some(url.to_string()),
+                size: asset["size"].as_u64(),
             },
         ));
     }
@@ -103,6 +139,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfo>, String> 
             current: u.current_version.clone(),
             notes: u.body.clone(),
             url: None,
+            size: None,
         }))
     }
     #[cfg(mobile)]
@@ -165,6 +202,18 @@ mod tests {
         assert_eq!(found.url.as_deref(), Some("https://a/0.4.3.apk"));
         assert!(newest_apk(&releases, "0.4.3").is_none());
         assert!(version_key("0.4.10") > version_key("0.4.9"));
+
+        // APK du processeur préféré à l'APK complet, quand la version en publie.
+        let split = serde_json::json!([{ "tag_name": "app-v0.5.0", "assets": [
+            { "name": "Music-Player-android.apk", "browser_download_url": "https://a/u.apk", "size": 34 },
+            { "name": "Music-Player-android-arm64.apk", "browser_download_url": "https://a/arm64.apk", "size": 17 },
+            { "name": "Music-Player-android-armv7.apk", "browser_download_url": "https://a/armv7.apk", "size": 16 }
+        ]}]);
+        let arm64 = newest_apk_for(&split, "0.4.8", "arm64").unwrap();
+        assert_eq!(arm64.url.as_deref(), Some("https://a/arm64.apk"));
+        assert_eq!(arm64.size, Some(17));
+        let x86 = newest_apk_for(&split, "0.4.8", "x86").unwrap();
+        assert_eq!(x86.url.as_deref(), Some("https://a/u.apk"));
     }
 
     /// Interroge vraiment GitHub : `cargo test -- --ignored github`.

@@ -15,13 +15,15 @@ const percent = computed(() => (updater.progress === null ? null : Math.round(up
 
 <template>
   <Transition name="dialog">
-    <div v-if="open && updater.available" class="update-scrim" @click.self="!updater.installing && (updater.dismissed = true)">
+    <div v-if="open && updater.available" class="update-scrim" @click.self="updater.dismissed = true">
       <section class="update-card" role="dialog" aria-modal="true" aria-labelledby="update-title">
         <span class="update-icon" aria-hidden="true"><Icon name="refresh" :size="26" /></span>
         <h2 id="update-title">Mise à jour disponible</h2>
         <p class="update-text">
           Music Player <strong>{{ updater.available.version }}</strong> est prête à être installée.
-          <span class="update-current">Version actuelle : {{ updater.available.current }}</span>
+          <span class="update-current">
+            Version actuelle : {{ updater.available.current }}<template v-if="updater.sizeLabel"> · {{ updater.sizeLabel }} à télécharger</template>
+          </span>
         </p>
 
         <div v-if="updater.installing" class="update-progress" role="status">
@@ -29,14 +31,26 @@ const percent = computed(() => (updater.progress === null ? null : Math.round(up
             <span :style="percent === null ? undefined : { transform: `scaleX(${percent / 100})` }" />
           </div>
           <p>Téléchargement… <template v-if="percent !== null">{{ percent }} %</template></p>
+          <!-- Connexion lente ou coupée : Android patiente et réessaie tout seul. -->
+          <p v-if="updater.message" class="update-wait">{{ updater.message }}</p>
         </div>
         <p v-else-if="updater.message" class="update-message">{{ updater.message }}</p>
 
         <div class="update-actions">
-          <button type="button" class="btn primary" :disabled="updater.installing" @click="updater.install()">
-            {{ updater.installing ? "Téléchargement…" : "Mettre à jour" }}
-          </button>
-          <button type="button" class="btn secondary" :disabled="updater.installing" @click="updater.dismissed = true">Plus tard</button>
+          <template v-if="updater.failed">
+            <button type="button" class="btn primary" @click="updater.install()">Réessayer</button>
+            <button type="button" class="btn secondary" @click="updater.openInBrowser()">Télécharger avec le navigateur</button>
+            <button type="button" class="btn ghost" @click="updater.dismissed = true">Plus tard</button>
+          </template>
+          <template v-else>
+            <button type="button" class="btn primary" :disabled="updater.installing" @click="updater.install()">
+              {{ updater.installing ? "Téléchargement…" : "Mettre à jour" }}
+            </button>
+            <!-- Pendant le téléchargement, on peut fermer la fenêtre : il continue (notification). -->
+            <button type="button" class="btn secondary" @click="updater.dismissed = true">
+              {{ updater.installing ? "Continuer en arrière-plan" : "Plus tard" }}
+            </button>
+          </template>
         </div>
       </section>
     </div>
@@ -99,6 +113,15 @@ h2 {
 }
 .update-progress {
   margin-top: 16px;
+}
+.update-wait {
+  color: #ffe2a8 !important;
+}
+.btn.ghost {
+  min-height: 40px;
+  background: none;
+  color: rgba(230, 240, 255, 0.7);
+  font-size: 15px;
 }
 .update-progress p {
   margin: 8px 0 0;

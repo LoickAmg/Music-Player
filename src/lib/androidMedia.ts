@@ -15,7 +15,10 @@ interface AndroidMediaBridge {
 }
 
 interface AndroidUpdateBridge {
-  install(url: string): void;
+  download(url: string, version: string): void;
+  openInBrowser(url: string): void;
+  backgroundAllowed?(): boolean;
+  openBatterySettings?(): void;
 }
 
 declare global {

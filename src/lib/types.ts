@@ -96,4 +96,6 @@ export interface UpdateInfo {
   notes: string | null;
   /** Android : adresse de l'APK à télécharger. */
   url: string | null;
+  /** Android : taille de l'APK (octets). */
+  size: number | null;
 }

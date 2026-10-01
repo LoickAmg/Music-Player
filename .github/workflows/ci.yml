@@ -78,7 +78,7 @@ jobs:
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
             Configuration requise :
-            - Android 8.0 ou plus (ARM 64/32 bits), Android System WebView à jour (111+) : Music-Player-android.apk
+            - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
             - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
@@ -150,7 +150,7 @@ jobs:
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
             Configuration requise :
-            - Android 8.0 ou plus (ARM 64/32 bits), Android System WebView à jour (111+) : Music-Player-android.apk
+            - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
             - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
@@ -209,26 +209,40 @@ jobs:
           npx tauri icon src-tauri/icons/app-icon-source.png
           node scripts/android-patch.mjs
 
-      - name: Compilation de l'APK
+      # Trois APK : complet (arm64 + armv7, pour une installation à la main), et un par type
+      # de processeur, environ deux fois plus léger, que l'appli télécharge pour se mettre à
+      # jour. La compilation Rust est réutilisée d'un APK à l'autre.
+      - name: Compilation des APK
         run: |
           set -o pipefail
-          if ! npx tauri android build --apk --target aarch64 armv7 2>&1 | tee build.log; then
-            # Les erreurs deviennent des annotations, lisibles sans accès aux journaux.
-            grep -iE "error|failed|could not|cannot find|undefined|^e: " build.log | grep -v "^warning" | tail -40 | while IFS= read -r line; do
-              echo "::error::${line:0:900}"
-            done
-            exit 1
-          fi
+          mkdir -p apk-out
+          build() {
+            if ! npx tauri android build --apk --target "$@" 2>&1 | tee -a build.log; then
+              # Les erreurs deviennent des annotations, lisibles sans accès aux journaux.
+              grep -iE "error|failed|could not|cannot find|undefined|^e: " build.log | grep -v "^warning" | tail -40 | while IFS= read -r line; do
+                echo "::error::${line:0:900}"
+              done
+              exit 1
+            fi
+          }
+          latest_apk() {
+            find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" -printf "%T@ %p\n" | sort -n | tail -n 1 | cut -d" " -f2-
+          }
+          build aarch64 armv7
+          cp "$(latest_apk)" apk-out/full.apk
+          build aarch64
+          cp "$(latest_apk)" apk-out/arm64.apk
+          build armv7
+          cp "$(latest_apk)" apk-out/armv7.apk
+          ls -la apk-out
 
       # Signature : clé fournie par les secrets du dépôt si elle existe (mises à jour
       # sans désinstaller), sinon clé générée pour cette version.
-      - name: Signature de l'APK
+      - name: Signature des APK
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          APK=$(find src-tauri/gen/android/app/build/outputs/apk -name "*.apk" | head -n 1)
-          echo "APK non signé : $APK"
           if [ -n "$KEYSTORE_B64" ]; then
             echo "$KEYSTORE_B64" | base64 -d > release.jks
             PASS="$KEYSTORE_PASSWORD"
@@ -239,20 +253,25 @@ jobs:
             exit 1
           else
             PASS="music-player"
-            keytool -genkeypair -keystore release.jks -storepass "$PASS" -keypass "$PASS"               -alias music-player -keyalg RSA -keysize 2048 -validity 10000               -dname "CN=Mahouna, O=Music Player, C=FR"
+            keytool -genkeypair -keystore release.jks -storepass "$PASS" -keypass "$PASS" -alias music-player -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Mahouna, O=Music Player, C=FR"
           fi
           BT="$ANDROID_HOME/build-tools/35.0.0"
-          "$BT/zipalign" -f -p 4 "$APK" aligned.apk
-          "$BT/apksigner" sign --ks release.jks --ks-pass "pass:$PASS" --out "Music-Player-android.apk" aligned.apk
-          ls -la *.apk
+          sign() {
+            "$BT/zipalign" -f -p 4 "apk-out/$1.apk" "apk-out/$1-aligned.apk"
+            "$BT/apksigner" sign --ks release.jks --ks-pass "pass:$PASS" --out "$2" "apk-out/$1-aligned.apk"
+          }
+          sign full Music-Player-android.apk
+          sign arm64 Music-Player-android-arm64.apk
+          sign armv7 Music-Player-android-armv7.apk
+          ls -la Music-Player-android*.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: music-player-android
-          path: "*-android.apk"
+          path: "Music-Player-android*.apk"
 
-      - name: Ajout de l'APK à la release
+      - name: Ajout des APK à la release
         if: startsWith(github.ref, 'refs/tags/app-v')
         uses: softprops/action-gh-release@v2
         with:
-          files: "*-android.apk"
+          files: "Music-Player-android*.apk"
