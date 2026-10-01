@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { api, onScanEvents } from "@/lib/api";
 import { installAndroidMedia } from "@/lib/androidMedia";
+import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
 import { useAmbienceStore } from "@/stores/ambience";
@@ -64,6 +65,18 @@ watch(
   () => player.currentTrack,
   (track) => void ambience.follow(track),
   { immediate: true },
+);
+
+// L'horloge d'affichage (progression, paroles) ne tourne que pendant la lecture ; une
+// image suffit après une pause, un saut ou un changement de morceau.
+watch(
+  () => !player.isPaused && !!player.currentTrack,
+  (on) => setClockRunning(on),
+  { immediate: true },
+);
+watch(
+  () => [player.positionStamp, player.currentTrack?.id, ui.nowPlayingOpen],
+  () => nudgeClock(),
 );
 
 // Paroles cherchées dès le début du morceau (prêtes quand on les affiche), et celles du

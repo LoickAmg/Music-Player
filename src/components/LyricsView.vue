@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useNow } from "@/lib/clock";
+import { lite } from "@/lib/perf";
 import { activeLineIndex, useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
 
@@ -16,7 +17,6 @@ const lineEls: HTMLElement[] = [];
 /** Le texte suit la chanson ; faux pendant que l'utilisateur fait défiler au doigt. */
 const following = ref(true);
 let resumeTimer: ReturnType<typeof setTimeout> | undefined;
-let scrollFrame = 0;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
 // Légère avance : la ligne s'allume au moment où elle commence à être chantée.
@@ -28,8 +28,9 @@ function isBreak(text: string) {
 }
 
 // Remplissage « karaoké » de la ligne chantée, image par image, sans rendu Vue : seule la
-// variable CSS --p de la ligne active change.
+// variable CSS --p de la ligne active change. Pas en mode léger (ligne surlignée en entier).
 watch(positionMs, (ms) => {
+  if (lite.value) return;
   const lines = synced.value;
   const i = active.value;
   const el = lineEls[i];
@@ -42,32 +43,17 @@ watch(positionMs, (ms) => {
   el.style.setProperty("--p", p.toFixed(3));
 });
 
-/** Défilement doux maison : régulier même sur les téléphones modestes, et interrompu net
- *  dès que le doigt touche l'écran. */
-function glideTo(target: number) {
-  const box = container.value;
-  if (!box) return;
-  cancelAnimationFrame(scrollFrame);
-  const from = box.scrollTop;
-  const delta = Math.max(0, target) - from;
-  if (Math.abs(delta) < 2) return;
-  const t0 = performance.now();
-  const duration = Math.min(700, 380 + Math.abs(delta) * 0.25);
-  const step = (t: number) => {
-    const k = Math.min(1, (t - t0) / duration);
-    box.scrollTop = from + delta * (1 - Math.pow(1 - k, 3));
-    if (k < 1) scrollFrame = requestAnimationFrame(step);
-  };
-  scrollFrame = requestAnimationFrame(step);
-}
-
+/** Ligne chantée amenée vers le tiers haut de la zone. Défilement doux confié au navigateur :
+ *  animé par le compositeur, il reste régulier même quand le téléphone est chargé (un
+ *  défilement calculé image par image allait tantôt trop vite, tantôt trop lentement), et
+ *  s'interrompt de lui-même dès que le doigt touche l'écran. */
 function scrollToActive(smooth = true) {
   const box = container.value;
   if (!box || !following.value) return;
   const el = lineEls[active.value];
-  const target = el ? el.offsetTop + el.offsetHeight / 2 - box.clientHeight * 0.38 : 0;
-  if (smooth) glideTo(target);
-  else box.scrollTop = Math.max(0, target);
+  const target = Math.max(0, el ? el.offsetTop + el.offsetHeight / 2 - box.clientHeight * 0.3 : 0);
+  if (Math.abs(target - box.scrollTop) < 2) return;
+  box.scrollTo({ top: target, behavior: smooth ? "smooth" : "auto" });
 }
 
 watch(active, () => nextTick(() => scrollToActive()));
@@ -83,7 +69,6 @@ watch(
 
 function holdFollow() {
   following.value = false;
-  cancelAnimationFrame(scrollFrame);
   clearTimeout(resumeTimer);
 }
 
@@ -108,10 +93,7 @@ function seekTo(ms: number) {
   resume();
 }
 
-onBeforeUnmount(() => {
-  cancelAnimationFrame(scrollFrame);
-  clearTimeout(resumeTimer);
-});
+onBeforeUnmount(() => clearTimeout(resumeTimer));
 </script>
 
 <template>
@@ -345,6 +327,10 @@ onBeforeUnmount(() => {
   background: currentColor;
   animation: breathe 1.4s ease-in-out infinite;
 }
+.line:not(.active) .dots i {
+  animation: none;
+  opacity: 0.6;
+}
 .dots i:nth-child(2) {
   animation-delay: 0.2s;
 }
@@ -362,17 +348,35 @@ onBeforeUnmount(() => {
     transform: scale(1);
   }
 }
-/* Téléphone : pas de masque (coûteux pour les processeurs graphiques modestes), lueur plus
-   courte ; texte un peu plus grand. */
+/* Téléphone : les paroles commencent juste sous l'en-tête (pochette, titre) et s'effacent
+   avant la barre de progression ; lueur plus courte ; texte un peu plus grand. */
 @media (max-width: 760px) {
   .fade {
-    mask-image: none;
+    mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 40px), transparent);
+  }
+  .large .scroller {
+    padding: 14px 4px 55vh;
   }
   .line {
-    font-size: 26px;
+    font-size: 25px;
   }
   .line.active .txt {
     filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amb-glow) calc(30% + var(--amb-energy) * 40%), transparent));
   }
+}
+/* Mode léger (téléphones modestes) : ni masque, ni lueur, ni zoom des lignes ; la ligne
+   chantée est blanche en entier, les autres atténuées. Seule l'opacité change. */
+:root[data-perf="lite"] .fade {
+  mask-image: none;
+}
+:root[data-perf="lite"] .line,
+:root[data-perf="lite"] .browsing .line {
+  transform: none;
+  transition: opacity 0.3s ease;
+}
+:root[data-perf="lite"] .line.active .txt {
+  background: none;
+  color: #fff;
+  filter: none;
 }
 </style>

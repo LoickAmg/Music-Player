@@ -92,6 +92,17 @@ pub struct EqSource<I> {
     /// État des filtres par canal (index = numéro de canal) puis par bande.
     state: Vec<[BiquadState; 3]>,
     channel_cursor: usize,
+    /// Égaliseur neutre (gains nuls) : les filtres sont sautés, le son est identique et
+    /// le processeur du téléphone travaille beaucoup moins.
+    flat: bool,
+}
+
+/// Les gains ne sont relus qu'une fois tous ces échantillons (~20 fois par seconde),
+/// au lieu de prendre un verrou à chaque échantillon.
+const GAIN_CHECK_INTERVAL: usize = 2048;
+
+fn is_flat(gains: &[f32; 3]) -> bool {
+    gains.iter().all(|g| g.abs() < 0.05)
 }
 
 impl<I> EqSource<I>
@@ -113,6 +124,7 @@ where
             coeffs,
             state,
             channel_cursor: 0,
+            flat: is_flat(&cached_gains),
         }
     }
 }
@@ -126,19 +138,25 @@ where
     fn next(&mut self) -> Option<f32> {
         let sample = self.input.next()?;
 
-        // On ne bloque jamais le thread audio pour aller lire un
-        // changement de gain : si le verrou est momentanément pris par le
-        // thread des commandes, on garde les coefficients précédents pour
-        // cet échantillon, imperceptible à l'oreille.
-        if let Ok(current) = self.gains.try_lock() {
-            if *current != self.cached_gains {
-                self.cached_gains = *current;
-                self.coeffs = compute_all_coeffs(self.sample_rate.get() as f32, &self.cached_gains);
+        // On ne bloque jamais le thread audio pour aller lire un changement de gain : relu
+        // de temps en temps, et si le verrou est momentanément pris par le thread des
+        // commandes, on garde les coefficients précédents, imperceptible à l'oreille.
+        if self.channel_cursor.is_multiple_of(GAIN_CHECK_INTERVAL) {
+            if let Ok(current) = self.gains.try_lock() {
+                if *current != self.cached_gains {
+                    self.cached_gains = *current;
+                    self.coeffs =
+                        compute_all_coeffs(self.sample_rate.get() as f32, &self.cached_gains);
+                    self.flat = is_flat(&self.cached_gains);
+                }
             }
         }
 
         let channel = self.channel_cursor % self.channels.get() as usize;
-        self.channel_cursor += 1;
+        self.channel_cursor = self.channel_cursor.wrapping_add(1);
+        if self.flat {
+            return Some(sample);
+        }
 
         let channel_state = &mut self.state[channel];
         let mut out = sample;
@@ -276,15 +294,15 @@ mod tests {
 
     #[test]
     fn live_gain_change_is_picked_up_without_rebuilding_the_source() {
-        let input = test_signal(500);
-        let source = TestSource::new(input, 44_100, 1);
+        let input = test_signal(3 * GAIN_CHECK_INTERVAL);
+        let source = TestSource::new(input.clone(), 44_100, 1);
         let gains = new_eq_gains([0.0, 0.0, 0.0]);
         let gains_handle = gains.clone();
         let mut eq = EqSource::new(source, gains);
 
-        // Consomme quelques échantillons à gain nul...
-        for _ in 0..50 {
-            eq.next();
+        // Consomme quelques échantillons à gain nul (égaliseur neutre : son inchangé)...
+        for (i, expected) in input.iter().enumerate().take(50) {
+            assert_eq!(eq.next(), Some(*expected), "échantillon {i}");
         }
         // ...puis change le gain "en direct" comme le ferait une commande
         // Tauri pendant la lecture.
@@ -292,5 +310,9 @@ mod tests {
 
         let rest: Vec<f32> = eq.collect();
         assert!(rest.iter().all(|s| s.is_finite()));
+        // Pris en compte au plus tard après GAIN_CHECK_INTERVAL échantillons.
+        let tail = &rest[GAIN_CHECK_INTERVAL..];
+        let original = &input[50 + GAIN_CHECK_INTERVAL..];
+        assert!(tail.iter().zip(original).any(|(a, b)| (a - b).abs() > 1e-4));
     }
 }

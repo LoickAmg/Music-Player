@@ -52,6 +52,13 @@ Sur le téléphone :
   publier une version sans eux) ;
 - icône adaptative : l'image entière dans la zone visible, fond assorti ;
 - l'écran reste allumé tant que les paroles défilent (lecture en cours) ;
+- **affichage léger** pour les téléphones modestes (Réglages → Affichage : Automatique,
+  Complet, Léger) : fond fixe aux couleurs de la pochette, ligne chantée surlignée en entier,
+  horloge d'affichage à 10 images par seconde. « Automatique » le choisit selon la puce
+  graphique (Mali-G51 du Huawei Y8p…), la mémoire, le nombre de cœurs, la préférence
+  « animations réduites » du système, ou s'il constate des saccades pendant la lecture.
+  Dans tous les modes, rien ne tourne en pause ni appli cachée, le défilement automatique des
+  paroles est animé par le compositeur, et l'égaliseur neutre ne calcule rien ;
 - écran des paroles façon Apple Music : petite pochette, titre et artiste en haut ;
 - mise à jour depuis l'appli : la dernière version publiée est détectée au démarrage,
   « Mettre à jour » télécharge l'APK et ouvre l'installation d'Android (par-dessus).

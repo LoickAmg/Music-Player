@@ -2,7 +2,11 @@ import { defineStore } from "pinia";
 import { api } from "@/lib/api";
 import type { PlaybackStatus, QueueView, RepeatMode, Track } from "@/lib/types";
 
-let pollHandle: ReturnType<typeof setInterval> | null = null;
+// Sondage du moteur audio : une fois par seconde en lecture (la position affichée est
+// extrapolée entre deux), toutes les 2 s en pause, jamais quand l'appli est cachée
+// (l'enchaînement des morceaux se fait côté Rust et prévient l'interface).
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let polling = false;
 
 export const usePlayerStore = defineStore("player", {
   state: () => ({
@@ -191,14 +195,27 @@ export const usePlayerStore = defineStore("player", {
       }
     },
     startPolling() {
-      if (pollHandle) return;
-      pollHandle = setInterval(() => void this.pollTick(), 500);
+      if (polling) return;
+      polling = true;
+      const loop = async () => {
+        pollTimer = null;
+        if (!polling) return;
+        if (!document.hidden) await this.pollTick();
+        if (polling) pollTimer = setTimeout(loop, this.isPaused ? 2000 : 1000);
+      };
+      void loop();
+      document.addEventListener("visibilitychange", onVisible);
     },
     stopPolling() {
-      if (pollHandle) {
-        clearInterval(pollHandle);
-        pollHandle = null;
-      }
+      polling = false;
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = null;
+      document.removeEventListener("visibilitychange", onVisible);
     },
   },
 });
+
+// Retour au premier plan : état du moteur relu tout de suite.
+function onVisible() {
+  if (!document.hidden) void usePlayerStore().pollTick();
+}

@@ -407,25 +407,38 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   .right {
     display: none;
   }
+  /* Paroles : trois rangées fixes. En-tête (pochette, titre) en haut, paroles juste
+     dessous sur toute la place libre, progression et commandes en bas ; les paroles ne
+     passent jamais sous la barre de progression. */
+  .layout.m-lyrics {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    justify-content: stretch;
+    padding-top: calc(env(safe-area-inset-top) + 52px);
+  }
   .m-lyrics .right {
     display: block;
-    flex: 1;
+    grid-row: 2;
+    height: auto;
     min-height: 0;
+    overflow: hidden;
   }
   .m-lyrics .hero-art,
   .m-lyrics .meta {
     display: none;
   }
   .m-lyrics .left {
-    order: 2;
+    grid-row: 3;
+    align-self: end;
+    padding-top: 6px;
   }
   .m-head {
-    order: 0;
+    grid-row: 1;
     display: flex;
     align-items: center;
     gap: 12px;
     width: 100%;
-    margin: 0 0 6px;
+    margin: 0 0 10px;
     padding: 0;
     border: 0;
     background: none;
@@ -458,11 +471,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     font-size: 14px;
     color: rgba(255, 255, 255, 0.65);
   }
-  .m-lyrics .right {
-    order: 1;
-  }
   .m-lyrics .bar {
-    margin-top: 8px;
+    margin-top: 4px;
   }
   .collapse {
     top: calc(env(safe-area-inset-top) + 12px);
@@ -478,13 +488,31 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     animation: blob-in 0.6s ease both;
     filter: blur(48px) saturate(1.5) brightness(0.72);
   }
+  /* Nappes de lumière immobiles sur téléphone : une animation plein écran sans fin fait
+     travailler (et chauffer) le processeur graphique pendant toute l'écoute. */
   .aura {
     filter: none;
     mix-blend-mode: normal;
-    will-change: transform;
+    animation: none;
   }
   .grain {
     display: none;
   }
+}
+/* Mode léger : ni pochette floutée ni nappes ; fond fixe en dégradé aux couleurs de la
+   pochette, ombres réduites. */
+:root[data-perf="lite"] .blob,
+:root[data-perf="lite"] .aura,
+:root[data-perf="lite"] .grain {
+  display: none;
+}
+:root[data-perf="lite"] .backdrop {
+  background:
+    radial-gradient(120% 70% at 20% 0%, color-mix(in srgb, var(--amb-primary) 70%, transparent), transparent 70%),
+    radial-gradient(100% 60% at 90% 100%, color-mix(in srgb, var(--amb-secondary) 60%, transparent), transparent 70%),
+    var(--amb-base);
+}
+:root[data-perf="lite"] .hero-art {
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
 }
 </style>

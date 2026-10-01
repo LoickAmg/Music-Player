@@ -212,11 +212,19 @@ function openMenu(event: MouseEvent) {
   padding: 0;
   filter: drop-shadow(0 0 2px #000);
 }
+/* Animation de « transform » (gérée par le processeur graphique) plutôt que de hauteur, qui
+   recalculait la mise en page à chaque image pendant toute la lecture. */
 .bars i {
   width: 3px;
+  height: 12px;
   background: var(--accent);
   border-radius: 1px;
+  transform-origin: bottom;
   animation: bar 0.9s ease-in-out infinite alternate;
+}
+:root[data-perf="lite"] .bars i {
+  animation: none;
+  transform: scaleY(0.6);
 }
 .bars i:nth-child(2) {
   animation-delay: -0.4s;
@@ -226,10 +234,10 @@ function openMenu(event: MouseEvent) {
 }
 @keyframes bar {
   from {
-    height: 3px;
+    transform: scaleY(0.25);
   }
   to {
-    height: 12px;
+    transform: scaleY(1);
   }
 }
 .mobile-only {

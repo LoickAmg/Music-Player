@@ -13,6 +13,7 @@ const track = computed(() => player.currentTrack);
 // Barre de progression mise à jour directement à chaque image (sans redessiner le composant).
 const progress = ref<HTMLElement | null>(null);
 useFrame((t) => {
+  if (ui.nowPlayingOpen) return; // caché sous « À l'écoute »
   const d = track.value?.duration_secs ?? 0;
   if (progress.value) progress.value.style.transform = `scaleX(${d ? Math.min(1, player.positionAt(t) / d) : 0})`;
 });

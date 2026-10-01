@@ -6,6 +6,7 @@ import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { useUpdaterStore } from "@/stores/updater";
+import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
@@ -13,6 +14,11 @@ const library = useLibraryStore();
 const eq = useEqStore();
 const lyrics = useLyricsStore();
 const updater = useUpdaterStore();
+const PERF_CHOICES: { value: PerfSetting; label: string }[] = [
+  { value: "auto", label: "Automatique" },
+  { value: "full", label: "Complet" },
+  { value: "lite", label: "Léger" },
+];
 const showLegal = ref(false);
 const onAndroid = /Android/i.test(navigator.userAgent);
 const version = ref<string | null>(null);
@@ -70,6 +76,31 @@ const shortcuts = [
         </button>
       </div>
       <p v-if="updater.message" class="muted small">{{ updater.message }}</p>
+    </section>
+
+    <section class="card">
+      <h2><Icon name="brush" :size="17" /> Affichage</h2>
+      <div class="presets">
+        <button
+          v-for="c in PERF_CHOICES"
+          :key="c.value"
+          type="button"
+          class="chip"
+          :class="{ on: perfSetting === c.value }"
+          @click="setPerfSetting(c.value)"
+        >
+          {{ c.label }}
+        </button>
+      </div>
+      <p class="muted small">
+        « Léger » garde la même musique et les mêmes paroles synchronisées, avec moins d'effets : fond fixe aux couleurs
+        de la pochette, ligne chantée surlignée en entier. Il ménage la batterie et évite que les téléphones modestes ne
+        chauffent ou ne saccadent.
+        <template v-if="perfSetting === 'auto'">
+          <br />Actuellement : <strong>{{ lite ? "léger" : "complet" }}</strong><template v-if="lite && autoReason"> ({{ autoReason }})</template>.
+          <button v-if="lite && autoReason.startsWith('saccades')" type="button" class="link-btn" @click="resetDetection()">Réessayer le mode complet</button>
+        </template>
+      </p>
     </section>
 
     <section class="card">
@@ -233,5 +264,14 @@ kbd {
   background: var(--bg-active);
   font-family: inherit;
   font-size: 12px;
+}
+.link-btn {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
 }
 </style>
