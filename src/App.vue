@@ -23,6 +23,7 @@ import PlayerBar from "@/components/PlayerBar.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import TrackMenu from "@/components/TrackMenu.vue";
+import UpdateDialog from "@/components/UpdateDialog.vue";
 import AlbumDetail from "@/views/AlbumDetail.vue";
 import AlbumsView from "@/views/AlbumsView.vue";
 import ArtistsView from "@/views/ArtistsView.vue";
@@ -210,10 +211,11 @@ onBeforeUnmount(() => {
         Mode démonstration (navigateur) : pistes fictives, pas de son. L'application de bureau lit vos vrais fichiers.
       </div>
       <!-- Messages : bandeaux en haut sur ordinateur ; sur téléphone, cartes au-dessus du
-           mini-lecteur, à portée de pouce (en haut, elles passaient sous la barre d'état). -->
+           mini-lecteur, à portée de pouce (en haut, elles passaient sous la barre d'état).
+           La mise à jour, elle, s'ouvre en fenêtre centrée sur téléphone (UpdateDialog). -->
       <div class="notices">
       <Transition name="fade">
-        <div v-if="updater.available && !updater.dismissed && !(ui.isMobile && ui.nowPlayingOpen)" class="banner update" role="status">
+        <div v-if="updater.available && !updater.dismissed && !ui.isMobile" class="banner update" role="status">
           <span v-if="updater.installing">
             Téléchargement de la version {{ updater.available.version }}…
             <template v-if="updater.progress !== null">{{ Math.round(updater.progress * 100) }} %</template>
@@ -287,6 +289,7 @@ onBeforeUnmount(() => {
       <NowPlaying v-if="ui.nowPlayingOpen" />
     </Transition>
     <MobileBar v-if="ui.isMobile" />
+    <UpdateDialog />
     <TrackMenu />
     <PlaylistDialog />
     <Transition name="fade">
@@ -411,20 +414,6 @@ onBeforeUnmount(() => {
   font-size: 14px;
   line-height: 1.45;
   box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
-}
-.app.mobile .notices .update {
-  flex-direction: column;
-  align-items: stretch;
-  background: #10306e;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-}
-.app.mobile .notices .update .banner-actions {
-  gap: 10px;
-}
-.app.mobile .notices .update .pill {
-  flex: 1;
-  padding: 12px 16px;
-  font-size: 15px;
 }
 .app.mobile .notices .error {
   background: #4a1230;

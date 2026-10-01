@@ -227,3 +227,19 @@ input {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+/* … et fonds opaques à la place, sinon le contenu se lit au travers des barres. */
+:root[data-perf="lite"] .mobile-top {
+  background: rgb(5, 13, 36);
+}
+:root[data-perf="lite"] .mobile-bar {
+  background: rgb(4, 11, 32);
+}
+:root[data-perf="lite"] .mobile-bar .mini {
+  background: linear-gradient(120deg, #142f69, #0c2148);
+}
+:root[data-perf="lite"] .player-bar {
+  background: rgb(6, 18, 48);
+}
+:root[data-perf="lite"] .scrim {
+  background: rgba(0, 0, 0, 0.7);
+}

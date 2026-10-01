@@ -94,8 +94,12 @@ Sur le téléphone :
   Dans tous les modes, rien ne tourne en pause ni appli cachée, le défilement automatique des
   paroles est animé par le compositeur, et l'égaliseur neutre ne calcule rien ;
 - écran des paroles façon Apple Music : petite pochette, titre et artiste en haut ;
-- mise à jour depuis l'appli : la dernière version publiée est détectée au démarrage,
-  « Mettre à jour » télécharge l'APK et ouvre l'installation d'Android (par-dessus).
+- mise à jour depuis l'appli : la dernière version publiée est détectée au démarrage et
+  proposée dans une fenêtre centrée ; « Mettre à jour » télécharge l'APK et ouvre
+  l'installation d'Android (par-dessus) ;
+- sortie audio rétablie toute seule quand le système la coupe (enregistrement d'écran qui
+  capte le son, casque ou Bluetooth branché ou débranché…) : le moteur rouvre la sortie et
+  reprend le morceau au même endroit, aussi quand la lecture cesse d'avancer sans prévenir.
 
 ## Mises à jour
 

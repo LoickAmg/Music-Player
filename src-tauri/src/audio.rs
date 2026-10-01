@@ -15,6 +15,7 @@ use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -228,6 +229,10 @@ struct Engine {
     mixer: rodio::mixer::Mixer,
     player: Option<Player>,
     eq_gains: EqGains,
+    /// Volume courant, réappliqué quand la sortie est rouverte.
+    volume: f32,
+    /// Levé par le système quand il coupe le flux audio.
+    lost: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -243,6 +248,7 @@ impl Engine {
                     }
                     let player = Player::connect_new(&self.mixer);
                     player.set_volume(volume);
+                    self.volume = volume;
                     player.append(EqSource::new(decoder, self.eq_gains.clone()));
                     self.player = Some(player);
                     let mut st = status.lock().unwrap();
@@ -294,6 +300,7 @@ impl Engine {
                 }
             }
             AudioCommand::SetVolume(v) => {
+                self.volume = v;
                 if let Some(p) = &self.player {
                     p.set_volume(v);
                 }
@@ -315,11 +322,38 @@ fn panic_text(payload: Box<dyn std::any::Any + Send>) -> String {
 /// (utile sur Android, où l'interrogation du système peut échouer), une configuration
 /// fixe 48 kHz stéréo, sans rien demander au système. Toute panique est interceptée
 /// pour que la cause remonte jusqu'à l'interface.
-fn open_output() -> Result<rodio::MixerDeviceSink, String> {
+fn open_output(lost: &Arc<AtomicBool>) -> Result<rodio::MixerDeviceSink, String> {
     use rodio::cpal::traits::HostTrait;
     use std::num::NonZero;
 
+    // Flux coupé par le système (enregistrement d'écran qui capte le son, casque ou
+    // Bluetooth branché ou débranché…) : signalé au fil audio, qui rouvre la sortie.
+    let on_error = {
+        let lost = lost.clone();
+        move |error: rodio::cpal::StreamError| {
+            if matches!(
+                error,
+                rodio::cpal::StreamError::DeviceNotAvailable
+                    | rodio::cpal::StreamError::StreamInvalidated
+            ) {
+                lost.store(true, Ordering::SeqCst);
+            }
+        }
+    };
+
     let mut errors = Vec::new();
+    let preferred = {
+        let on_error = on_error.clone();
+        panic::catch_unwind(AssertUnwindSafe(move || {
+            DeviceSinkBuilder::from_default_device()
+                .and_then(|b| b.with_error_callback(on_error).open_sink_or_fallback())
+        }))
+    };
+    match preferred {
+        Ok(Ok(device)) => return Ok(device),
+        Ok(Err(e)) => errors.push(e.to_string()),
+        Err(p) => errors.push(panic_text(p)),
+    }
     match panic::catch_unwind(DeviceSinkBuilder::open_default_sink) {
         Ok(Ok(device)) => return Ok(device),
         Ok(Err(e)) => errors.push(e.to_string()),
@@ -329,19 +363,23 @@ fn open_output() -> Result<rodio::MixerDeviceSink, String> {
         rodio::cpal::SampleFormat::F32,
         rodio::cpal::SampleFormat::I16,
     ] {
-        let attempt = panic::catch_unwind(move || -> Result<rodio::MixerDeviceSink, String> {
-            let device = rodio::cpal::default_host()
-                .default_output_device()
-                .ok_or_else(|| "aucun périphérique de sortie".to_string())?;
-            DeviceSinkBuilder::default()
-                .with_device(device)
-                .with_channels(NonZero::new(2).unwrap())
-                .with_sample_rate(NonZero::new(48_000).unwrap())
-                .with_sample_format(format)
-                .with_buffer_size(rodio::cpal::BufferSize::Fixed(2048))
-                .open_stream()
-                .map_err(|e| e.to_string())
-        });
+        let on_error = on_error.clone();
+        let attempt = panic::catch_unwind(AssertUnwindSafe(
+            move || -> Result<rodio::MixerDeviceSink, String> {
+                let device = rodio::cpal::default_host()
+                    .default_output_device()
+                    .ok_or_else(|| "aucun périphérique de sortie".to_string())?;
+                DeviceSinkBuilder::default()
+                    .with_error_callback(on_error)
+                    .with_device(device)
+                    .with_channels(NonZero::new(2).unwrap())
+                    .with_sample_rate(NonZero::new(48_000).unwrap())
+                    .with_sample_format(format)
+                    .with_buffer_size(rodio::cpal::BufferSize::Fixed(2048))
+                    .open_stream()
+                    .map_err(|e| e.to_string())
+            },
+        ));
         match attempt {
             Ok(Ok(device)) => return Ok(device),
             Ok(Err(e)) => errors.push(e),
@@ -352,7 +390,8 @@ fn open_output() -> Result<rodio::MixerDeviceSink, String> {
 }
 
 fn new_engine(eq_gains: &EqGains) -> Result<Engine, String> {
-    let mut device = open_output()?;
+    let lost = Arc::new(AtomicBool::new(false));
+    let mut device = open_output(&lost)?;
     device.log_on_drop(false);
     let mixer = device.mixer().clone();
     Ok(Engine {
@@ -360,7 +399,54 @@ fn new_engine(eq_gains: &EqGains) -> Result<Engine, String> {
         mixer,
         player: None,
         eq_gains: eq_gains.clone(),
+        volume: 1.0,
+        lost,
     })
+}
+
+/// Où reprendre après la perte du flux audio.
+#[derive(Clone)]
+struct Resume {
+    path: Option<String>,
+    position: Duration,
+    paused: bool,
+    volume: f32,
+}
+
+impl Resume {
+    fn of(engine: &Engine, status: &Mutex<AudioStatus>) -> Self {
+        let st = status.lock().unwrap();
+        Self {
+            path: st.current_path.clone(),
+            position: engine
+                .player
+                .as_ref()
+                .map(|p| p.get_pos())
+                .unwrap_or_default(),
+            paused: st.is_paused,
+            volume: engine.volume,
+        }
+    }
+}
+
+/// Reconstruit la sortie audio et reprend le morceau au même endroit (et dans le même état,
+/// lecture ou pause). `None` si la sortie ne peut pas encore être rouverte.
+fn reopen(resume: &Resume, eq_gains: &EqGains, status: &Mutex<AudioStatus>) -> Option<Engine> {
+    let mut engine = new_engine(eq_gains).ok()?;
+    engine.volume = resume.volume;
+    if let Some(path) = &resume.path {
+        engine.handle(
+            AudioCommand::Play(path.clone(), resume.volume, None),
+            status,
+        );
+        if resume.position > Duration::from_millis(500) {
+            engine.handle(AudioCommand::Seek(resume.position), status);
+        }
+        if resume.paused {
+            engine.handle(AudioCommand::Pause, status);
+        }
+    }
+    Some(engine)
 }
 
 fn audio_thread_main(
@@ -379,6 +465,7 @@ fn audio_thread_main(
         }
     };
 
+    let mut watch = StreamWatch::default();
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(cmd) => {
@@ -420,13 +507,72 @@ fn audio_thread_main(
 
         if let Some(p) = engine.as_ref().and_then(|e| e.player.as_ref()) {
             let mut st = status.lock().unwrap();
-            st.position_secs = p.get_pos().as_secs_f64();
+            let position = p.get_pos();
+            st.position_secs = position.as_secs_f64();
             st.measured_at = Some(std::time::Instant::now());
             if p.empty() && st.current_path.is_some() {
                 st.finished = true;
             }
+            // Lecture censée avancer mais position figée : le flux ne tourne plus (coupé
+            // sans prévenir par certains téléphones).
+            let playing = !st.is_paused && !st.finished && !p.empty();
+            if playing && position == watch.last_position {
+                watch
+                    .stalled_since
+                    .get_or_insert_with(std::time::Instant::now);
+            } else {
+                watch.stalled_since = None;
+            }
+            watch.last_position = position;
+        }
+
+        // Flux coupé par le système, ou lecture figée depuis 2 s : l'ancienne sortie est
+        // libérée et l'endroit où reprendre retenu…
+        let lost = engine
+            .as_ref()
+            .is_some_and(|e| e.lost.load(Ordering::SeqCst));
+        let stalled = watch
+            .stalled_since
+            .is_some_and(|t| t.elapsed() > Duration::from_secs(2));
+        if lost || stalled {
+            watch.stalled_since = None;
+            if let Some(old) = engine.take() {
+                watch.pending = Some(Resume::of(&old, &status));
+                drop(old);
+            }
+        }
+        // …puis la sortie est rouverte et le morceau repris, avec un nouvel essai toutes les
+        // 2 s tant que le système ne la rend pas (enregistreur d'écran qui la monopolise…).
+        if engine.is_none()
+            && watch.pending.is_some()
+            && watch
+                .last_reopen
+                .is_none_or(|t| t.elapsed() > Duration::from_secs(2))
+        {
+            watch.last_reopen = Some(std::time::Instant::now());
+            let resume = watch.pending.clone().unwrap();
+            match reopen(&resume, &eq_gains, &status) {
+                Some(e) => {
+                    engine = Some(e);
+                    watch.pending = None;
+                }
+                None => {
+                    status.lock().unwrap().device_error =
+                        Some("La sortie audio a été coupée par le système ; nouvel essai…".into());
+                }
+            }
         }
     }
+}
+
+/// Surveillance du flux audio par le fil audio.
+#[derive(Default)]
+struct StreamWatch {
+    last_position: Duration,
+    stalled_since: Option<std::time::Instant>,
+    last_reopen: Option<std::time::Instant>,
+    /// Morceau à reprendre dès que la sortie audio pourra être rouverte.
+    pending: Option<Resume>,
 }
 
 #[cfg(test)]
