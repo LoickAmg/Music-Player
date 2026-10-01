@@ -327,14 +327,30 @@ fn main_artist(artist: &str) -> String {
     a.trim().to_string()
 }
 
+/// Titre d'un résultat LRCLIB, débarrassé des mentions de vidéo et d'un « Artiste - »
+/// en tête (« Tiakola - Meuda (Clip officiel) » devient « Meuda »).
+fn record_title(record: &LrclibRecord) -> String {
+    let name = strip_noise(record.track_name.as_deref().unwrap_or(""));
+    let artist = normalize(record.artist_name.as_deref().unwrap_or(""));
+    match name.split_once(" - ") {
+        Some((head, tail)) if !artist.is_empty() && normalize(head).contains(&artist) => {
+            bare_title(tail)
+        }
+        _ => bare_title(&name),
+    }
+}
+
 /// Note d'un résultat de recherche (plus haut = meilleur), ou `None` s'il ne correspond pas
-/// au morceau : le titre doit concorder, et l'artiste ou, à défaut, la durée.
+/// au morceau. Le titre doit concorder ; si l'artiste est connu, il doit concorder aussi
+/// (un titre courant comme « Sans toi » existe chez des dizaines d'artistes : mieux vaut
+/// pas de paroles que celles d'une autre chanson). Artiste inconnu : titre identique et
+/// durée quasi identique exigés.
 fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64) -> Option<f64> {
     if !record.has_content() {
         return None;
     }
     let want = normalize(&bare_title(title));
-    let got = normalize(&bare_title(record.track_name.as_deref().unwrap_or("")));
+    let got = normalize(&record_title(record));
     if want.is_empty() || got.is_empty() {
         return None;
     }
@@ -342,11 +358,6 @@ fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64
     if !title_exact && !got.contains(&want) && !want.contains(&got) {
         return None;
     }
-    let artist_ok = artist.is_some_and(|a| {
-        let want = normalize(&main_artist(a));
-        let got = normalize(record.artist_name.as_deref().unwrap_or(""));
-        !want.is_empty() && (got.contains(&want) || want.contains(&got) && !got.is_empty())
-    });
     let gap = match (record.duration, duration > 0.0) {
         (Some(d), true) => Some((d - duration).abs()),
         _ => None,
@@ -354,10 +365,24 @@ fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64
     if gap.is_some_and(|g| g > 12.0) {
         return None;
     }
-    // Sans artiste reconnu, seule une durée quasi identique rend le résultat fiable.
-    if !artist_ok && gap.is_none_or(|g| g > 3.0) {
-        return None;
-    }
+    let artist_ok = match artist {
+        Some(a) => {
+            let want = normalize(&main_artist(a));
+            let got = normalize(record.artist_name.as_deref().unwrap_or(""));
+            let ok =
+                !want.is_empty() && !got.is_empty() && (got.contains(&want) || want.contains(&got));
+            if !ok {
+                return None;
+            }
+            true
+        }
+        None => {
+            if !title_exact || gap.is_none_or(|g| g > 3.0) {
+                return None;
+            }
+            false
+        }
+    };
     let mut s = 0.0;
     if title_exact {
         s += 30.0;
@@ -403,7 +428,7 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
                 reached = true;
                 if response.status() == 200 {
                     if let Ok(record) = response.body_mut().read_json::<LrclibRecord>() {
-                        if record.has_content() {
+                        if score(&record, &title, Some(artist), duration).is_some() {
                             return Ok(Some(record.into_lyrics()));
                         }
                     }
@@ -478,7 +503,7 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
 
 /// Version du cache : l'augmenter relance la recherche des morceaux restés sans paroles
 /// (quand la recherche s'améliore).
-const CACHE_VERSION: u32 = 2;
+const CACHE_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 struct CachedLyrics {
@@ -504,9 +529,11 @@ fn cache_path(cache_dir: &Path, track_id: &str) -> PathBuf {
 fn read_cache(cache_dir: &Path, track_id: &str) -> Option<Option<Lyrics>> {
     let cached: CachedLyrics =
         serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()?;
-    let fresh = cached.lyrics.is_some()
-        || (cached.version == CACHE_VERSION
-            && now_secs().saturating_sub(cached.fetched_secs) < 3 * 24 * 3600);
+    // Résultat d'une ancienne recherche (moins stricte, parfois les paroles d'une autre
+    // chanson) : on cherche à nouveau.
+    let fresh = cached.version == CACHE_VERSION
+        && (cached.lyrics.is_some()
+            || now_secs().saturating_sub(cached.fetched_secs) < 3 * 24 * 3600);
     fresh.then_some(cached.lyrics)
 }
 
@@ -522,17 +549,21 @@ fn write_cache(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>) {
     }
 }
 
-/// Paroles d'une piste : locales d'abord, puis cache, puis LRCLIB si `allow_online`.
+/// Paroles d'une piste : locales d'abord, puis cache (sauf `refresh`), puis LRCLIB si
+/// `allow_online`.
 pub fn lyrics_for(
     track: &Track,
     cache_dir: &Path,
     allow_online: bool,
+    refresh: bool,
 ) -> Result<Option<Lyrics>, String> {
     if let Some(local) = local_lyrics(Path::new(&track.path)) {
         return Ok(Some(local));
     }
-    if let Some(cached) = read_cache(cache_dir, &track.id) {
-        return Ok(cached);
+    if !refresh {
+        if let Some(cached) = read_cache(cache_dir, &track.id) {
+            return Ok(cached);
+        }
     }
     if !allow_online {
         return Ok(None);
@@ -653,6 +684,23 @@ mod tests {
             250.0
         )
         .is_none());
+        // Artiste inconnu : il faut une durée quasi identique.
+        // Même titre, autre artiste, même durée : refusé (« Sans toi » de Tiakola, pas d'Amel Bent).
+        assert!(score(
+            &record("Sans Toi", "Amel Bent", 180.0),
+            "Sans toi",
+            Some("Tiakola"),
+            180.0
+        )
+        .is_none());
+        // Titre façon vidéo côté LRCLIB.
+        assert!(score(
+            &record("Tiakola - Meuda (Clip officiel)", "TIAKOLA", 170.0),
+            "Meuda",
+            Some("Tiakola"),
+            171.0
+        )
+        .is_some());
         // Artiste inconnu : il faut une durée quasi identique.
         assert!(score(&record("Timeless", "X", 251.0), "Timeless", None, 250.0).is_some());
         assert!(score(&record("Timeless", "X", 262.0), "Timeless", None, 250.0).is_none());

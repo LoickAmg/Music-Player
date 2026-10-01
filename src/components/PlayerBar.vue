@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { useNow } from "@/lib/clock";
+import { useFrame, useNow } from "@/lib/clock";
 import { formatDuration } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
@@ -15,8 +15,15 @@ const now = useNow();
 const track = computed(() => player.currentTrack);
 const duration = computed(() => track.value?.duration_secs ?? 0);
 const dragging = ref<number | null>(null);
-const position = computed(() => dragging.value ?? player.positionAt(now.value));
-const ratio = computed(() => (duration.value > 0 ? Math.min(1, position.value / duration.value) : 0));
+// À la seconde près : le texte ne change qu'une fois par seconde (pas de rendu à chaque image).
+const position = computed(() => Math.floor(dragging.value ?? player.positionAt(now.value)));
+// La barre, elle, avance à chaque image, mise à jour directement.
+const fill = ref<HTMLElement | null>(null);
+useFrame((t) => {
+  if (!fill.value) return;
+  const pos = dragging.value ?? player.positionAt(t);
+  fill.value.style.transform = `scaleX(${duration.value > 0 ? Math.min(1, pos / duration.value) : 0})`;
+});
 
 const bar = ref<HTMLElement | null>(null);
 function ratioFromEvent(e: PointerEvent) {
@@ -64,7 +71,7 @@ function toggleMute() {
       <button type="button" class="icon-btn big" title="Suivant" aria-label="Suivant" :disabled="!track" @click="player.next()">
         <Icon name="next" :size="20" />
       </button>
-      <button type="button" class="icon-btn repeat" :class="{ on: player.repeat !== 'off' }" :title="`Répéter : ${player.repeat === 'off' ? 'non' : player.repeat === 'all' ? 'tout' : 'ce morceau'}`" aria-label="Répéter" @click="player.cycleRepeat()">
+      <button type="button" class="icon-btn repeat" :class="{ on: player.repeat !== 'off' }" :title="`Répéter : ${player.repeat === 'off' ? 'non' : player.repeat === 'all' ? 'tout' : 'ce morceau'}`" :aria-label="`Répéter : ${player.repeat === 'off' ? 'non' : player.repeat === 'all' ? 'tout' : 'ce morceau'}`" @click="player.cycleRepeat()">
         <Icon name="repeat" :size="17" />
         <span v-if="player.repeat === 'one'" class="one">1</span>
       </button>
@@ -107,7 +114,7 @@ function toggleMute() {
             @keydown.right.prevent="player.seek(Math.min(duration, position + 5))"
             @keydown.left.prevent="player.seek(Math.max(0, position - 5))"
           >
-            <div class="fill" :style="{ transform: `scaleX(${ratio})` }" />
+            <div ref="fill" class="fill" />
           </div>
         </div>
       </template>

@@ -35,11 +35,28 @@ pub struct AudioStatus {
     pub current_path: Option<String>,
     pub is_paused: bool,
     pub position_secs: f64,
+    /// Instant de la mesure de `position_secs` (la position n'est relevée que toutes les
+    /// 200 ms) : sert à l'extrapoler, voir [`AudioStatus::position_now`].
+    pub measured_at: Option<std::time::Instant>,
     /// La piste s'est terminée d'elle-même et n'a pas encore été "consommée" par
     /// `poll_auto_advance`.
     pub finished: bool,
     /// Dernière erreur de sortie audio ou de décodage, affichée par l'interface.
     pub device_error: Option<String>,
+}
+
+impl AudioStatus {
+    /// Position à l'instant présent : la dernière mesure plus le temps écoulé depuis, si
+    /// la lecture est en cours. Évite une position en retard de 0 à 200 ms, qui faisait
+    /// « reculer » les paroles à chaque sondage de l'interface.
+    pub fn position_now(&self) -> f64 {
+        match self.measured_at {
+            Some(at) if !self.is_paused && self.current_path.is_some() && !self.finished => {
+                self.position_secs + at.elapsed().as_secs_f64().min(0.5)
+            }
+            _ => self.position_secs,
+        }
+    }
 }
 
 pub struct AudioHandle {
@@ -233,6 +250,7 @@ impl Engine {
                     st.is_paused = false;
                     st.finished = false;
                     st.position_secs = 0.0;
+                    st.measured_at = Some(std::time::Instant::now());
                     st.device_error = None;
                 }
                 Err(e) => {
@@ -267,6 +285,7 @@ impl Engine {
                 st.current_path = None;
                 st.is_paused = true;
                 st.position_secs = 0.0;
+                st.measured_at = None;
                 st.finished = false;
             }
             AudioCommand::Seek(pos) => {
@@ -402,6 +421,7 @@ fn audio_thread_main(
         if let Some(p) = engine.as_ref().and_then(|e| e.player.as_ref()) {
             let mut st = status.lock().unwrap();
             st.position_secs = p.get_pos().as_secs_f64();
+            st.measured_at = Some(std::time::Instant::now());
             if p.empty() && st.current_path.is_some() {
                 st.finished = true;
             }

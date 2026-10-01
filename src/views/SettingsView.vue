@@ -14,7 +14,6 @@ const eq = useEqStore();
 const lyrics = useLyricsStore();
 const updater = useUpdaterStore();
 const showLegal = ref(false);
-// Sur téléphone, la mise à jour se fait en installant le nouvel APK par-dessus.
 const onAndroid = /Android/i.test(navigator.userAgent);
 const version = ref<string | null>(null);
 onMounted(async () => {
@@ -52,9 +51,13 @@ const shortcuts = [
       <p v-if="library.error" class="error">{{ library.error }}</p>
     </section>
 
-    <section v-if="!onAndroid" class="card">
+    <section class="card">
       <h2><Icon name="refresh" :size="17" /> Mises à jour</h2>
-      <p class="muted">
+      <p v-if="onAndroid" class="muted">
+        Version installée : {{ version ?? "—" }}. Au démarrage, l'application vérifie si une nouvelle version est publiée ;
+        « Installer » la télécharge puis ouvre l'installation d'Android, par-dessus la version actuelle (rien n'est perdu).
+      </p>
+      <p v-else class="muted">
         Version installée : {{ version ?? "—" }}. Au démarrage, l'application vérifie si une nouvelle version est publiée
         et propose de l'installer en un clic (elle redémarre ensuite toute seule, sans rien perdre).
       </p>
@@ -63,7 +66,7 @@ const shortcuts = [
           {{ updater.checking ? "Vérification…" : "Rechercher une mise à jour" }}
         </button>
         <button v-if="updater.available" type="button" class="pill pill-accent" :disabled="updater.installing" @click="updater.install()">
-          {{ updater.installing ? "Installation…" : `Installer la version ${updater.available.version}` }}
+          {{ updater.installing ? (updater.progress !== null ? `Téléchargement… ${Math.round(updater.progress * 100)} %` : "Téléchargement…") : `Installer la version ${updater.available.version}` }}
         </button>
       </div>
       <p v-if="updater.message" class="muted small">{{ updater.message }}</p>

@@ -59,8 +59,26 @@ jobs:
   # environnement de build Linux seul (pas de toolchain MSVC/macOS ici).
   # Se déclenche uniquement sur un tag "app-v*" (ex: app-v0.1.0), pour ne
   # pas construire 3 installeurs à chaque commit.
-  release:
+  # La version GitHub est créée une seule fois, avant les constructions en parallèle :
+  # sinon plusieurs machines la créent en même temps et elle apparaît en double, les
+  # fichiers répartis entre les deux (constaté sur app-v0.4.3).
+  create-release:
     needs: test
+    if: startsWith(github.ref, 'refs/tags/app-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "Music Player ${{ github.ref_name }}"
+          body: |
+            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
+            Choisis le fichier correspondant à ton système ci-dessous.
+            Les applications déjà installées (à partir de la 0.4.3) proposent la mise à jour d'elles-mêmes.
+
+  release:
+    needs: [test, create-release]
     if: startsWith(github.ref, 'refs/tags/app-v')
     # Sans cette permission, le jeton par défaut ne peut pas créer la release :
     # « Resource not accessible by integration » (échec constaté sur app-v0.1.0,
@@ -130,9 +148,13 @@ jobs:
   # APK Android (téléphones arm64 et armv7, Android 8 et plus). Construit sur un tag
   # « app-v* » (et joint à la release) ou à la demande depuis l'onglet Actions.
   android:
-    needs: test
-    # Aussi sur un push dont le message contient « [android] » (test sans publier).
-    if: startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android]')
+    needs: [test, create-release]
+    # Aussi sur un push dont le message contient « [android] » (test sans publier) ;
+    # « create-release » n'existe que pour un tag (ignorée sinon).
+    if: >-
+      always() && needs.test.result == 'success' &&
+      (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') &&
+      (startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android]'))
     runs-on: ubuntu-latest
     permissions:
       contents: write

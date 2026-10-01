@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { useNow } from "@/lib/clock";
+import { computed, ref } from "vue";
+import { useFrame } from "@/lib/clock";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore, type Route } from "@/stores/ui";
 import Artwork from "./Artwork.vue";
@@ -9,12 +9,12 @@ import Icon from "./Icon.vue";
 // Téléphone : mini-lecteur (touche pour ouvrir « À l'écoute ») et onglets en bas d'écran.
 const player = usePlayerStore();
 const ui = useUiStore();
-const now = useNow();
-
 const track = computed(() => player.currentTrack);
-const ratio = computed(() => {
+// Barre de progression mise à jour directement à chaque image (sans redessiner le composant).
+const progress = ref<HTMLElement | null>(null);
+useFrame((t) => {
   const d = track.value?.duration_secs ?? 0;
-  return d ? Math.min(1, player.positionAt(now.value) / d) : 0;
+  if (progress.value) progress.value.style.transform = `scaleX(${d ? Math.min(1, player.positionAt(t) / d) : 0})`;
 });
 
 const TABS: { route: Route; label: string; icon: string }[] = [
@@ -47,7 +47,7 @@ function active(route: Route) {
       <button type="button" class="mini-btn" aria-label="Suivant" @click.stop="player.next()">
         <Icon name="next" :size="22" />
       </button>
-      <span class="mini-progress" :style="{ transform: `scaleX(${ratio})` }" />
+      <span ref="progress" class="mini-progress" />
     </div>
     <nav class="tabs" aria-label="Navigation">
       <button v-for="t in TABS" :key="t.route.name" type="button" class="tab" :class="{ on: active(t.route) }" @click="ui.go(t.route)">

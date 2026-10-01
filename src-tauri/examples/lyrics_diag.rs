@@ -38,7 +38,7 @@ fn main() {
     let (mut synced, mut plain, mut none) = (0, 0, 0);
     for track in tracks.iter().step_by(step).take(sample) {
         let (artist, title) = lyrics::search_terms(track);
-        match lyrics::lyrics_for(track, &cache, true) {
+        match lyrics::lyrics_for(track, &cache, true, false) {
             Ok(Some(l)) if l.synced.is_some() => {
                 synced += 1;
                 println!("  synchro  {} — {:?} / {title}", l.source, artist)

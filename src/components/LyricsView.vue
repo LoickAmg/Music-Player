@@ -128,6 +128,10 @@ onBeforeUnmount(() => {
       <p v-if="!lyricsStore.allowOnline" class="hint">
         <button type="button" class="link" @click="lyricsStore.setAllowOnline(true)">Activer la recherche automatique</button>
       </p>
+      <template v-else>
+        <p class="hint">Elles ne sont peut-être pas encore publiées pour ce titre.</p>
+        <button type="button" class="link" @click="lyricsStore.retry()">Chercher à nouveau</button>
+      </template>
     </div>
 
     <div v-else-if="lyricsStore.lyrics.instrumental" class="state instrumental">♪ Morceau instrumental</div>

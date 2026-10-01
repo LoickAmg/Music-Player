@@ -170,6 +170,19 @@ impl Queue {
         self.current()
     }
 
+    /// « Suivant » demandé par l'utilisateur : passe vraiment au morceau suivant, même en
+    /// mode « répéter ce morceau » (qui ne concerne que l'enchaînement automatique) ; en fin
+    /// de file, reprend au début dans ce mode.
+    pub fn skip(&mut self) -> Option<&String> {
+        if self.repeat != RepeatMode::One {
+            return self.next();
+        }
+        self.repeat = RepeatMode::All;
+        self.next();
+        self.repeat = RepeatMode::One;
+        self.current()
+    }
+
     /// Revient à la piste précédente. À la première piste : boucle en fin
     /// de file si `repeat == All`, sinon reste sur la première (au frontend
     /// de décider de plutôt "rembobiner" la piste en cours dans ce cas).
@@ -290,6 +303,18 @@ mod tests {
         q.set_items(ids(&["a", "b"]), None);
         q.set_repeat(RepeatMode::One);
         assert_eq!(q.next(), Some(&"a".to_string()));
+        assert_eq!(q.next(), Some(&"a".to_string()));
+    }
+
+    #[test]
+    fn skip_moves_on_even_when_repeat_one() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a", "b"]), None);
+        q.set_repeat(RepeatMode::One);
+        assert_eq!(q.next(), Some(&"a".to_string()));
+        assert_eq!(q.skip(), Some(&"b".to_string()));
+        assert_eq!(q.skip(), Some(&"a".to_string()));
+        // L'enchaînement automatique répète toujours le morceau en cours.
         assert_eq!(q.next(), Some(&"a".to_string()));
     }
 

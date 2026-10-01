@@ -5,7 +5,10 @@
 //   pont JavaScript vers la notification de lecture ;
 // - service de lecture : notification et écran verrouillé avec précédent / lecture-pause /
 //   suivant (session média Android, aussi pilotable par un casque Bluetooth) ;
-// - icône adaptative propre (image entière dans la zone visible) et icône de notification.
+// - icône adaptative propre (image entière dans la zone visible) et icône de notification ;
+// - écran gardé allumé pendant la lecture des paroles ;
+// - mise à jour depuis l'appli : téléchargement de l'APK de la dernière version GitHub puis
+//   ouverture de l'installateur d'Android (installation par-dessus, même signature).
 // Lancé par la CI après `tauri android init` et `tauri icon`, avant `tauri android build`.
 
 import fs from "node:fs";
@@ -48,6 +51,7 @@ const permissions = [
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+  '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
 ];
 for (const p of permissions) {
   const name = p.match(/android:name="([^"]+)"/)[1];
@@ -61,6 +65,17 @@ if (!manifest.includes(".MediaService")) {
   manifest = manifest.replace(
     /<\/application>/,
     `    <service android:name="${pkg}.MediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>`,
+  );
+}
+if (!manifest.includes(".UpdateFileProvider")) {
+  // Fournisseur propre (classe dérivée, nom unique) : aucun conflit possible avec un autre
+  // FileProvider déclaré par Tauri ou un greffon.
+  manifest = manifest.replace(
+    /<\/application>/,
+    `    <provider android:name="${pkg}.UpdateFileProvider" android:authorities="\${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
+    </application>`,
   );
 }
 fs.writeFileSync(manifestPath, manifest);
@@ -80,6 +95,8 @@ ${edgeToEdge ? "import androidx.activity.enableEdgeToEdge\n" : ""}import android
 import androidx.core.content.ContextCompat
 
 class MainActivity : TauriActivity() {
+  private var updates: UpdateBridge? = null
+
   override fun onCreate(savedInstanceState: Bundle?) {
 ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceState)
     // Lecture de la musique du téléphone et notification de lecture (demandées une fois).
@@ -97,6 +114,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
   override fun onWebViewCreate(webView: WebView) {
     MediaCommands.webView = webView
     webView.addJavascriptInterface(MediaBridge(applicationContext), "AndroidMedia")
+    updates = UpdateBridge(this).also { webView.addJavascriptInterface(it, "AndroidUpdate") }
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -104,6 +122,12 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
         if (webView.canGoBack()) webView.goBack() else moveTaskToBack(true)
       }
     })
+  }
+
+  override fun onResume() {
+    super.onResume()
+    // Retour des réglages « installer des applis inconnues » : l'installation reprend.
+    updates?.resumePending()
   }
 
   override fun onDestroy() {
@@ -167,6 +191,13 @@ class MediaBridge(private val context: Context) {
 
   @JavascriptInterface
   fun clear() = MediaService.hide()
+
+  /** Garde l'écran allumé tant que les paroles défilent (vrai), ou rend la veille (faux). */
+  @JavascriptInterface
+  fun keepScreenOn(on: Boolean) {
+    val view = MediaCommands.webView ?: return
+    view.post { view.keepScreenOn = on }
+  }
 
   /** Pochette réduite (~512 px) pour la notification et l'écran verrouillé. */
   private fun decode(path: String): Bitmap? =
@@ -401,6 +432,112 @@ class MediaService : Service() {
 `,
 );
 
+fs.writeFileSync(
+  path.join(kotlinDir, "UpdateBridge.kt"),
+  `package ${pkg}
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.SystemClock
+import android.provider.Settings
+import android.webkit.JavascriptInterface
+import androidx.core.content.FileProvider
+import org.json.JSONObject
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+
+class UpdateFileProvider : FileProvider()
+
+/**
+ * Mise à jour depuis l'appli (window.AndroidUpdate) : télécharge l'APK de la dernière
+ * version, puis ouvre l'installateur d'Android. Avancement renvoyé à la page par
+ * window.__mpUpdate(étape, valeur) : « progress » (0 à 1, ou -1 si taille inconnue),
+ * « permission » (autorisation d'installer demandée), « ready », « error ».
+ */
+class UpdateBridge(private val activity: Activity) {
+  @Volatile private var pending: File? = null
+
+  @JavascriptInterface
+  fun install(url: String) {
+    Thread {
+      try {
+        val dir = File(activity.cacheDir, "updates").apply { mkdirs() }
+        val apk = File(dir, "Music-Player.apk")
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.instanceFollowRedirects = true
+        connection.connectTimeout = 15000
+        connection.readTimeout = 30000
+        connection.setRequestProperty("User-Agent", "MusicPlayer")
+        val total = connection.contentLengthLong
+        connection.inputStream.use { input ->
+          apk.outputStream().use { output ->
+            val buffer = ByteArray(64 * 1024)
+            var received = 0L
+            var last = 0L
+            while (true) {
+              val n = input.read(buffer)
+              if (n < 0) break
+              output.write(buffer, 0, n)
+              received += n
+              val now = SystemClock.uptimeMillis()
+              if (now - last > 200) {
+                last = now
+                report("progress", if (total > 0) (received.toDouble() / total).toString() else "-1")
+              }
+            }
+          }
+        }
+        report("progress", "1")
+        activity.runOnUiThread { launchInstaller(apk) }
+      } catch (e: Exception) {
+        report("error", JSONObject.quote(e.message ?: e.toString()))
+      }
+    }.start()
+  }
+
+  /** Après le passage par les réglages d'Android : relance l'installation si autorisée. */
+  fun resumePending() {
+    val apk = pending ?: return
+    if (Build.VERSION.SDK_INT < 26 || activity.packageManager.canRequestPackageInstalls()) {
+      pending = null
+      launchInstaller(apk)
+    }
+  }
+
+  private fun launchInstaller(apk: File) {
+    if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
+      pending = apk
+      report("permission", "0")
+      activity.startActivity(
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.packageName)),
+      )
+      return
+    }
+    try {
+      val uri = FileProvider.getUriForFile(activity, activity.packageName + ".updates", apk)
+      val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      activity.startActivity(intent)
+      report("ready", "1")
+    } catch (e: Exception) {
+      report("error", JSONObject.quote(e.message ?: e.toString()))
+    }
+  }
+
+  private fun report(stage: String, value: String) {
+    val view = MediaCommands.webView ?: return
+    view.post {
+      view.evaluateJavascript("window.__mpUpdate && window.__mpUpdate('" + stage + "', " + value + ")", null)
+    }
+  }
+}
+`,
+);
+
 // 4. Icônes : icône adaptative dont le premier plan contient l'image entière dans la zone
 // visible (sinon le lanceur la rogne et elle paraît grossie), fond = même image floutée.
 const res = path.join(root, "res");
@@ -426,6 +563,15 @@ for (const dir of anydpiDirs) {
     fs.writeFileSync(path.join(res, dir, name), adaptive);
   }
 }
+fs.mkdirSync(path.join(res, "xml"), { recursive: true });
+fs.writeFileSync(
+  path.join(res, "xml", "update_paths.xml"),
+  `<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="updates" path="updates/" />
+</paths>
+`,
+);
 fs.mkdirSync(path.join(res, "drawable"), { recursive: true });
 fs.writeFileSync(
   path.join(res, "drawable", "ic_stat_music.xml"),

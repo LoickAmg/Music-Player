@@ -19,8 +19,8 @@ export const api = {
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
   getLibrary: () => invoke<Track[]>("get_library"),
   getCover: (path: string, trackId: string) => invoke<string | null>("get_cover", { path, trackId }),
-  getLyrics: (trackId: string, allowOnline: boolean) =>
-    invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline }),
+  getLyrics: (trackId: string, allowOnline: boolean, refresh = false) =>
+    invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline, refresh }),
 
   playQueue: (trackIds: string[], startId?: string | null) =>
     invoke<Track | null>("play_queue", { trackIds, startId: startId ?? null }),

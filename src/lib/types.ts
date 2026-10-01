@@ -94,4 +94,6 @@ export interface UpdateInfo {
   version: string;
   current: string;
   notes: string | null;
+  /** Android : adresse de l'APK à télécharger. */
+  url: string | null;
 }

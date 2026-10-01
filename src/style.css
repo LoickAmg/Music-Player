@@ -183,6 +183,14 @@ input {
   transition: --amb-primary 1.2s ease, --amb-secondary 1.2s ease, --amb-glow 1.2s ease, --amb-base 1.2s ease,
     --amb-energy 1.2s ease;
 }
+/* Téléphone : pas de glissement des couleurs. Animer ces variables héritées recalcule et
+   redessine toute la page à chaque image pendant 1,2 s, ce qui ralentissait l'affichage
+   (et les paroles) à chaque changement de morceau. Le fond « À l'écoute » fait un fondu. */
+@media (max-width: 760px) {
+  :root {
+    transition: none;
+  }
+}
 
 /* ---------------------------------------------------------------- téléphone */
 @media (max-width: 760px) {

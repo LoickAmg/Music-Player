@@ -49,8 +49,19 @@ export const usePlayerStore = defineStore("player", {
       this.applyQueue(init.queue);
     },
     applyStatus(status: PlaybackStatus) {
-      if (status.current_track?.id !== this.currentTrack?.id) this.currentTrack = status.current_track;
-      this.setPosition(status.position_secs);
+      const sameTrack = status.current_track?.id === this.currentTrack?.id;
+      if (!sameTrack) this.currentTrack = status.current_track;
+      if (sameTrack && !status.is_paused && !this.isPaused) {
+        // Lecture en cours : la position affichée avance toute seule. Le moteur n'est
+        // suivi que s'il s'en écarte vraiment, et sans jamais reculer pour quelques
+        // centièmes (la ligne des paroles « repasserait » sur des mots).
+        const shown = this.positionAt(performance.now());
+        const drift = status.position_secs - shown;
+        if (drift > 0.6 || drift < -0.35) this.setPosition(status.position_secs);
+        else if (drift > 0.04) this.setPosition(shown + drift / 2);
+      } else {
+        this.setPosition(status.position_secs);
+      }
       this.isPaused = status.is_paused;
       this.volume = status.volume;
     },
@@ -108,6 +119,8 @@ export const usePlayerStore = defineStore("player", {
         const paused = await api.togglePlayPause();
         this.setPosition(this.positionAt(performance.now()));
         this.isPaused = paused;
+        // Reprise : on se recale tout de suite sur la position exacte du moteur.
+        if (!paused) await this.refreshStatus();
       } catch (e) {
         this.error = String(e);
       }

@@ -49,7 +49,11 @@ export const useLyricsStore = defineStore("lyrics", {
       }
       if (this.trackId) void this.load(this.trackId, true);
     },
-    async load(trackId: string | null, force = false) {
+    /** Nouvelle recherche en ligne, sans tenir compte du cache. */
+    retry() {
+      if (this.trackId) void this.load(this.trackId, true, true);
+    },
+    async load(trackId: string | null, force = false, refresh = false) {
       if (!force && trackId === this.trackId) return;
       this.trackId = trackId;
       this.lyrics = null;
@@ -57,7 +61,7 @@ export const useLyricsStore = defineStore("lyrics", {
       if (!trackId) return;
       this.loading = true;
       try {
-        const lyrics = await api.getLyrics(trackId, this.allowOnline);
+        const lyrics = await api.getLyrics(trackId, this.allowOnline, refresh);
         if (this.trackId === trackId) this.lyrics = lyrics;
       } catch (e) {
         if (this.trackId === trackId) this.error = String(e);

@@ -135,11 +135,17 @@ pub fn get_lyrics(
     state: State<'_, AppState>,
     track_id: String,
     allow_online: bool,
+    refresh: Option<bool>,
 ) -> Result<Option<Lyrics>, String> {
     let track = state
         .find_track(&track_id)
         .ok_or("Piste introuvable dans la bibliothèque.")?;
-    lyrics::lyrics_for(&track, &state.lyrics_dir(), allow_online)
+    lyrics::lyrics_for(
+        &track,
+        &state.lyrics_dir(),
+        allow_online,
+        refresh.unwrap_or(false),
+    )
 }
 
 // ---------------------------------------------------------------------
@@ -193,7 +199,7 @@ pub fn toggle_play_pause(state: State<AppState>) -> Result<bool, String> {
 
 #[tauri::command(async)]
 pub fn next_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
-    let next_id = state.queue.lock().unwrap().next().cloned();
+    let next_id = state.queue.lock().unwrap().skip().cloned();
     track_or_stop(&state, next_id)
 }
 
@@ -258,7 +264,7 @@ pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
     let current_track = current_id.and_then(|id| state.find_track(&id));
     PlaybackStatus {
         current_track,
-        position_secs: status.position_secs,
+        position_secs: status.position_now(),
         // Aucune piste chargée (démarrage, fin de file) = rien ne joue.
         is_paused: status.is_paused || status.current_path.is_none(),
         volume: *state.volume.lock().unwrap(),

@@ -3,7 +3,9 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "@/lib/api";
 import type { UpdateInfo } from "@/lib/types";
 
-// Mise à jour automatique (ordinateur) : vérifiée au démarrage, installée en un clic.
+// Mise à jour : vérifiée au démarrage, installée en un clic. Ordinateur : par Tauri
+// (installateur signé, redémarrage). Android : l'activité télécharge l'APK puis ouvre
+// l'installateur d'Android (window.AndroidUpdate).
 export const useUpdaterStore = defineStore("updater", {
   state: () => ({
     available: null as UpdateInfo | null,
@@ -36,6 +38,25 @@ export const useUpdaterStore = defineStore("updater", {
       this.installing = true;
       this.progress = null;
       this.message = null;
+      const url = this.available?.url;
+      if (url && window.AndroidUpdate) {
+        window.__mpUpdate = (stage, value) => {
+          if (stage === "progress") {
+            this.progress = Number(value) >= 0 ? Number(value) : null;
+          } else if (stage === "permission") {
+            this.message =
+              "Autorise « Installer des applis inconnues » pour Music Player, puis reviens : l'installation reprendra.";
+          } else if (stage === "ready") {
+            this.installing = false;
+            this.message = "Installation lancée : confirme « Mettre à jour » dans la fenêtre d'Android.";
+          } else if (stage === "error") {
+            this.installing = false;
+            this.message = `Téléchargement impossible : ${value}`;
+          }
+        };
+        window.AndroidUpdate.install(url);
+        return;
+      }
       let off: UnlistenFn | null = null;
       try {
         off = await listen<[number, number | null]>("update-progress", (e) => {

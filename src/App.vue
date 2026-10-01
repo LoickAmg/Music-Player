@@ -141,8 +141,8 @@ onMounted(async () => {
   window.history.replaceState({ mp: "root" }, "");
   window.addEventListener("popstate", onPopState);
   installAndroidMedia(player);
-  // Nouvelle version publiée ? (ordinateur ; vérifiée une fois l'interface affichée)
-  if (!demoMode && !onAndroid) setTimeout(() => void updater.check(), 4000);
+  // Nouvelle version publiée ? (vérifiée une fois l'interface affichée)
+  if (!demoMode) setTimeout(() => void updater.check(), 4000);
   saveInterval = setInterval(() => void api.saveSession(), 15_000);
   window.addEventListener("keydown", onKey);
 });
@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
           <span v-if="updater.installing">
             Téléchargement de la version {{ updater.available.version }}…
             <template v-if="updater.progress !== null">{{ Math.round(updater.progress * 100) }} %</template>
-            — l'application redémarrera toute seule.
+            <template v-if="!onAndroid">— l'application redémarrera toute seule.</template>
           </span>
           <span v-else-if="updater.message">{{ updater.message }}</span>
           <span v-else>Music Player {{ updater.available.version }} est disponible (version installée : {{ updater.available.current }}).</span>

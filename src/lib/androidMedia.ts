@@ -9,12 +9,28 @@ import type { usePlayerStore } from "@/stores/player";
 interface AndroidMediaBridge {
   update(json: string): void;
   clear(): void;
+  keepScreenOn(on: boolean): void;
+}
+
+interface AndroidUpdateBridge {
+  install(url: string): void;
 }
 
 declare global {
   interface Window {
     AndroidMedia?: AndroidMediaBridge;
+    AndroidUpdate?: AndroidUpdateBridge;
     __mpMedia?: (command: string, arg: number) => void;
+    __mpUpdate?: (stage: string, value: number | string) => void;
+  }
+}
+
+/** Empêche (vrai) ou rend possible (faux) la mise en veille de l'écran du téléphone. */
+export function keepScreenOn(on: boolean) {
+  try {
+    window.AndroidMedia?.keepScreenOn(on);
+  } catch {
+    // ancienne version de l'activité Android : sans effet
   }
 }
 

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { coverUrl } from "@/lib/covers";
-import { useNow } from "@/lib/clock";
+import { useFrame, useNow } from "@/lib/clock";
+import { keepScreenOn } from "@/lib/androidMedia";
+import { useLyricsStore } from "@/stores/lyrics";
 import { formatDuration, hueFor } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
@@ -24,15 +26,33 @@ watch(
 );
 // Téléphone : on affiche soit la pochette, soit les paroles en plein écran.
 const showLyrics = ref(false);
+// Écran gardé allumé tant que les paroles défilent (paroles affichées, lecture en cours).
+const lyrics = useLyricsStore();
+watch(
+  () => (!ui.isMobile || showLyrics.value) && !player.isPaused && !!lyrics.lyrics?.synced,
+  (on) => keepScreenOn(on),
+  { immediate: true },
+);
+onBeforeUnmount(() => keepScreenOn(false));
 const hue = computed(() => hueFor(track.value?.album || track.value?.title || ""));
 
 const duration = computed(() => track.value?.duration_secs ?? 0);
-const position = computed(() => player.positionAt(now.value));
-const ratio = computed(() => (duration.value ? Math.min(1, position.value / duration.value) : 0));
+// À la seconde près pour le texte ; la barre avance à chaque image, mise à jour directement.
+const position = computed(() => Math.floor(player.positionAt(now.value)));
+const fill = ref<HTMLElement | null>(null);
+useFrame((t) => {
+  if (fill.value) fill.value.style.transform = `scaleX(${duration.value ? Math.min(1, player.positionAt(t) / duration.value) : 0})`;
+});
 
 function seekClick(e: MouseEvent) {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
   void player.seek(((e.clientX - rect.left) / rect.width) * duration.value);
+}
+
+const REPEAT_LABEL = { off: "Répéter : non", all: "Répéter : toute la liste", one: "Répéter : ce morceau" } as const;
+async function cycleRepeat() {
+  await player.cycleRepeat();
+  ui.notify(REPEAT_LABEL[player.repeat]);
 }
 
 function onKey(e: KeyboardEvent) {
@@ -45,8 +65,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 <template>
   <section class="now-playing" role="dialog" aria-label="À l'écoute" :class="{ paused: player.isPaused }" :style="{ '--h': hue }">
     <div class="backdrop" aria-hidden="true">
-      <img v-if="bg" :src="bg" alt="" class="blob b1" />
-      <img v-if="bg" :src="bg" alt="" class="blob b2" />
+      <img v-if="bg" :key="`1${bg}`" :src="bg" alt="" class="blob b1" />
+      <img v-if="bg" :key="`2${bg}`" :src="bg" alt="" class="blob b2" />
       <div v-else class="fallback" />
       <!-- Nappes de lumière aux couleurs de la pochette, qui respirent pendant la lecture -->
       <span class="aura a1" />
@@ -68,7 +88,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
         </div>
         <div class="bar" role="slider" aria-label="Position" :aria-valuenow="Math.round(position)" @click="seekClick">
-          <div class="bar-fill" :style="{ transform: `scaleX(${ratio})` }" />
+          <div ref="fill" class="bar-fill" />
         </div>
         <div class="times">
           <span>{{ formatDuration(position) }}</span>
@@ -83,8 +103,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <Icon :name="player.isPaused ? 'play' : 'pause'" :size="38" />
           </button>
           <button type="button" class="icon-btn c-big" aria-label="Suivant" @click="player.next()"><Icon name="next" :size="28" /></button>
-          <button type="button" class="icon-btn" :class="{ on: player.repeat !== 'off' }" aria-label="Répéter" @click="player.cycleRepeat()">
+          <button type="button" class="icon-btn rep" :class="{ on: player.repeat !== 'off' }" :aria-label="REPEAT_LABEL[player.repeat]" @click="cycleRepeat">
             <Icon name="repeat" :size="20" />
+            <span v-if="player.repeat === 'one'" class="rep-one">1</span>
           </button>
         </div>
         <div v-if="ui.isMobile" class="m-extra">
@@ -93,6 +114,15 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           </button>
         </div>
       </div>
+      <!-- Paroles sur téléphone : petite pochette, titre et artiste en haut (comme Apple
+           Music) ; un appui revient à la grande pochette. -->
+      <button v-if="ui.isMobile && showLyrics" type="button" class="m-head" aria-label="Afficher la pochette" @click="showLyrics = false">
+        <Artwork :track="track" :radius="8" eager class="m-head-art" />
+        <span class="m-head-text">
+          <span class="t">{{ track.title }}</span>
+          <span class="a">{{ track.artist }}</span>
+        </span>
+      </button>
       <div class="right">
         <LyricsView large />
       </div>
@@ -138,6 +168,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   right: -30vmax;
   transform: rotate(180deg);
   animation: drift 52s linear infinite reverse;
+}
+@keyframes head-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.92);
+  }
+}
+@keyframes blob-in {
+  from {
+    opacity: 0;
+  }
 }
 @keyframes drift {
   to {
@@ -306,6 +347,23 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   color: #fff;
   background: rgba(255, 255, 255, 0.15);
 }
+.rep {
+  position: relative;
+}
+.rep-one {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: #fff;
+  color: #0a1030;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
 .c-big,
 .c-play {
   color: #fff !important;
@@ -361,6 +419,51 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   .m-lyrics .left {
     order: 2;
   }
+  .m-head {
+    order: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    text-align: left;
+    animation: head-in 0.35s cubic-bezier(0.2, 0.9, 0.25, 1);
+  }
+  .m-head-art {
+    width: 56px;
+    flex-shrink: 0;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  }
+  .m-head-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .m-head-text .t,
+  .m-head-text .a {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .m-head-text .t {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+  }
+  .m-head-text .a {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.65);
+  }
+  .m-lyrics .right {
+    order: 1;
+  }
+  .m-lyrics .bar {
+    margin-top: 8px;
+  }
   .collapse {
     top: calc(env(safe-area-inset-top) + 12px);
   }
@@ -372,7 +475,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     will-change: transform;
   }
   .blob {
-    animation: none;
+    animation: blob-in 0.6s ease both;
     filter: blur(48px) saturate(1.5) brightness(0.72);
   }
   .aura {

@@ -50,7 +50,11 @@ Sur le téléphone :
 - **mises à jour sans désinstaller** : les APK publiés sont toujours signés avec la même clé
   (secrets `ANDROID_KEYSTORE_B64` et `ANDROID_KEYSTORE_PASSWORD` du dépôt ; la CI refuse de
   publier une version sans eux) ;
-- icône adaptative : l'image entière dans la zone visible, fond assorti.
+- icône adaptative : l'image entière dans la zone visible, fond assorti ;
+- l'écran reste allumé tant que les paroles défilent (lecture en cours) ;
+- écran des paroles façon Apple Music : petite pochette, titre et artiste en haut ;
+- mise à jour depuis l'appli : la dernière version publiée est détectée au démarrage,
+  « Mettre à jour » télécharge l'APK et ouvre l'installation d'Android (par-dessus).
 
 ## Mises à jour
 
@@ -60,7 +64,10 @@ Sur le téléphone :
   `tauri.conf.json`, s'installe puis l'application redémarre, sans perdre la bibliothèque ni
   les réglages. Les versions sont signées par la CI (secrets `TAURI_SIGNING_PRIVATE_KEY` et
   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) ; sans eux, la CI refuse de publier.
-- **Android** : installer le nouvel APK par-dessus l'ancien (même signature, voir plus haut).
+- **Android** : à partir de la 0.4.4, l'application détecte la nouvelle version (liste des
+  versions GitHub), télécharge l'APK et ouvre l'installation d'Android, par-dessus l'ancienne
+  (même signature, voir plus haut). Android demande une fois d'autoriser l'installation
+  d'applis depuis Music Player.
 
 ## Lancer l'application depuis les sources
 
@@ -95,8 +102,10 @@ le début du morceau (et celles du suivant préparées en avance). Sources, dans
    (« (Lyrics) », « [Official Video] », « Artiste - Titre »…) sont nettoyés, puis plusieurs
    recherches sont tentées, de la plus précise à la plus large (sans invités « feat. », sans
    mention « Remastered », artiste principal seul) ; le meilleur résultat est retenu selon le
-   titre, l'artiste, la durée et la présence d'horodatages. Les réponses sont mises en cache
-   (`lyrics/` dans le dossier de l'application).
+   titre, l'artiste, la durée et la présence d'horodatages. Quand l'artiste est connu, il doit
+   correspondre : un titre courant (« Sans toi ») existe chez des dizaines d'artistes, et mieux
+   vaut « paroles introuvables » que celles d'une autre chanson (bouton « Chercher à nouveau »).
+   Les réponses sont mises en cache (`lyrics/` dans le dossier de l'application).
 
 ## Fonctionnalités
 
