@@ -15,6 +15,8 @@ export interface Track {
   duration_secs: number;
   has_cover: boolean;
   added_secs: number;
+  /** Fichier illisible (abîmé, téléchargement inachevé) : la raison. */
+  damage?: string | null;
 }
 
 export type RepeatMode = "off" | "one" | "all";

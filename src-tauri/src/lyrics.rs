@@ -1164,6 +1164,7 @@ mod tests {
             duration_secs: 200.0,
             has_cover: false,
             added_secs: 0,
+            damage: None,
         }
     }
 

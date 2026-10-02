@@ -43,6 +43,10 @@ pub struct Track {
     /// Date de dernière modification du fichier (secondes Unix) : sert aux « Ajouts récents ».
     #[serde(default)]
     pub added_secs: u64,
+    /// Fichier illisible (abîmé, vide, téléchargement inachevé) : la raison, montrée dans les
+    /// Réglages ; ces fichiers sont tenus à l'écart des albums et des listes de morceaux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub damage: Option<String>,
 }
 
 const NAMESPACE: Uuid = Uuid::from_bytes([
@@ -100,6 +104,11 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
     let Some(tagged_file) = read_tagged(path, true).or_else(|| read_tagged(path, false)) else {
         let mut track = track_from_probe(path);
         track.has_cover = folder_has_cover;
+        // Ni étiquettes ni durée, dans un format que l'application lit elle-même : le fichier
+        // est abîmé (les formats confiés à ffmpeg peuvent juste attendre son installation).
+        if track.duration_secs <= 0.0 && ffmpeg::is_native(path) {
+            track.damage = Some(damage_reason(path));
+        }
         return Some(track);
     };
     let duration_secs = tagged_file.properties().duration().as_secs_f64();
@@ -134,7 +143,25 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
         duration_secs,
         has_cover: embedded_cover || folder_has_cover,
         added_secs: modified_secs(path),
+        damage: None,
     })
+}
+
+/// Pourquoi un fichier est illisible, en mots simples.
+fn damage_reason(path: &Path) -> String {
+    use std::io::Read;
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size < 8 * 1024 {
+        return "Fichier vide ou presque".into();
+    }
+    let mut head = vec![0u8; 64 * 1024];
+    let read = std::fs::File::open(path)
+        .and_then(|mut f| f.read(&mut head))
+        .unwrap_or(0);
+    if read > 0 && head[..read].iter().all(|b| *b == 0) {
+        return "Début du fichier vide : téléchargement inachevé ?".into();
+    }
+    "Fichier abîmé ou format non reconnu".into()
 }
 
 /// Images de pochette reconnues dans le dossier d'un album, par ordre de préférence.
@@ -264,7 +291,10 @@ pub fn scan_library_incremental(
         .filter_map(|path| {
             let folder_has_cover = path.parent().is_some_and(|d| covered_dirs.contains(d));
             let unchanged = path.to_str().and_then(|p| known.get(p)).filter(|t| {
-                t.added_secs == modified_secs(path) && (t.has_cover || !folder_has_cover)
+                t.added_secs == modified_secs(path)
+                    && (t.has_cover || !folder_has_cover)
+                    // Sans durée ni diagnostic (bibliothèque d'une version précédente) : relu.
+                    && (t.duration_secs > 0.0 || t.damage.is_some())
             });
             let track = match unchanged {
                 Some(t) => Some((*t).clone()),
@@ -314,6 +344,7 @@ fn track_from_probe(path: &Path) -> Track {
         duration_secs: info.duration_secs,
         has_cover: false,
         added_secs: modified_secs(path),
+        damage: None,
     }
 }
 
@@ -478,6 +509,39 @@ mod tests {
         fs::write(&path, b"pas un mp3").unwrap();
         let track = read_track(&path).expect("un fichier audio ne doit jamais disparaître du scan");
         assert_eq!(track.title, "casse");
+    }
+
+    #[test]
+    fn damaged_files_are_flagged_with_a_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        // Téléchargement inachevé : le début du fichier n'est que des zéros.
+        let partial = dir.path().join("07 - Schéma.flac");
+        let mut bytes = vec![0u8; 200 * 1024];
+        bytes.extend_from_slice(b"fin du fichier");
+        fs::write(&partial, bytes).unwrap();
+        let track = read_track(&partial).unwrap();
+        assert_eq!(
+            track.damage.as_deref(),
+            Some("Début du fichier vide : téléchargement inachevé ?")
+        );
+        let tiny = dir.path().join("casse.mp3");
+        fs::write(&tiny, b"pas un mp3").unwrap();
+        assert_eq!(
+            read_track(&tiny).unwrap().damage.as_deref(),
+            Some("Fichier vide ou presque")
+        );
+        // Un vrai morceau n'est pas concerné.
+        let good = make_test_wav(dir.path(), "bon.wav", 1);
+        assert!(read_track(&good).unwrap().damage.is_none());
+        // Bibliothèque d'une version précédente (sans diagnostic) : le fichier est relu.
+        let mut old = read_track(&partial).unwrap();
+        old.damage = None;
+        let tracks = scan_library_incremental(dir.path(), &[old], |_, _| {});
+        let again = tracks
+            .iter()
+            .find(|t| t.path == partial.to_string_lossy())
+            .unwrap();
+        assert!(again.damage.is_some());
     }
 
     #[test]

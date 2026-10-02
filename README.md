@@ -72,6 +72,13 @@ autoriser l'installation depuis cette source. Au premier lancement, l'applicatio
 l'accès aux fichiers audio, puis « Analyser la musique du téléphone » parcourt le stockage
 partagé (Musique, Téléchargements…).
 
+### Fichiers illisibles
+
+Un fichier audio vide ou abîmé (téléchargement interrompu, début rempli de zéros) n'apparaît
+ni dans les albums ni dans les morceaux : il est listé dans Réglages → « Fichiers
+illisibles », par dossier et avec la raison. Remplacé, il reprend sa place à l'analyse
+suivante.
+
 ### Paroles
 
 Dans l'ordre : fichier `.lrc` posé à côté du morceau, paroles choisies dans l'application,

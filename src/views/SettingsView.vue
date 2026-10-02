@@ -7,6 +7,7 @@ import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
+import DamagedFiles from "@/components/DamagedFiles.vue";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
@@ -20,6 +21,9 @@ const PERF_CHOICES: { value: PerfSetting; label: string }[] = [
   { value: "lite", label: "Léger" },
 ];
 const showLegal = ref(false);
+function showDamaged() {
+  document.getElementById("fichiers-illisibles")?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 const onAndroid = /Android/i.test(navigator.userAgent);
 
 // Android : l'économiseur de batterie (très strict sur Huawei, Xiaomi…) peut retarder la
@@ -67,7 +71,12 @@ const shortcuts = [
     <section class="card">
       <h2><Icon name="folder" :size="17" /> Bibliothèque</h2>
       <p class="path">{{ library.root ?? "Aucun dossier choisi" }}</p>
-      <p class="muted">{{ formatCollection(library.tracks.length, library.totalDuration) }} · {{ library.albums.length.toLocaleString("fr-FR") }} albums</p>
+      <p class="muted">
+        {{ formatCollection(library.tracks.length, library.totalDuration) }} · {{ library.albums.length.toLocaleString("fr-FR") }} albums
+        <template v-if="library.damaged.length">
+          · <a href="#fichiers-illisibles" class="warn" @click.prevent="showDamaged">{{ library.damaged.length }} fichier{{ library.damaged.length > 1 ? "s" : "" }} illisible{{ library.damaged.length > 1 ? "s" : "" }}</a>
+        </template>
+      </p>
       <div class="actions">
         <button type="button" class="pill pill-accent" @click="library.chooseFolderAndScan()">Choisir un dossier…</button>
         <button type="button" class="pill pill-ghost" :disabled="!library.root || library.scanning" @click="library.root && library.scan(library.root)">
@@ -76,6 +85,8 @@ const shortcuts = [
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
     </section>
+
+    <DamagedFiles />
 
     <section class="card">
       <h2><Icon name="refresh" :size="17" /> Mises à jour</h2>
@@ -219,6 +230,13 @@ h2 :deep(svg) {
 }
 .error {
   color: #ff6b7d;
+}
+.warn {
+  color: #ffb454;
+  text-decoration: none;
+}
+.warn:hover {
+  text-decoration: underline;
 }
 .presets {
   display: flex;

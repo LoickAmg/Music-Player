@@ -63,7 +63,20 @@ const DEMO_LYRICS: Lyrics = {
 };
 
 export function installTauriMock() {
-  const library: Track[] = Array.from({ length: 60 }, (_, i) => makeTrack(i));
+  const library: Track[] = [
+    ...Array.from({ length: 60 }, (_, i) => makeTrack(i)),
+    // Fichiers abîmés, pour la rubrique « Fichiers illisibles » des Réglages.
+    ...["02 - Laisse-moi tranquille", "07 - Schéma"].map((title, i) =>
+      makeTrack(100 + i, {
+        title,
+        artist: "Artiste inconnu",
+        album: "Album inconnu",
+        path: `/musique/demo/Damso - J'ai Menti/${title}.flac`,
+        duration_secs: 0,
+        damage: "Début du fichier vide : téléchargement inachevé ?",
+      }),
+    ),
+  ];
 
   let queue: QueueView = { track_ids: [], position: null, shuffle: false, repeat: "off" };
   let volume = 1;

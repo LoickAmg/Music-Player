@@ -79,6 +79,8 @@ export const useLibraryStore = defineStore("library", {
   state: () => ({
     root: null as string | null,
     tracks: [] as Track[],
+    /** Fichiers illisibles (abîmés, vides) : hors des listes, montrés dans les Réglages. */
+    damaged: [] as Track[],
     scanning: false,
     progress: null as ScanProgress | null,
     error: null as string | null,
@@ -113,9 +115,14 @@ export const useLibraryStore = defineStore("library", {
       );
       return { tracks: tracks.slice(0, 200), albums: albums.slice(0, 24), artists: artists.slice(0, 12) };
     },
+    /** Range les pistes : les fichiers illisibles à part, pour ne pas polluer les albums. */
+    setTracks(all: Track[]) {
+      this.tracks = all.filter((t) => !t.damage);
+      this.damaged = all.filter((t) => t.damage);
+    },
     setFromInitialState(root: string | null, tracks: Track[], scanning = false) {
       this.root = root;
-      this.tracks = tracks;
+      this.setTracks(tracks);
       this.scanning = scanning;
     },
     applyProgress(p: ScanProgress) {
@@ -123,7 +130,7 @@ export const useLibraryStore = defineStore("library", {
       this.progress = p;
     },
     applyScanResult(tracks: Track[]) {
-      this.tracks = tracks;
+      this.setTracks(tracks);
       this.scanning = false;
       this.progress = null;
     },
