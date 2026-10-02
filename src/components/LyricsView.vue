@@ -4,11 +4,14 @@ import { useNow } from "@/lib/clock";
 import { lite } from "@/lib/perf";
 import { activeLineIndex, useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
+import { useUiStore } from "@/stores/ui";
+import Icon from "./Icon.vue";
 
 const props = withDefaults(defineProps<{ large?: boolean }>(), { large: false });
 
 const lyricsStore = useLyricsStore();
 const player = usePlayerStore();
+const ui = useUiStore();
 const now = useNow();
 
 const container = ref<HTMLElement | null>(null);
@@ -20,8 +23,9 @@ let resumeTimer: ReturnType<typeof setTimeout> | undefined;
 let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
-// Légère avance : la ligne s'allume au moment où elle commence à être chantée.
-const positionMs = computed(() => player.positionAt(now.value) * 1000 + 150);
+// Légère avance : la ligne s'allume au moment où elle commence à être chantée. Plus le
+// décalage réglé à la main pour ce morceau (paroles en avance ou en retard sur la voix).
+const positionMs = computed(() => player.positionAt(now.value) * 1000 + 150 + lyricsStore.offsetMs);
 const active = computed(() => (synced.value ? activeLineIndex(synced.value, positionMs.value) : -1));
 
 function isBreak(text: string) {
@@ -104,6 +108,28 @@ function seekTo(ms: number) {
   resume();
 }
 
+// Menu « Paroles » : autre version, décalage, retrait.
+const toolsOpen = ref(false);
+const offsetLabel = computed(() => {
+  const s = lyricsStore.offsetMs / 1000;
+  if (!s) return "Aucun décalage";
+  return `${s > 0 ? "+" : "−"}${Math.abs(s).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} s`;
+});
+function nudge(ms: number) {
+  lyricsStore.setOffset(lyricsStore.offsetMs + ms);
+  resume();
+}
+function openSearch() {
+  toolsOpen.value = false;
+  ui.lyricsSearch = true;
+}
+async function dismiss() {
+  toolsOpen.value = false;
+  await lyricsStore.dismiss();
+  ui.notify("Paroles retirées pour ce morceau");
+}
+watch(() => lyricsStore.trackId, () => (toolsOpen.value = false));
+
 onBeforeUnmount(() => {
   clearTimeout(resumeTimer);
   clearTimeout(snapTimer);
@@ -119,14 +145,25 @@ onBeforeUnmount(() => {
       <p class="hint">Recherche des paroles…</p>
     </div>
 
+    <div v-else-if="!lyricsStore.lyrics && lyricsStore.error" class="state">
+      <p>Le service de paroles ne répond pas pour l'instant.</p>
+      <p class="hint">{{ lyricsStore.retries < 3 ? "Nouvel essai automatique dans un instant…" : "Vérifiez la connexion, puis réessayez." }}</p>
+      <div class="state-actions">
+        <button type="button" class="link" @click="lyricsStore.retry()">Réessayer maintenant</button>
+      </div>
+    </div>
+
     <div v-else-if="!lyricsStore.lyrics" class="state">
       <p>Paroles introuvables pour ce morceau.</p>
       <p v-if="!lyricsStore.allowOnline" class="hint">
         <button type="button" class="link" @click="lyricsStore.setAllowOnline(true)">Activer la recherche automatique</button>
       </p>
       <template v-else>
-        <p class="hint">Elles ne sont peut-être pas encore publiées pour ce titre.</p>
-        <button type="button" class="link" @click="lyricsStore.retry()">Chercher à nouveau</button>
+        <p class="hint">Elles ne sont peut-être pas encore publiées, ou le titre du fichier les cache.</p>
+        <div class="state-actions">
+          <button type="button" class="pill pill-accent small" @click="ui.lyricsSearch = true"><Icon name="search" :size="14" /> Chercher moi-même</button>
+          <button type="button" class="link" @click="lyricsStore.retry()">Relancer la recherche automatique</button>
+        </div>
       </template>
     </div>
 
@@ -164,6 +201,36 @@ onBeforeUnmount(() => {
       <Transition name="pop">
         <button v-if="synced && !following" type="button" class="resume" @click="resume">Reprendre</button>
       </Transition>
+
+      <div class="tools">
+        <button
+          type="button"
+          class="tools-btn"
+          :class="{ on: toolsOpen || lyricsStore.offsetMs }"
+          aria-label="Options des paroles"
+          title="Paroles incorrectes ou décalées ?"
+          :aria-expanded="toolsOpen"
+          @click="toolsOpen = !toolsOpen"
+        >
+          <Icon name="more" :size="18" />
+        </button>
+        <div v-if="toolsOpen" class="tools-scrim" @click="toolsOpen = false" />
+        <Transition name="pop">
+          <div v-if="toolsOpen" class="tools-menu" role="menu">
+            <p class="tools-head">Paroles : {{ lyricsStore.lyrics.source }}</p>
+            <template v-if="synced">
+              <p class="tools-label">Synchronisation</p>
+              <div class="offset">
+                <button type="button" title="Les paroles arrivent trop tôt" @click="nudge(-500)">Plus tard</button>
+                <button type="button" class="value" title="Remettre à zéro" :disabled="!lyricsStore.offsetMs" @click="lyricsStore.setOffset(0)">{{ offsetLabel }}</button>
+                <button type="button" title="Les paroles arrivent trop tard" @click="nudge(500)">Plus tôt</button>
+              </div>
+            </template>
+            <button type="button" role="menuitem" class="tools-item" @click="openSearch"><Icon name="search" :size="15" /> Chercher d'autres paroles</button>
+            <button type="button" role="menuitem" class="tools-item danger" @click="dismiss"><Icon name="close" :size="15" /> Ce ne sont pas les bonnes</button>
+          </div>
+        </Transition>
+      </div>
     </template>
   </div>
 </template>
@@ -312,6 +379,114 @@ onBeforeUnmount(() => {
 .state p {
   margin: 0;
 }
+.state-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.pill.small {
+  height: 34px;
+  font-size: 13px;
+}
+/* Options des paroles : discrètes, en haut à droite de la zone. */
+.tools {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+}
+.tools-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.75);
+  opacity: 0.55;
+  transition: opacity 0.2s, background 0.2s;
+}
+.lyrics:hover .tools-btn,
+.tools-btn.on,
+.tools-btn:focus-visible {
+  opacity: 1;
+}
+.tools-btn.on {
+  background: rgba(255, 255, 255, 0.18);
+}
+.tools-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+}
+.tools-menu {
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 260px;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(10, 26, 64, 0.97);
+  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+}
+.tools-head,
+.tools-label {
+  margin: 6px 10px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.tools-label {
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.offset {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 4px;
+  margin: 0 4px 6px;
+}
+.offset button {
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+}
+.offset .value {
+  min-width: 92px;
+  background: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.tools-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+}
+.tools-item:hover {
+  background: var(--accent);
+  color: #fff;
+}
+.tools-item.danger {
+  color: #ff8a98;
+}
+.tools-item.danger:hover {
+  color: #fff;
+}
 .hint {
   font-size: 12px;
   color: var(--text-3);
@@ -378,6 +553,20 @@ onBeforeUnmount(() => {
   }
   .line.active .txt {
     filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amb-glow) calc(30% + var(--amb-energy) * 40%), transparent));
+  }
+  /* En bas à droite, dans le fondu au-dessus de la barre de progression : le bouton ne
+     couvre jamais la ligne chantée, qui est en haut de la zone. */
+  .tools {
+    top: auto;
+    bottom: 2px;
+    right: 0;
+  }
+  .tools-btn {
+    opacity: 0.8;
+  }
+  .tools-menu {
+    top: auto;
+    bottom: 42px;
   }
 }
 /* Mode léger (téléphones modestes) : ni masque, ni lueur, ni zoom des lignes ; la ligne

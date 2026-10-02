@@ -70,6 +70,7 @@ export function installTauriMock() {
   let isPaused = true;
   let positionSecs = 0;
   let eqGains: [number, number, number] = [0, 0, 0];
+  const dismissedLyrics = new Set<string>();
   const playlists: Playlist[] = [
     { id: "pl-1", name: "Favoris", track_ids: [library[0].id, library[3].id, library[7].id], theme: "sunset" },
     { id: "pl-2", name: "Soirée d'été entre amis", track_ids: [library[1].id], theme: "midnight" },
@@ -107,7 +108,31 @@ export function installTauriMock() {
     scan_library: () => library,
     get_library: () => library,
     get_cover: ({ trackId }) => demoCover(Number(String(trackId).replace("mock-", "")) || 0),
-    get_lyrics: () => DEMO_LYRICS,
+    get_lyrics: ({ trackId }) => (dismissedLyrics.has(trackId) ? null : DEMO_LYRICS),
+    lyrics_query: ({ trackId }) => {
+      const t = library.find((x) => x.id === trackId);
+      return t ? `${t.artist} ${t.title}` : "";
+    },
+    search_lyrics: ({ query }) =>
+      String(query).trim()
+        ? [1, 2, 3].map((n) => ({
+            id: n,
+            title: n === 1 ? String(query) : `${query} (version ${n})`,
+            artist: "Artiste démo",
+            album: n === 2 ? null : "Album démo",
+            duration: 200 + n * 7,
+            synced: n !== 3,
+            instrumental: false,
+            preview: "Première ligne des paroles / deuxième ligne",
+          }))
+        : [],
+    choose_lyrics: ({ trackId }) => {
+      dismissedLyrics.delete(trackId);
+      return DEMO_LYRICS;
+    },
+    dismiss_lyrics: ({ trackId }) => {
+      dismissedLyrics.add(trackId);
+    },
 
     play_queue: ({ trackIds, startId }) => {
       queue = { ...queue, track_ids: trackIds, position: trackIds.length ? 0 : null };

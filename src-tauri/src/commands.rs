@@ -192,6 +192,49 @@ pub fn get_lyrics(
     )
 }
 
+/// Texte proposé d'office dans la recherche manuelle de paroles.
+#[tauri::command]
+pub fn lyrics_query(state: State<'_, AppState>, track_id: String) -> Result<String, String> {
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
+    Ok(lyrics::default_query(&track))
+}
+
+#[tauri::command(async)]
+pub fn search_lyrics(
+    state: State<'_, AppState>,
+    track_id: String,
+    query: String,
+) -> Result<Vec<lyrics::LyricsCandidate>, String> {
+    let duration = state
+        .find_track(&track_id)
+        .map(|t| t.duration_secs)
+        .unwrap_or(0.0);
+    lyrics::search_candidates(&query, duration)
+}
+
+#[tauri::command(async)]
+pub fn choose_lyrics(
+    state: State<'_, AppState>,
+    track_id: String,
+    lyrics_id: u64,
+) -> Result<Lyrics, String> {
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
+    lyrics::choose(&track, &state.lyrics_dir(), lyrics_id)
+}
+
+#[tauri::command]
+pub fn dismiss_lyrics(state: State<'_, AppState>, track_id: String) -> Result<(), String> {
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
+    lyrics::dismiss(&track, &state.lyrics_dir());
+    Ok(())
+}
+
 // ---------------------------------------------------------------------
 // Lecture / file d'attente
 // ---------------------------------------------------------------------

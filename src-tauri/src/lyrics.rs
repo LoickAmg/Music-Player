@@ -139,6 +139,15 @@ const NOISE: &[&str] = &[
 ];
 
 fn strip_noise(title: &str) -> String {
+    strip_noise_raw(title)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Comme `strip_noise`, sans toucher aux espaces : dans un nom de fichier, un double espace
+/// est souvent la trace d'un séparateur disparu (« Artiste  Titre » pour « Artiste | Titre »).
+fn strip_noise_raw(title: &str) -> String {
     let mut out = String::new();
     let mut depth = 0usize;
     let mut group = String::new();
@@ -166,7 +175,107 @@ fn strip_noise(title: &str) -> String {
             _ => out.push(ch),
         }
     }
-    out.split_whitespace().collect::<Vec<_>>().join(" ")
+    out
+}
+
+/// Mots qui, seuls dans un morceau de titre, ne désignent ni l'artiste ni la chanson
+/// (« … | Netflix », « … - Topic », « _HQ HD_ nosubs »).
+const PIECE_NOISE: &[&str] = &[
+    "lyrics",
+    "lyric",
+    "paroles",
+    "official",
+    "officiel",
+    "officielle",
+    "video",
+    "vidéo",
+    "clip",
+    "audio",
+    "visualizer",
+    "hd",
+    "hq",
+    "4k",
+    "nosubs",
+    "netflix",
+    "topic",
+    "vevo",
+    "explicit",
+    "remastered",
+    "music",
+    "musique",
+    "tiktok",
+    "version",
+    "full",
+    "ep",
+    "mv",
+    "m",
+    "v",
+    "prod",
+    "by",
+    "with",
+    "sub",
+    "subs",
+    "vostfr",
+    "eng",
+    "fr",
+    "edit",
+];
+
+/// Artiste des étiquettes, s'il est fiable : absent, ou recopié du titre (fichiers tirés de
+/// vidéos dont toutes les étiquettes valent « Titre – Artiste | Émission | Chaîne »), il ne
+/// sert à rien. Nettoyé des suffixes de chaînes (« Tiakola - Topic », « TiakolaVEVO »).
+pub fn tagged_artist(track: &Track) -> Option<String> {
+    let artist = track.artist.trim();
+    if artist.is_empty() || artist == UNKNOWN_ARTIST || artist.contains(" | ") {
+        return None;
+    }
+    if normalize(artist) == normalize(&track.title) {
+        return None;
+    }
+    let mut a = artist.to_string();
+    for suffix in [" - Topic", "VEVO", " Official"] {
+        if let Some(head) = a.strip_suffix(suffix) {
+            a = head.trim().to_string();
+        }
+    }
+    (!a.is_empty()).then_some(a)
+}
+
+/// Morceaux d'un titre de fichier sans étiquettes : « Artiste - Titre », « Titre – Artiste |
+/// Émission | Chaîne », « Artiste  Titre » (séparateur disparu du nom de fichier), numéro de
+/// piste en tête retiré, mentions de vidéo écartées. L'ordre artiste / titre reste inconnu.
+pub fn title_pieces(raw: &str) -> Vec<String> {
+    // « _ » remplace dans les noms de fichiers les caractères interdits (« ? », « : », « " »).
+    let text = strip_noise_raw(&raw.replace('_', " "));
+    let mut text = text.trim().to_string();
+    // Numéro de piste : « 01 - Titre », « 07. Titre ».
+    let digits = text.chars().take_while(|c| c.is_ascii_digit()).count();
+    if (1..=3).contains(&digits) {
+        let rest = text[digits..].trim_start();
+        if let Some(after) = rest.strip_prefix(['-', '.']) {
+            if after.starts_with(' ') {
+                text = after.trim().to_string();
+            }
+        }
+    }
+    const SEPARATORS: &[&str] = &[" | ", "|", " – ", " — ", " - ", " ~ ", " • ", " // ", "  "];
+    let mut marked = text;
+    for sep in SEPARATORS {
+        marked = marked.replace(sep, "\u{1f}");
+    }
+    marked
+        .split('\u{1f}')
+        .map(|p| {
+            p.trim_matches(|c: char| c.is_whitespace() || c == '-' || c == ':')
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .filter(|p| {
+            let n = normalize(p);
+            !n.is_empty() && !n.split(' ').all(|w| PIECE_NOISE.contains(&w))
+        })
+        .collect()
 }
 
 /// Artiste et titre à chercher : titre nettoyé, et « Artiste - Titre » découpé quand les
@@ -187,12 +296,12 @@ pub fn search_terms(track: &Track) -> (Option<String>, String) {
             }
         }
     }
-    if track.artist != UNKNOWN_ARTIST {
+    if let Some(artist) = tagged_artist(track) {
         let (_, cleaned) = title
             .split_once(" - ")
-            .filter(|(a, _)| a.eq_ignore_ascii_case(&track.artist))
+            .filter(|(a, _)| a.eq_ignore_ascii_case(&artist))
             .unwrap_or(("", title.as_str()));
-        return (Some(track.artist.clone()), cleaned.trim().to_string());
+        return (Some(artist), cleaned.trim().to_string());
     }
     match title.split_once(" - ") {
         Some((artist, name)) => (Some(artist.trim().to_string()), name.trim().to_string()),
@@ -203,7 +312,11 @@ pub fn search_terms(track: &Track) -> (Option<String>, String) {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LrclibRecord {
+    #[serde(default)]
+    id: Option<u64>,
     track_name: Option<String>,
+    #[serde(default)]
+    album_name: Option<String>,
     artist_name: Option<String>,
     duration: Option<f64>,
     instrumental: Option<bool>,
@@ -265,9 +378,12 @@ fn normalize(text: &str) -> String {
             'ç' => 'c',
             'ñ' => 'n',
             '&' => ' ',
+            // « Why'd » et « Whyd » (apostrophe retirée du nom de fichier) se valent.
+            '\'' | '’' | 'ʼ' | '`' => '\u{0}',
             c if c.is_alphanumeric() => c,
             _ => ' ',
         })
+        .filter(|c| *c != '\u{0}')
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -397,44 +513,188 @@ fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64
     Some(s)
 }
 
+/// Note d'un résultat pour un titre de fichier sans étiquettes fiables (`words` : tous les
+/// mots du titre). Le titre et l'artiste du résultat doivent s'y retrouver en entier, dans
+/// n'importe quel ordre (« LEVEL UP – Nayte | Nouvelle École » contient « Nayte » et
+/// « LEVEL UP »), et la durée concorder : sans étiquettes, c'est le meilleur garde-fou.
+fn score_loose(
+    record: &LrclibRecord,
+    words: &std::collections::HashSet<String>,
+    duration: f64,
+) -> Option<f64> {
+    if !record.has_content() {
+        return None;
+    }
+    let inside = |text: &str| {
+        let n = normalize(text);
+        let tokens: Vec<&str> = n.split(' ').filter(|w| !w.is_empty()).collect();
+        (!tokens.is_empty() && tokens.iter().all(|w| words.contains(*w))).then_some(tokens.len())
+    };
+    let full = record_title(record);
+    let head = full.split(" - ").next().unwrap_or("").to_string();
+    let title_words = inside(&full)
+        .or_else(|| inside(&strip_groups(&full)))
+        .or_else(|| inside(&head))?;
+    let artist_words = inside(&main_artist(record.artist_name.as_deref().unwrap_or("")))?;
+    let gap = match (record.duration, duration > 0.0) {
+        (Some(d), true) => Some((d - duration).abs()),
+        _ => None,
+    };
+    if gap.is_some_and(|g| g > 8.0) {
+        return None;
+    }
+    let coverage = (title_words + artist_words) as f64 / words.len().max(1) as f64;
+    let mut s = 30.0 * coverage.min(1.0) + 30.0;
+    if record.synced_lyrics.is_some() {
+        s += 15.0;
+    }
+    s += 12.0 - gap.unwrap_or(9.0);
+    Some(s)
+}
+
+/// Résultat d'un appel à LRCLIB.
+enum Reply<T> {
+    Found(T),
+    Missing,
+    /// Service surchargé (« server busy ») ou injoignable : à retenter plus tard, surtout
+    /// pas à retenir comme « pas de paroles ».
+    Unavailable(String),
+}
+
+/// Accès à LRCLIB : réessaie une fois quand le service est surchargé (réponse 503 ou 429,
+/// fréquente aux heures de pointe) et retient si une réponse fiable a été obtenue.
+struct Lrclib {
+    agent: ureq::Agent,
+    answered: bool,
+    trouble: Option<String>,
+}
+
+impl Lrclib {
+    fn new() -> Self {
+        Self {
+            agent: agent(),
+            answered: false,
+            trouble: None,
+        }
+    }
+
+    fn get<T: serde::de::DeserializeOwned>(
+        &mut self,
+        path: &str,
+        params: &[(&str, String)],
+    ) -> Reply<T> {
+        // Service déjà en difficulté pendant cette recherche : inutile d'insister.
+        if let Some(e) = &self.trouble {
+            return Reply::Unavailable(e.clone());
+        }
+        let mut last = String::new();
+        for attempt in 0..2 {
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_millis(1200));
+            }
+            let mut request = self
+                .agent
+                .get(format!("{LRCLIB}{path}"))
+                .header("User-Agent", USER_AGENT);
+            for (key, value) in params {
+                request = request.query(*key, value);
+            }
+            match request.call() {
+                Ok(mut response) => {
+                    let status = response.status().as_u16();
+                    if status == 429 || status >= 500 {
+                        last =
+                            "Le service de paroles est surchargé, réessayez dans un moment.".into();
+                        continue;
+                    }
+                    self.answered = true;
+                    if status != 200 {
+                        return Reply::Missing;
+                    }
+                    return match response.body_mut().read_json::<T>() {
+                        Ok(value) => Reply::Found(value),
+                        Err(_) => Reply::Missing,
+                    };
+                }
+                Err(e) => last = e.to_string(),
+            }
+        }
+        self.trouble = Some(last.clone());
+        Reply::Unavailable(last)
+    }
+
+    fn search(&mut self, params: &[(&str, String)]) -> Vec<LrclibRecord> {
+        match self.get::<Vec<LrclibRecord>>("/search", params) {
+            Reply::Found(list) => list,
+            _ => Vec::new(),
+        }
+    }
+
+    /// Fin de recherche sans résultat : « pas de paroles » seulement si le service a bien
+    /// répondu à toutes les questions ; sinon une erreur, pour réessayer plus tard.
+    fn nothing(self) -> Result<Option<Lyrics>, String> {
+        match self.trouble {
+            Some(e) => Err(e),
+            None if !self.answered => Err("Service de paroles injoignable.".into()),
+            None => Ok(None),
+        }
+    }
+}
+
+fn best<F: Fn(&LrclibRecord) -> Option<f64>>(
+    records: Vec<LrclibRecord>,
+    rate: F,
+) -> Option<LrclibRecord> {
+    records
+        .into_iter()
+        .filter_map(|r| rate(&r).map(|s| (s, r)))
+        .max_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, r)| r)
+}
+
 /// Cherche sur LRCLIB, du plus précis au plus large : correspondance exacte (artiste, titre,
 /// album, durée), recherche par champs, variantes du titre (sans invités ni mention de
 /// version) et de l'artiste (le principal), puis recherche libre. Le meilleur résultat est
 /// retenu selon le titre, l'artiste, la durée et la présence d'horodatages.
+/// Fichiers sans étiquettes fiables : le titre est découpé en morceaux (`title_pieces`) et
+/// cherché en texte libre, sans présumer de l'ordre artiste / titre.
 pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
+    let mut lrclib = Lrclib::new();
+    if let Some(found) = tagged_search(&mut lrclib, track) {
+        return Ok(Some(found.into_lyrics()));
+    }
+    if let Some(found) = loose_search(&mut lrclib, track) {
+        return Ok(Some(found.into_lyrics()));
+    }
+    lrclib.nothing()
+}
+
+fn tagged_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
     let (artist, title) = search_terms(track);
     if title.is_empty() {
-        return Ok(None);
+        return None;
     }
-    let agent = agent();
+    // Titre en plusieurs morceaux sans artiste fiable : c'est le travail de `loose_search`.
+    if artist.is_none() && title_pieces(&track.title).len() >= 2 {
+        return None;
+    }
     let duration = track.duration_secs;
-    let mut reached = false;
-    let mut last_error = None;
 
     if let Some(artist) = &artist {
-        let mut request = agent
-            .get(format!("{LRCLIB}/get"))
-            .header("User-Agent", USER_AGENT)
-            .query("artist_name", artist)
-            .query("track_name", &title);
+        let mut params = vec![
+            ("artist_name", artist.clone()),
+            ("track_name", title.clone()),
+        ];
         if duration > 0.0 {
-            request = request.query("duration", (duration.round() as u64).to_string());
+            params.push(("duration", (duration.round() as u64).to_string()));
         }
         if track.album != library::UNKNOWN_ALBUM {
-            request = request.query("album_name", &track.album);
+            params.push(("album_name", track.album.clone()));
         }
-        match request.call() {
-            Ok(mut response) => {
-                reached = true;
-                if response.status() == 200 {
-                    if let Ok(record) = response.body_mut().read_json::<LrclibRecord>() {
-                        if score(&record, &title, Some(artist), duration).is_some() {
-                            return Ok(Some(record.into_lyrics()));
-                        }
-                    }
-                }
+        if let Reply::Found(record) = lrclib.get::<LrclibRecord>("/get", &params) {
+            if score(&record, &title, Some(artist), duration).is_some() {
+                return Some(record);
             }
-            Err(e) => last_error = Some(e.to_string()),
         }
     }
 
@@ -466,44 +726,241 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
         if !seen.insert(params.clone()) {
             continue;
         }
-        let mut request = agent
-            .get(format!("{LRCLIB}/search"))
-            .header("User-Agent", USER_AGENT);
-        for (key, value) in &params {
-            request = request.query(*key, value);
-        }
-        let mut response = match request.call() {
-            Ok(r) => r,
-            Err(e) => {
-                last_error = Some(e.to_string());
-                continue;
-            }
-        };
-        reached = true;
-        if response.status() != 200 {
-            continue;
-        }
-        let Ok(results) = response.body_mut().read_json::<Vec<LrclibRecord>>() else {
-            continue;
-        };
-        let best = results
-            .into_iter()
-            .filter_map(|r| score(&r, &title, artist.as_deref(), duration).map(|s| (s, r)))
-            .max_by(|a, b| a.0.total_cmp(&b.0));
-        if let Some((_, record)) = best {
-            return Ok(Some(record.into_lyrics()));
+        let results = lrclib.search(&params);
+        if let Some(record) = best(results, |r| score(r, &title, artist.as_deref(), duration)) {
+            return Some(record);
         }
     }
-    match (reached, last_error) {
-        // Réseau injoignable : on ne retient pas l'absence, on réessaiera.
-        (false, Some(e)) => Err(e),
-        _ => Ok(None),
+    None
+}
+
+fn loose_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
+    let mut pieces = title_pieces(&track.title);
+    if let Some(artist) = tagged_artist(track) {
+        // Artiste fiable mais titre composite (« Titre | Émission ») : l'artiste fait partie
+        // des mots attendus.
+        if pieces.len() < 2 {
+            return None;
+        }
+        pieces.insert(0, artist);
+    } else if pieces.len() < 2 {
+        // « 07 - Schéma.flac » sans étiquettes : les dossiers (« Damso\Damso - J'ai Menti »)
+        // donnent souvent l'artiste et l'album.
+        let folders = folder_pieces(Path::new(&track.path));
+        if pieces.is_empty() || folders.is_empty() {
+            return None;
+        }
+        pieces.extend(folders);
+    }
+    pieces.truncate(4);
+    let words: std::collections::HashSet<String> = pieces
+        .iter()
+        .flat_map(|p| {
+            normalize(p)
+                .split(' ')
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    let duration = track.duration_secs;
+    // Paires de morceaux d'abord (la recherche libre de LRCLIB exige tous les mots), puis
+    // le tout.
+    let mut queries: Vec<String> = Vec::new();
+    for (i, j) in [(0, 1), (0, 2), (1, 2)] {
+        if j < pieces.len() {
+            queries.push(format!("{} {}", pieces[i], pieces[j]));
+        }
+    }
+    if pieces.len() > 2 {
+        queries.push(pieces.join(" "));
+    }
+    for q in queries {
+        let results = lrclib.search(&[("q", q)]);
+        if let Some(record) = best(results, |r| score_loose(r, &words, duration)) {
+            return Some(record);
+        }
+    }
+    None
+}
+
+/// Noms de dossiers qui ne disent rien du morceau (racines de bibliothèque, téléchargements,
+/// stockage du téléphone).
+const GENERIC_FOLDERS: &[&str] = &[
+    "music",
+    "musique",
+    "musiques",
+    "musics",
+    "audio",
+    "songs",
+    "sons",
+    "son",
+    "mp3",
+    "flac",
+    "download",
+    "downloads",
+    "telechargements",
+    "telechargement",
+    "desktop",
+    "bureau",
+    "documents",
+    "users",
+    "utilisateurs",
+    "home",
+    "storage",
+    "emulated",
+    "0",
+    "sdcard",
+    "ouverts",
+    "files",
+    "media",
+];
+
+/// Morceaux tirés du dossier et du dossier parent d'un fichier (« Damso - J'ai Menti
+/// FLAC-G11 » donne « Damso » et « J'ai Menti FLAC-G11 »), sans doublons ni dossiers génériques.
+fn folder_pieces(path: &Path) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for dir in path.ancestors().skip(1).take(2) {
+        let Some(name) = dir.file_name().and_then(|n| n.to_str()) else {
+            break;
+        };
+        if GENERIC_FOLDERS.contains(&normalize(name).as_str()) {
+            break;
+        }
+        for piece in title_pieces(name) {
+            if !out.iter().any(|p| normalize(p) == normalize(&piece)) {
+                out.push(piece);
+            }
+        }
+    }
+    out
+}
+
+/// Proposition de paroles montrée dans la recherche manuelle.
+#[derive(Debug, Clone, Serialize)]
+pub struct LyricsCandidate {
+    pub id: u64,
+    pub title: String,
+    pub artist: String,
+    pub album: Option<String>,
+    pub duration: Option<f64>,
+    pub synced: bool,
+    pub instrumental: bool,
+    /// Premières lignes, pour reconnaître la chanson d'un coup d'œil.
+    pub preview: Option<String>,
+}
+
+/// Texte proposé d'office dans la recherche manuelle (« Nayte LEVEL UP »).
+pub fn default_query(track: &Track) -> String {
+    let (artist, title) = search_terms(track);
+    let pieces = title_pieces(&track.title);
+    match artist {
+        Some(a) => format!("{a} {}", bare_title(&title)),
+        None if pieces.len() >= 2 => format!("{} {}", pieces[0], pieces[1]),
+        None => bare_title(&title),
     }
 }
 
+/// Recherche manuelle : résultats bruts de LRCLIB pour le texte saisi, les plus probables
+/// en tête (durée proche du morceau, paroles synchronisées).
+pub fn search_candidates(query: &str, duration: f64) -> Result<Vec<LyricsCandidate>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut lrclib = Lrclib::new();
+    let mut records = match lrclib.get::<Vec<LrclibRecord>>("/search", &[("q", query.to_string())])
+    {
+        Reply::Found(list) => list,
+        Reply::Missing => Vec::new(),
+        Reply::Unavailable(e) => return Err(e),
+    };
+    // « Artiste - Titre » saisi tel quel : on tente aussi la recherche par champs.
+    if records.is_empty() {
+        if let Some((a, t)) = query.split_once(" - ") {
+            records = lrclib.search(&[
+                ("artist_name", a.trim().into()),
+                ("track_name", t.trim().into()),
+            ]);
+        }
+    }
+    let rank = |r: &LrclibRecord| {
+        let gap = match (r.duration, duration > 0.0) {
+            (Some(d), true) => (d - duration).abs().min(60.0),
+            _ => 30.0,
+        };
+        let synced = if r.synced_lyrics.is_some() { 0.0 } else { 20.0 };
+        gap + synced
+    };
+    records.retain(LrclibRecord::has_content);
+    records.sort_by(|a, b| rank(a).total_cmp(&rank(b)));
+    let mut seen = std::collections::HashSet::new();
+    Ok(records
+        .into_iter()
+        .filter_map(|r| {
+            let id = r.id?;
+            seen.insert(id).then_some(())?;
+            let lines: Vec<String> = match (
+                &r.plain_lyrics,
+                r.synced_lyrics.as_deref().and_then(parse_lrc),
+            ) {
+                (Some(plain), _) if !plain.trim().is_empty() => {
+                    plain.lines().map(str::to_string).collect()
+                }
+                (_, Some(synced)) => synced.into_iter().map(|l| l.text).collect(),
+                _ => Vec::new(),
+            };
+            let preview = lines
+                .iter()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty())
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" / ");
+            let preview = (!preview.is_empty()).then_some(preview);
+            Some(LyricsCandidate {
+                id,
+                title: r.track_name.clone().unwrap_or_default(),
+                artist: r.artist_name.clone().unwrap_or_default(),
+                album: r.album_name.clone().filter(|a| !a.trim().is_empty()),
+                duration: r.duration,
+                synced: r
+                    .synced_lyrics
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty()),
+                instrumental: r.instrumental == Some(true),
+                preview,
+            })
+        })
+        .take(30)
+        .collect())
+}
+
+/// Paroles choisies à la main : téléchargées et retenues pour ce morceau, prioritaires sur
+/// toute recherche automatique (sauf un `.lrc` posé à côté du fichier).
+pub fn choose(track: &Track, cache_dir: &Path, lyrics_id: u64) -> Result<Lyrics, String> {
+    let mut lrclib = Lrclib::new();
+    match lrclib.get::<LrclibRecord>(&format!("/get/{lyrics_id}"), &[]) {
+        Reply::Found(record) if record.has_content() => {
+            let lyrics = record.into_lyrics();
+            write_entry(cache_dir, &track.id, &Some(lyrics.clone()), true);
+            Ok(lyrics)
+        }
+        Reply::Unavailable(e) => Err(e),
+        _ => Err("Ces paroles ne sont plus disponibles.".into()),
+    }
+}
+
+/// « Ces paroles ne correspondent pas » : plus rien d'affiché pour ce morceau, jusqu'à une
+/// nouvelle recherche demandée par l'utilisateur.
+pub fn dismiss(track: &Track, cache_dir: &Path) {
+    write_entry(cache_dir, &track.id, &None, true);
+}
+
 /// Version du cache : l'augmenter relance la recherche des morceaux restés sans paroles
-/// (quand la recherche s'améliore).
-const CACHE_VERSION: u32 = 3;
+/// (quand la recherche s'améliore). Les paroles déjà trouvées depuis la version 3 restent.
+const CACHE_VERSION: u32 = 4;
+const FOUND_SINCE: u32 = 3;
 
 #[derive(Serialize, Deserialize)]
 struct CachedLyrics {
@@ -511,6 +968,9 @@ struct CachedLyrics {
     fetched_secs: u64,
     #[serde(default)]
     version: u32,
+    /// Choix de l'utilisateur (paroles choisies ou retirées) : jamais remplacé d'office.
+    #[serde(default)]
+    pinned: bool,
 }
 
 fn now_secs() -> u64 {
@@ -524,33 +984,46 @@ fn cache_path(cache_dir: &Path, track_id: &str) -> PathBuf {
     cache_dir.join(format!("{track_id}.json"))
 }
 
+fn read_entry(cache_dir: &Path, track_id: &str) -> Option<CachedLyrics> {
+    serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()
+}
+
 /// Résultat en ligne mis en cache. Une absence de paroles est retenue trois jours, pour
 /// retenter plus tard sans interroger le service à chaque écoute.
 fn read_cache(cache_dir: &Path, track_id: &str) -> Option<Option<Lyrics>> {
-    let cached: CachedLyrics =
-        serde_json::from_slice(&std::fs::read(cache_path(cache_dir, track_id)).ok()?).ok()?;
+    let cached = read_entry(cache_dir, track_id)?;
     // Résultat d'une ancienne recherche (moins stricte, parfois les paroles d'une autre
-    // chanson) : on cherche à nouveau.
-    let fresh = cached.version == CACHE_VERSION
-        && (cached.lyrics.is_some()
-            || now_secs().saturating_sub(cached.fetched_secs) < 3 * 24 * 3600);
+    // chanson, ou moins habile) : on cherche à nouveau.
+    let fresh = cached.pinned
+        || match cached.lyrics {
+            Some(_) => cached.version >= FOUND_SINCE,
+            None => {
+                cached.version == CACHE_VERSION
+                    && now_secs().saturating_sub(cached.fetched_secs) < 3 * 24 * 3600
+            }
+        };
     fresh.then_some(cached.lyrics)
 }
 
 fn write_cache(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>) {
+    write_entry(cache_dir, track_id, lyrics, false);
+}
+
+fn write_entry(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>, pinned: bool) {
     if std::fs::create_dir_all(cache_dir).is_ok() {
         if let Ok(json) = serde_json::to_vec(&CachedLyrics {
             lyrics: lyrics.clone(),
             fetched_secs: now_secs(),
             version: CACHE_VERSION,
+            pinned,
         }) {
             let _ = std::fs::write(cache_path(cache_dir, track_id), json);
         }
     }
 }
 
-/// Paroles d'une piste : locales d'abord, puis cache (sauf `refresh`), puis LRCLIB si
-/// `allow_online`.
+/// Paroles d'une piste : locales d'abord, puis choix de l'utilisateur, puis cache (sauf
+/// `refresh`), puis LRCLIB si `allow_online`.
 pub fn lyrics_for(
     track: &Track,
     cache_dir: &Path,
@@ -568,7 +1041,18 @@ pub fn lyrics_for(
         }
     });
     if let Some(local) = &local {
-        if local.source == "fichier .lrc" || local.synced.is_some() {
+        if local.source == "fichier .lrc" {
+            return Ok(Some(local.clone()));
+        }
+    }
+    // Paroles choisies (ou retirées) dans l'application : priment sur les étiquettes.
+    if !refresh {
+        if let Some(entry) = read_entry(cache_dir, &track.id).filter(|e| e.pinned) {
+            return Ok(entry.lyrics);
+        }
+    }
+    if let Some(local) = &local {
+        if local.synced.is_some() {
             return Ok(Some(local.clone()));
         }
     }
@@ -751,7 +1235,9 @@ mod tests {
     #[test]
     fn scoring_needs_title_and_artist_or_duration() {
         let record = |title: &str, artist: &str, duration: f64| LrclibRecord {
+            id: None,
             track_name: Some(title.into()),
+            album_name: None,
             artist_name: Some(artist.into()),
             duration: Some(duration),
             instrumental: None,
@@ -806,12 +1292,173 @@ mod tests {
             ),
             ("The Weeknd - Save Your Tears (Lyrics)", UNKNOWN_ARTIST),
             ("Djadja", "Aya Nakamura"),
+            (
+                "LEVEL UP – Nayte | Nouvelle École: Saison 5 | Netflix",
+                "LEVEL UP – Nayte | Nouvelle École: Saison 5 | Netflix",
+            ),
+            (
+                "Arctic Monkeys  Whyd You Only Call Me When Youre High_ (Official Video)",
+                UNKNOWN_ARTIST,
+            ),
         ] {
             let mut t = track(title, artist);
             t.duration_secs = 0.0;
             let found = fetch_online(&t).unwrap();
             assert!(found.is_some(), "rien pour {title}");
         }
+    }
+
+    #[test]
+    fn untagged_video_titles_are_split_into_pieces() {
+        // Toutes les étiquettes recopient le titre de la vidéo : l'artiste n'est pas fiable.
+        let level_up = "LEVEL UP – Nayte | Nouvelle École: Saison 5 | Netflix";
+        let t = track(level_up, level_up);
+        assert_eq!(tagged_artist(&t), None);
+        assert_eq!(
+            title_pieces(level_up),
+            vec!["LEVEL UP", "Nayte", "Nouvelle École: Saison 5"]
+        );
+        // Séparateur disparu du nom de fichier (double espace), « ? » devenu « _ ».
+        assert_eq!(
+            title_pieces("Arctic Monkeys  Whyd You Only Call Me When Youre High_ (Official Video)"),
+            vec!["Arctic Monkeys", "Whyd You Only Call Me When Youre High"]
+        );
+        assert_eq!(
+            title_pieces("_Ending_ Paradise Kiss Do You Want To_ _HQ HD_ nosubs"),
+            vec!["Ending", "Paradise Kiss Do You Want To"]
+        );
+        assert_eq!(
+            title_pieces("01 - COMMENT FAIRE UN TUBE"),
+            vec!["COMMENT FAIRE UN TUBE"]
+        );
+        assert_eq!(
+            title_pieces("10cc  Im Not In Love"),
+            vec!["10cc", "Im Not In Love"]
+        );
+        assert_eq!(title_pieces("Timeless"), vec!["Timeless"]);
+        // Artiste de chaîne YouTube.
+        assert_eq!(
+            tagged_artist(&track("Meuda", "Tiakola - Topic")).as_deref(),
+            Some("Tiakola")
+        );
+        assert_eq!(default_query(&t), "LEVEL UP Nayte");
+        // Dossiers : artiste et album d'un fichier numéroté sans étiquettes.
+        assert_eq!(
+            folder_pieces(Path::new(
+                "C:/Users/Moi/Music/Damso/Damso - J'ai Menti FLAC-G11/07 - Schéma.flac"
+            )),
+            vec!["Damso", "J'ai Menti FLAC-G11"]
+        );
+        assert!(folder_pieces(Path::new("C:/Users/Moi/Music/10cc  Im Not In Love.mp3")).is_empty());
+        assert!(folder_pieces(Path::new("/storage/emulated/0/Download/x.mp3")).is_empty());
+    }
+
+    #[test]
+    fn loose_matching_needs_title_artist_and_duration() {
+        let record = |title: &str, artist: &str, duration: f64| LrclibRecord {
+            id: Some(1),
+            track_name: Some(title.into()),
+            album_name: None,
+            artist_name: Some(artist.into()),
+            duration: Some(duration),
+            instrumental: None,
+            plain_lyrics: Some("la".into()),
+            synced_lyrics: Some("[00:01.00]la".into()),
+        };
+        let words = |pieces: &[&str]| {
+            pieces
+                .iter()
+                .flat_map(|p| {
+                    normalize(p)
+                        .split(' ')
+                        .map(str::to_string)
+                        .collect::<Vec<_>>()
+                })
+                .collect::<std::collections::HashSet<_>>()
+        };
+        let level_up = words(&["LEVEL UP", "Nayte", "Nouvelle École: Saison 5"]);
+        assert!(score_loose(
+            &record("LEVEL UP - Nouvelle École", "Nayte", 155.0),
+            &level_up,
+            154.1
+        )
+        .is_some());
+        assert!(score_loose(
+            &record("LEVEL UP - Nouvelle École", "Nayte, Nouvelle Ecole", 154.0),
+            &level_up,
+            154.1
+        )
+        .is_some());
+        // Bonne chanson, autre version bien plus longue : refusée.
+        assert!(score_loose(
+            &record("LEVEL UP - Nouvelle École", "Nayte", 211.0),
+            &level_up,
+            154.1
+        )
+        .is_none());
+        // Autre titre du même artiste : refusé.
+        assert!(score_loose(
+            &record("Dis-moi - Nouvelle École", "Nayte", 155.0),
+            &level_up,
+            154.1
+        )
+        .is_none());
+        // Apostrophes retirées du nom de fichier.
+        let arctic = words(&["Arctic Monkeys", "Whyd You Only Call Me When Youre High"]);
+        assert!(score_loose(
+            &record(
+                "Why’d You Only Call Me When You’re High?",
+                "Arctic Monkeys",
+                161.0
+            ),
+            &arctic,
+            162.0
+        )
+        .is_some());
+        // Hommage par un autre artiste : refusé.
+        assert!(score_loose(
+            &record(
+                "Why'd You Only Call Me When You're High - Tribute to Arctic Monkeys",
+                "Why'd You Only Call Me When You're High",
+                166.0
+            ),
+            &arctic,
+            162.0
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn user_choices_override_the_automatic_search() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = track("Timeless", "The Weeknd");
+        dismiss(&t, dir.path());
+        // Retirées par l'utilisateur : rien, sans même interroger le service.
+        assert_eq!(lyrics_for(&t, dir.path(), false, false), Ok(None));
+        let chosen = Some(from_text("[00:01.00]Choisies", "LRCLIB"));
+        write_entry(dir.path(), &t.id, &chosen, true);
+        assert_eq!(lyrics_for(&t, dir.path(), false, false), Ok(chosen.clone()));
+        // Un ancien cache d'une version précédente n'efface pas un choix.
+        assert_eq!(read_cache(dir.path(), &t.id), Some(chosen));
+    }
+
+    #[test]
+    fn old_misses_are_retried_but_old_finds_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = |lyrics: Option<Lyrics>| {
+            serde_json::to_vec(&serde_json::json!({
+                "lyrics": lyrics, "fetched_secs": now_secs(), "version": 3
+            }))
+            .unwrap()
+        };
+        std::fs::write(cache_path(dir.path(), "miss"), old(None)).unwrap();
+        std::fs::write(
+            cache_path(dir.path(), "hit"),
+            old(Some(from_text("x", "LRCLIB"))),
+        )
+        .unwrap();
+        assert_eq!(read_cache(dir.path(), "miss"), None);
+        assert!(read_cache(dir.path(), "hit").unwrap().is_some());
     }
 
     #[test]

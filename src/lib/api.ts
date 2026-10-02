@@ -5,6 +5,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   InitialState,
   Lyrics,
+  LyricsCandidate,
   Playlist,
   PlaybackStatus,
   QueueView,
@@ -22,6 +23,11 @@ export const api = {
   getCover: (path: string, trackId: string) => invoke<string | null>("get_cover", { path, trackId }),
   getLyrics: (trackId: string, allowOnline: boolean, refresh = false) =>
     invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline, refresh }),
+  lyricsQuery: (trackId: string) => invoke<string>("lyrics_query", { trackId }),
+  searchLyrics: (trackId: string, query: string) =>
+    invoke<LyricsCandidate[]>("search_lyrics", { trackId, query }),
+  chooseLyrics: (trackId: string, lyricsId: number) => invoke<Lyrics>("choose_lyrics", { trackId, lyricsId }),
+  dismissLyrics: (trackId: string) => invoke<void>("dismiss_lyrics", { trackId }),
 
   playQueue: (trackIds: string[], startId?: string | null) =>
     invoke<Track | null>("play_queue", { trackIds, startId: startId ?? null }),

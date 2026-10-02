@@ -53,6 +53,18 @@ export interface Lyrics {
   source: string;
 }
 
+/** Proposition de la recherche manuelle de paroles (LRCLIB). */
+export interface LyricsCandidate {
+  id: number;
+  title: string;
+  artist: string;
+  album: string | null;
+  duration: number | null;
+  synced: boolean;
+  instrumental: boolean;
+  preview: string | null;
+}
+
 export interface ScanProgress {
   done: number;
   total: number;

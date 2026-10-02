@@ -72,6 +72,18 @@ autoriser l'installation depuis cette source. Au premier lancement, l'applicatio
 l'accès aux fichiers audio, puis « Analyser la musique du téléphone » parcourt le stockage
 partagé (Musique, Téléchargements…).
 
+### Paroles
+
+Dans l'ordre : fichier `.lrc` posé à côté du morceau, paroles choisies dans l'application,
+paroles des étiquettes (nettoyées des lignes publicitaires), puis recherche sur
+[LRCLIB](https://lrclib.net). Les fichiers sans étiquettes fiables (« Titre – Artiste |
+Émission | Chaîne », « Artiste  Titre » tiré d'un nom de fichier, « 07 - Titre » rangé dans
+`Artiste/Album/`) sont découpés en morceaux, cherchés sans présumer de l'ordre, et le
+résultat doit concorder en titre, artiste et durée. Un service surchargé n'est jamais pris
+pour « pas de paroles » : l'application réessaie toute seule. Le bouton « … » des paroles
+permet de chercher soi-même et choisir la bonne version, de retirer des paroles fausses et
+de décaler la synchronisation par pas d'une demi-seconde.
+
 Sur un écran étroit, l'interface passe en mode mobile : onglets en bas, mini-lecteur,
 écran « À l'écoute » plein écran avec pochette ou paroles.
 
