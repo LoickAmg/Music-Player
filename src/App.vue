@@ -23,6 +23,7 @@ import PlayerBar from "@/components/PlayerBar.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import TrackMenu from "@/components/TrackMenu.vue";
+import TrackPicker from "@/components/TrackPicker.vue";
 import UpdateDialog from "@/components/UpdateDialog.vue";
 import AlbumDetail from "@/views/AlbumDetail.vue";
 import AlbumsView from "@/views/AlbumsView.vue";
@@ -317,6 +318,7 @@ onBeforeUnmount(() => {
     <MobileBar v-if="ui.isMobile" />
     <UpdateDialog />
     <TrackMenu />
+    <TrackPicker />
     <PlaylistDialog />
     <Transition name="fade">
       <div v-if="ui.toast" class="toast" role="status">{{ ui.toast }}</div>

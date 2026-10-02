@@ -68,10 +68,13 @@ async function save() {
     await playlists.addTrack(id, d.addTrackId);
     const track = library.byId(d.addTrackId);
     ui.notify(track ? `« ${track.title} » ajouté à « ${finalName} »` : `Playlist « ${finalName} » créée`);
+    close();
   } else {
+    // Playlist toute neuve : on l'ouvre et on propose tout de suite d'y mettre des morceaux.
+    close();
     ui.go({ name: "playlist", id });
+    ui.trackPicker = id;
   }
-  close();
 }
 
 function onKey(e: KeyboardEvent) {

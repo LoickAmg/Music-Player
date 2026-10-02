@@ -51,6 +51,8 @@ export const useUiStore = defineStore("ui", {
     toast: null as string | null,
     menu: null as TrackMenu | null,
     playlistDialog: null as PlaylistDialog | null,
+    /** Playlist dans laquelle on choisit des morceaux à ajouter (sélecteur plein écran). */
+    trackPicker: null as string | null,
     /** Écran de téléphone : navigation par onglets en bas, lecteur compact. */
     isMobile: false,
     /** Écran tactile (téléphone, tablette, pliable ouvert) : un appui lance un morceau. */
@@ -89,10 +91,11 @@ export const useUiStore = defineStore("ui", {
     },
     /** Retour arrière (bouton retour d'Android, geste, souris). */
     onPopState() {
-      if (this.menu || this.playlistDialog) {
+      if (this.menu || this.playlistDialog || this.trackPicker) {
         // Un menu ou une fenêtre ouverte se ferme sans changer de page.
         this.menu = null;
         this.playlistDialog = null;
+        this.trackPicker = null;
         push(this.nowPlayingOpen ? "np" : "route");
         return;
       }

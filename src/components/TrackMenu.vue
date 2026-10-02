@@ -16,22 +16,30 @@ const showPlaylists = ref(false);
 
 const track = computed(() => (ui.menu ? library.byId(ui.menu.trackId) : null));
 
+// Le menu reste entièrement dans la fenêtre, y compris quand la liste des playlists se déplie
+// (avant, elle débordait sous le bas de l'écran quand on ouvrait le menu près du bord).
+async function place() {
+  const menu = ui.menu;
+  if (!menu) return;
+  await nextTick();
+  const rect = box.value?.getBoundingClientRect();
+  if (!rect) return;
+  pos.value = {
+    x: Math.max(8, Math.min(menu.x, window.innerWidth - rect.width - 8)),
+    y: Math.max(8, Math.min(menu.y, window.innerHeight - rect.height - 8)),
+  };
+}
+
 watch(
   () => ui.menu,
-  async (menu) => {
+  (menu) => {
     showPlaylists.value = false;
     if (!menu) return;
     pos.value = { x: menu.x, y: menu.y };
-    await nextTick();
-    const rect = box.value?.getBoundingClientRect();
-    if (rect) {
-      pos.value = {
-        x: Math.min(menu.x, window.innerWidth - rect.width - 8),
-        y: Math.min(menu.y, window.innerHeight - rect.height - 8),
-      };
-    }
+    void place();
   },
 );
+watch(showPlaylists, () => void place());
 
 function close() {
   ui.menu = null;
@@ -70,8 +78,17 @@ async function removeFromPlaylist() {
       </button>
       <div v-if="showPlaylists" class="sub">
         <button type="button" role="menuitem" @click="addToNew">＋ Nouvelle playlist</button>
-        <button v-for="p in playlists.items" :key="p.id" type="button" role="menuitem" @click="addTo(p.id, p.name)">
-          {{ p.name }}
+        <button
+          v-for="p in playlists.items"
+          :key="p.id"
+          type="button"
+          role="menuitem"
+          :disabled="p.track_ids.includes(track.id)"
+          :title="p.track_ids.includes(track.id) ? 'Déjà dans cette playlist' : undefined"
+          @click="addTo(p.id, p.name)"
+        >
+          <span class="name">{{ p.name }}</span>
+          <span v-if="p.track_ids.includes(track.id)" class="tick" aria-label="déjà ajouté">✓</span>
         </button>
       </div>
       <hr />
@@ -104,7 +121,7 @@ async function removeFromPlaylist() {
   position: fixed;
   min-width: 220px;
   max-width: 300px;
-  max-height: 70vh;
+  max-height: calc(100vh - 16px);
   overflow: auto;
   padding: 5px;
   border-radius: 10px;
@@ -138,11 +155,26 @@ button {
   text-align: left;
   font-size: 13px;
 }
-button:hover {
+button:hover:not(:disabled) {
   background: var(--accent);
   color: #fff;
 }
+button:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tick {
+  color: var(--accent);
+}
 .sub {
+  max-height: 45vh;
+  overflow-y: auto;
   margin: 2px 0 2px 10px;
   border-left: 1px solid var(--separator);
   padding-left: 4px;

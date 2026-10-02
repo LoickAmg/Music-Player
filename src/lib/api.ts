@@ -45,6 +45,8 @@ export const api = {
   renamePlaylist: (id: string, name: string) => invoke<void>("rename_playlist", { id, name }),
   addToPlaylist: (playlistId: string, trackId: string) =>
     invoke<void>("add_to_playlist", { playlistId, trackId }),
+  addTracksToPlaylist: (playlistId: string, trackIds: string[]) =>
+    invoke<number>("add_tracks_to_playlist", { playlistId, trackIds }),
   removeFromPlaylist: (playlistId: string, trackId: string) =>
     invoke<void>("remove_from_playlist", { playlistId, trackId }),
   moveTrackInPlaylist: (playlistId: string, from: number, to: number) =>

@@ -61,6 +61,7 @@ async function remove() {
         <div class="actions">
           <button type="button" class="pill pill-accent" :disabled="!ids.length" @click="player.playQueue(ids, ids[0])"><Icon name="play" :size="14" /> Lire</button>
           <button type="button" class="pill pill-ghost" :disabled="!ids.length" @click="player.playShuffled(ids)"><Icon name="shuffle" :size="15" /> Aléatoire</button>
+          <button type="button" class="pill pill-ghost" @click="ui.trackPicker = playlist.id"><Icon name="plus" :size="15" /> Ajouter</button>
           <button type="button" class="icon-btn" title="Personnaliser (nom, jaquette)" aria-label="Personnaliser la playlist" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }"><Icon name="brush" :size="17" /></button>
           <button type="button" class="icon-btn" title="Supprimer la playlist" aria-label="Supprimer la playlist" @click="remove"><Icon name="trash" :size="17" /></button>
         </div>
@@ -69,7 +70,8 @@ async function remove() {
 
     <div v-if="!tracks.length" class="empty">
       <p>Cette playlist est vide.</p>
-      <p class="muted">Clic droit (ou «&nbsp;…&nbsp;») sur n'importe quel morceau → «&nbsp;Ajouter à une playlist&nbsp;».</p>
+      <p class="muted">Cherchez et cochez autant de morceaux, d'albums ou d'artistes que vous voulez.</p>
+      <button type="button" class="pill pill-accent add-first" @click="ui.trackPicker = playlist.id"><Icon name="plus" :size="15" /> Ajouter des morceaux</button>
     </div>
     <div v-for="(track, i) in tracks" :key="`${i}-${track.id}`" class="row">
       <TrackRow :track="track" :index="i" variant="playlist" :playlist-id="playlist.id" striped @play="player.playQueue(ids, track.id)" />
@@ -155,6 +157,9 @@ h1 {
 .empty p {
   margin: 4px;
 }
+.add-first {
+  margin-top: 18px;
+}
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .hero {
     flex-direction: column;
@@ -164,6 +169,7 @@ h1 {
   }
   .hero .actions {
     justify-content: center;
+    flex-wrap: wrap;
   }
   .art,
   .cover {

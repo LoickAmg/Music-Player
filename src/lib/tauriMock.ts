@@ -199,6 +199,13 @@ export function installTauriMock() {
       const pl = playlists.find((p) => p.id === playlistId);
       if (pl && !pl.track_ids.includes(trackId)) pl.track_ids.push(trackId);
     },
+    add_tracks_to_playlist: ({ playlistId, trackIds }) => {
+      const pl = playlists.find((p) => p.id === playlistId);
+      if (!pl) throw new Error("Playlist introuvable.");
+      const before = pl.track_ids.length;
+      for (const id of trackIds as string[]) if (!pl.track_ids.includes(id)) pl.track_ids.push(id);
+      return pl.track_ids.length - before;
+    },
     remove_from_playlist: ({ playlistId, trackId }) => {
       const pl = playlists.find((p) => p.id === playlistId);
       if (pl) pl.track_ids = pl.track_ids.filter((t) => t !== trackId);

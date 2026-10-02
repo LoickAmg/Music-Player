@@ -99,6 +99,7 @@ pub fn run() {
             commands::rename_playlist,
             commands::set_playlist_theme,
             commands::add_to_playlist,
+            commands::add_tracks_to_playlist,
             commands::remove_from_playlist,
             commands::move_track_in_playlist,
             commands::set_eq_gains,

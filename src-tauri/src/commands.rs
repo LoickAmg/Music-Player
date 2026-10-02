@@ -418,6 +418,22 @@ pub fn add_to_playlist(
 }
 
 #[tauri::command]
+pub fn add_tracks_to_playlist(
+    state: State<AppState>,
+    playlist_id: String,
+    track_ids: Vec<String>,
+) -> Result<usize, String> {
+    let mut store = state.playlists.lock().unwrap();
+    let added = store
+        .add_tracks(&playlist_id, track_ids)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())?;
+    Ok(added)
+}
+
+#[tauri::command]
 pub fn remove_from_playlist(
     state: State<AppState>,
     playlist_id: String,

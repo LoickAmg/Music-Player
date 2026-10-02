@@ -64,6 +64,18 @@ export const usePlaylistsStore = defineStore("playlists", {
         this.error = String(e);
       }
     },
+    /** Ajoute une sélection de morceaux ; renvoie le nombre réellement ajouté (sans doublons). */
+    async addTracks(playlistId: string, trackIds: string[]): Promise<number> {
+      this.error = null;
+      try {
+        const added = await api.addTracksToPlaylist(playlistId, trackIds);
+        await this.fetchAll();
+        return added;
+      } catch (e) {
+        this.error = String(e);
+        return 0;
+      }
+    },
     async removeTrack(playlistId: string, trackId: string) {
       this.error = null;
       try {

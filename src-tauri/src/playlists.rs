@@ -97,6 +97,23 @@ impl PlaylistStore {
         Ok(())
     }
 
+    /// Ajoute plusieurs pistes d'un coup (sélection multiple), dans l'ordre donné, sans
+    /// doublon. Renvoie le nombre de pistes réellement ajoutées.
+    pub fn add_tracks(&mut self, id: &str, track_ids: Vec<String>) -> Result<usize, PlaylistError> {
+        let playlist = self
+            .playlists
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or(PlaylistError::NotFound)?;
+        let before = playlist.track_ids.len();
+        for track_id in track_ids {
+            if !playlist.track_ids.contains(&track_id) {
+                playlist.track_ids.push(track_id);
+            }
+        }
+        Ok(playlist.track_ids.len() - before)
+    }
+
     pub fn remove_track(&mut self, id: &str, track_id: &str) -> Result<(), PlaylistError> {
         let playlist = self
             .playlists
@@ -131,6 +148,19 @@ impl PlaylistStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_tracks_keeps_order_and_skips_duplicates() {
+        let mut store = PlaylistStore::default();
+        let id = store.create("Funk".to_string(), None);
+        store.add_track(&id, "b".to_string()).unwrap();
+        let added = store
+            .add_tracks(&id, vec!["a".into(), "b".into(), "c".into(), "a".into()])
+            .unwrap();
+        assert_eq!(added, 2);
+        assert_eq!(store.get(&id).unwrap().track_ids, vec!["b", "a", "c"]);
+        assert!(store.add_tracks("inconnue", vec!["a".into()]).is_err());
+    }
 
     #[test]
     fn create_add_and_persist_roundtrip() {
