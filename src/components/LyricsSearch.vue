@@ -121,7 +121,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey, { capture: tr
         <button type="button" class="icon-btn" aria-label="Fermer" @click="close"><Icon name="close" :size="18" /></button>
       </header>
 
-      <form class="search" @submit.prevent="search">
+      <form class="search fieldbox" @submit.prevent="search">
         <Icon name="search" :size="16" />
         <input ref="input" v-model="query" type="search" enterkeyhint="search" placeholder="Artiste et titre" aria-label="Artiste et titre" />
         <button type="submit" class="go" :disabled="!query.trim() || searching">Chercher</button>

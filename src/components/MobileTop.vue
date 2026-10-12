@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { useAppearanceStore } from "@/stores/appearance";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
 
-// Téléphone : retour, recherche et réglages en haut de l'écran.
+// Téléphone : retour, recherche, bascule clair / sombre et réglages (photo de profil si
+// choisie) en haut de l'écran.
 const ui = useUiStore();
+const appearance = useAppearanceStore();
 </script>
 
 <template>
@@ -11,7 +14,7 @@ const ui = useUiStore();
     <button v-if="ui.canGoBack && !['recent', 'albums', 'artists', 'songs', 'playlists'].includes(ui.route.name)" type="button" class="top-btn" aria-label="Retour" @click="ui.back()">
       <Icon name="back" :size="22" />
     </button>
-    <label class="search">
+    <label class="search fieldbox">
       <Icon name="search" :size="16" />
       <input
         :value="ui.search"
@@ -22,8 +25,12 @@ const ui = useUiStore();
         @input="ui.setSearch(($event.target as HTMLInputElement).value)"
       />
     </label>
+    <button type="button" class="top-btn" :aria-label="appearance.light ? 'Passer en mode sombre' : 'Passer en mode clair'" @click="appearance.toggleScheme()">
+      <Icon :name="appearance.light ? 'moon' : 'sun'" :size="20" />
+    </button>
     <button type="button" class="top-btn" :class="{ on: ui.route.name === 'settings' }" aria-label="Réglages" @click="ui.go({ name: 'settings' })">
-      <Icon name="settings" :size="21" />
+      <img v-if="appearance.settings.profile.avatar" class="me" :src="appearance.assetUrl(appearance.settings.profile.avatar)" alt="" />
+      <Icon v-else name="settings" :size="21" />
     </button>
   </header>
 </template>
@@ -71,5 +78,18 @@ const ui = useUiStore();
 }
 .top-btn.on {
   color: var(--accent);
+}
+.top-btn {
+  flex: none;
+}
+.me {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.top-btn.on .me {
+  box-shadow: 0 0 0 2px var(--accent);
 }
 </style>

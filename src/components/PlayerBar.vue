@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useFrame, useNow } from "@/lib/clock";
 import { formatDuration } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
+import { useAppearanceStore } from "@/stores/appearance";
 import { useUiStore } from "@/stores/ui";
 import { albumKey } from "@/stores/library";
 import Artwork from "./Artwork.vue";
@@ -10,6 +11,7 @@ import Icon from "./Icon.vue";
 
 const player = usePlayerStore();
 const ui = useUiStore();
+const appearance = useAppearanceStore();
 const now = useNow();
 
 const track = computed(() => player.currentTrack);
@@ -137,6 +139,15 @@ function toggleMute() {
           @input="player.setVolume(Number(($event.target as HTMLInputElement).value))"
         />
       </div>
+      <button
+        type="button"
+        class="icon-btn"
+        :title="appearance.light ? 'Mode sombre' : 'Mode clair'"
+        :aria-label="appearance.light ? 'Passer en mode sombre' : 'Passer en mode clair'"
+        @click="appearance.toggleScheme()"
+      >
+        <Icon :name="appearance.light ? 'moon' : 'sun'" :size="17" />
+      </button>
       <button type="button" class="icon-btn" :class="{ on: ui.panel === 'lyrics' }" title="Paroles" aria-label="Paroles" :aria-pressed="ui.panel === 'lyrics'" @click="ui.togglePanel('lyrics')">
         <Icon name="lyrics" :size="18" />
       </button>

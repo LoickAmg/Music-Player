@@ -292,3 +292,89 @@ input {
 :root[data-themed][data-perf="lite"] .mobile-bar .mini {
   background: var(--bg-elevated);
 }
+
+/* ------------------------------------------------------------------ personnalisation */
+/* Boutons : forme (pilule, arrondie, carrée) et style (dégradé, plein, contour, verre). */
+.pill {
+  border-radius: var(--btn-radius, 8px);
+}
+:root[data-btn-shape="pill"] {
+  --btn-radius: 999px;
+}
+:root[data-btn-shape="square"] {
+  --btn-radius: 2px;
+}
+:root[data-btn-shape="pill"] .icon-btn {
+  border-radius: 50%;
+}
+:root[data-btn-shape="square"] .icon-btn {
+  border-radius: 2px;
+}
+:root[data-btn-style="flat"] .pill-accent {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+:root[data-btn-style="outline"] .pill-accent {
+  background: transparent;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.6px var(--accent);
+}
+:root[data-btn-style="outline"] .pill-ghost {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.24);
+}
+:root[data-btn-style="glass"] .pill-accent {
+  background: color-mix(in srgb, var(--accent) 30%, rgba(var(--fg-rgb), 0.06));
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.2), 0 6px 18px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(14px) saturate(1.5);
+}
+:root[data-btn-style="glass"] .pill-ghost {
+  background: rgba(var(--fg-rgb), 0.08);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgba(var(--fg-rgb), 0.14);
+  backdrop-filter: blur(14px);
+}
+
+/* Champs de saisie (barres de recherche, noms…, marqués « fieldbox ») : forme et style. */
+:root[data-field-shape="pill"] .fieldbox {
+  border-radius: 999px;
+}
+:root[data-field-shape="square"] .fieldbox {
+  border-radius: 2px;
+}
+:root[data-field-style="outline"] .fieldbox {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px rgba(var(--fg-rgb), 0.22);
+}
+:root[data-field-style="underline"] .fieldbox {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: inset 0 -1.5px 0 rgba(var(--fg-rgb), 0.32);
+}
+:root[data-field-style="outline"] .fieldbox:focus-within,
+:root[data-field-style="outline"] .fieldbox:focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+:root[data-field-style="underline"] .fieldbox:focus-within,
+:root[data-field-style="underline"] .fieldbox:focus {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+/* Icônes : trait fin, épais, angles carrés ou deux tons (voir Icon.vue). */
+:root[data-icons="thin"] {
+  --icon-stroke: 1.25;
+}
+:root[data-icons="bold"] {
+  --icon-stroke: 2.3;
+}
+:root[data-icons="square"] {
+  --icon-stroke: 1.9;
+  --icon-cap: square;
+  --icon-join: miter;
+}
+:root[data-icons="duo"] {
+  --icon-fill: currentColor;
+  --icon-fill-opacity: 0.22;
+}

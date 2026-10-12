@@ -1,0 +1,42 @@
+[
+  {
+    "id": "origine",
+    "label": "Original"
+  },
+  {
+    "id": "neon",
+    "label": "Néon"
+  },
+  {
+    "id": "vinyle",
+    "label": "Vinyle"
+  },
+  {
+    "id": "onde",
+    "label": "Onde"
+  },
+  {
+    "id": "cassette",
+    "label": "Cassette"
+  },
+  {
+    "id": "galaxie",
+    "label": "Galaxie"
+  },
+  {
+    "id": "sakura",
+    "label": "Sakura"
+  },
+  {
+    "id": "minimal",
+    "label": "Minimal"
+  },
+  {
+    "id": "or",
+    "label": "Noir & or"
+  },
+  {
+    "id": "arcade",
+    "label": "Arcade"
+  }
+]

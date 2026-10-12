@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { useAppearanceStore } from "@/stores/appearance";
 import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
@@ -9,6 +10,7 @@ import PlaylistCover from "./PlaylistCover.vue";
 const ui = useUiStore();
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
+const appearance = useAppearanceStore();
 const searchInput = ref<HTMLInputElement | null>(null);
 
 defineExpose({ focusSearch: () => searchInput.value?.focus() });
@@ -33,7 +35,7 @@ function newPlaylist() {
 
 <template>
   <aside class="sidebar">
-    <label class="search">
+    <label class="search fieldbox">
       <Icon name="search" :size="15" />
       <input
         ref="searchInput"
@@ -89,15 +91,27 @@ function newPlaylist() {
           Analyse de la bibliothèque<span v-if="progress !== null"> · {{ progress }} %</span>
         </span>
       </div>
-      <button
-        type="button"
-        class="nav-item"
-        :class="{ active: ui.route.name === 'settings' }"
-        @click="ui.go({ name: 'settings' })"
-      >
-        <Icon name="settings" :size="17" class="ico" />
-        Réglages
-      </button>
+      <div class="foot-row">
+        <button
+          type="button"
+          class="nav-item"
+          :class="{ active: ui.route.name === 'settings' || ui.route.name === 'appearance' }"
+          @click="ui.go({ name: 'settings' })"
+        >
+          <span v-if="appearance.settings.profile.avatar" class="me"><img :src="appearance.assetUrl(appearance.settings.profile.avatar)" alt="" /></span>
+          <Icon v-else name="settings" :size="17" class="ico" />
+          <span class="me-name">{{ appearance.settings.profile.name || "Réglages" }}</span>
+        </button>
+        <button
+          type="button"
+          class="icon-btn"
+          :title="appearance.light ? 'Passer en mode sombre' : 'Passer en mode clair'"
+          :aria-label="appearance.light ? 'Passer en mode sombre' : 'Passer en mode clair'"
+          @click="appearance.toggleScheme()"
+        >
+          <Icon :name="appearance.light ? 'moon' : 'sun'" :size="17" />
+        </button>
+      </div>
     </div>
   </aside>
 </template>
@@ -214,6 +228,33 @@ function newPlaylist() {
   gap: 6px;
   padding-top: 8px;
   border-top: 1px solid var(--separator);
+}
+.foot-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.foot-row .nav-item {
+  flex: 1;
+  min-width: 0;
+}
+.me {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.me img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.me-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .scan {
   display: flex;

@@ -21,8 +21,20 @@ interface AndroidUpdateBridge {
   openBatterySettings?(): void;
 }
 
+/** Apparence côté Android : icône de l'écran d'accueil, raccourci avec photo, mode sombre
+ *  du système. */
+interface AndroidLookBridge {
+  systemDark?(): boolean;
+  currentIcon?(): string;
+  setIcon?(id: string): boolean;
+  canPinShortcut?(): boolean;
+  pinShortcut?(label: string, path: string): boolean;
+}
+
 declare global {
   interface Window {
+    AndroidLook?: AndroidLookBridge;
+    __mpSystemDark?: (dark: boolean) => void;
     AndroidMedia?: AndroidMediaBridge;
     AndroidUpdate?: AndroidUpdateBridge;
     __mpMedia?: (command: string, arg: number) => void;

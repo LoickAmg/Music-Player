@@ -216,7 +216,7 @@ const resultLabel = computed(() => {
         <button type="button" class="icon-btn" aria-label="Fermer" title="Fermer (Échap)" @click="close"><Icon name="close" :size="18" /></button>
       </header>
 
-      <label class="search">
+      <label class="search fieldbox">
         <Icon name="search" :size="16" />
         <input
           ref="searchInput"

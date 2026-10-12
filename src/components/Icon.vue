@@ -27,6 +27,10 @@ const PATHS: Record<string, string> = {
   more: "M6 12h.01M12 12h.01M18 12h.01",
   close: "M6 6l12 12M18 6 6 18",
   check: "M5 12.5l4.5 4.5L19 7.5",
+  sun: "M12 7.5a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9ZM12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4",
+  moon: "M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z",
+  user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM4.5 20a7.5 7.5 0 0 1 15 0",
+  image: "M4.5 5.5h15v13h-15ZM4.5 15.5l4-4 3.5 3.5 2.5-2.5 5 5M15 9.5h.01",
   playlist: "M4 6.5h12M4 11h12M4 15.5h7M15 19.5v-6.2l5-1v4.6M15 19.5a1.8 1.8 0 1 1-1.8-1.8 1.8 1.8 0 0 1 1.8 1.8ZM20 17a1.8 1.8 0 1 1-1.8-1.8A1.8 1.8 0 0 1 20 17Z",
   expand: "M14.5 4.5h5v5M9.5 19.5h-5v-5M19.5 4.5 13.5 10.5M4.5 19.5l6-6",
   collapse: "M9.5 4.5v5h-5M14.5 19.5v-5h5M4.5 4.5l5 5M19.5 19.5l-5-5",
@@ -38,9 +42,13 @@ const PATHS: Record<string, string> = {
 };
 
 const FILLED = new Set(["play", "pause", "next", "prev"]);
+const STROKE_STYLE =
+  "stroke-width: var(--icon-stroke, 1.7); stroke-linecap: var(--icon-cap, round); " +
+  "stroke-linejoin: var(--icon-join, round); fill: var(--icon-fill, none); fill-opacity: var(--icon-fill-opacity, 1)";
 </script>
 
 <template>
+  <!-- Traits réglables dans la personnalisation (--icon-stroke, --icon-cap…, style.css). -->
   <svg
     :width="props.size"
     :height="props.size"
@@ -51,6 +59,7 @@ const FILLED = new Set(["play", "pause", "next", "prev"]);
     stroke-width="1.7"
     stroke-linecap="round"
     stroke-linejoin="round"
+    :style="FILLED.has(props.name) ? undefined : STROKE_STYLE"
   >
     <path :d="PATHS[props.name] ?? ''" />
   </svg>

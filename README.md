@@ -84,6 +84,18 @@ Réglages → Personnalisation :
   avec l'application (Simples, Cyber & futuriste, Espace & galaxie, Rétro & jeu vidéo,
   Musique & affiche, Théâtre & classique, Dessin & manuscrit, Japonais), chargées seulement
   quand on les choisit, ou importées (.ttf, .otf, .woff, .woff2) ;
+- **mode clair ou sombre** : selon le thème, clair, sombre ou comme le système (chaque
+  thème a sa version inverse, calculée de ses couleurs, accent rendu lisible) ; bascule
+  rapide par le bouton soleil / lune en haut de l'écran ;
+- **boutons** (arrondis, pilules, carrés ; dégradé, plein, contour, verre) et **champs**
+  (arrondis, pilules, carrés ; remplis, contour, soulignés) ;
+- **icônes** : classiques, fines, épaisses, angles vifs ou deux tons ;
+- **profil** : nom et photo (recadrée), affichés dans la barre latérale et en haut sur
+  téléphone ;
+- **icône de l'application** : 10 dessins au choix (`scripts/render-icons.mjs`). Ordinateur :
+  icône de la fenêtre et de la barre des tâches, photo comprise (le raccourci du Bureau garde
+  celle de l'installation). Android : icône de l'écran d'accueil (un alias d'activité par
+  dessin), et raccourci épinglé avec sa propre photo ;
 - taille des paroles, couleur d'accent tirée de la pochette en cours.
 
 Chaque playlist (bouton « Personnaliser ») : dégradé et motif, ou **image à soi** recadrée

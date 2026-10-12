@@ -243,7 +243,7 @@ onBeforeUnmount(() => {
         <h2>{{ editing ? "Personnaliser la playlist" : "Nouvelle playlist" }}</h2>
         <label class="field">
           <span>Nom</span>
-          <input ref="nameInput" v-model="name" maxlength="80" placeholder="Ma playlist" />
+          <input ref="nameInput" v-model="name" class="fieldbox" maxlength="80" placeholder="Ma playlist" />
         </label>
 
         <div class="tabs" role="tablist">

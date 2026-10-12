@@ -15,7 +15,10 @@
 // - mises à jour : vérification en arrière-plan (même appli fermée) avec notification
 //   « Mettre à jour », téléchargement par le service de téléchargement d'Android ;
 // - mise à jour depuis l'appli : téléchargement de l'APK de la dernière version GitHub puis
-//   ouverture de l'installateur d'Android (installation par-dessus, même signature).
+//   ouverture de l'installateur d'Android (installation par-dessus, même signature) ;
+// - personnalisation : icône de l'écran d'accueil au choix (une « activity-alias » par
+//   icône dessinée, une seule active), raccourci épinglé avec une photo de l'utilisateur,
+//   mode sombre du téléphone transmis à la page (window.AndroidLook).
 // Lancé par la CI après `tauri android init` et `tauri icon`, avant `tauri android build`.
 
 import fs from "node:fs";
@@ -122,6 +125,33 @@ if (!manifest.includes(".UpdateCheckJob")) {
     </application>`,
   );
 }
+// Icônes au choix : l'entrée du lanceur passe de l'activité à des alias (un par icône,
+// seul « origine » actif d'office) ; l'appli active celui choisi dans la personnalisation.
+const iconVariants = JSON.parse(fs.readFileSync(path.resolve("public/app-icons/variants.json"), "utf8")).map((v) => v.id);
+if (!manifest.includes(".Icon_origine")) {
+  // Bloc du lanceur de l'activité (avec, selon les versions de Tauri, la catégorie Android TV
+  // et des commentaires) : le premier <intent-filter> qui cite LAUNCHER.
+  manifest = manifest.replace(/\s*<intent-filter>(?:(?!<\/intent-filter>)[\s\S])*?android\.intent\.category\.LAUNCHER[\s\S]*?<\/intent-filter>/, "");
+  const aliases = iconVariants
+    .map((id) => {
+      const icon = id === "origine" ? "@mipmap/ic_launcher" : `@mipmap/ic_alt_${id}`;
+      const round = id === "origine" ? "@mipmap/ic_launcher_round" : `@mipmap/ic_alt_${id}`;
+      return `    <activity-alias android:name="${pkg}.Icon_${id}" android:targetActivity="${pkg}.MainActivity" android:enabled="${id === "origine"}" android:exported="true" android:icon="${icon}" android:roundIcon="${round}" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>`;
+    })
+    .join("\n    ");
+  manifest = manifest.replace(/<\/application>/, `${aliases}\n    </application>`);
+}
+// Garde-fous : le lanceur ne passe que par les alias (sinon deux icônes), et il y en a bien.
+const mainActivity = manifest.match(/<activity\s[\s\S]*?<\/activity>/)?.[0] ?? "";
+if (mainActivity.includes("category.LAUNCHER") || !/<activity-alias[\s\S]*?category\.LAUNCHER/.test(manifest)) {
+  console.error("Lanceur mal configuré : l'activité principale ne doit plus être dans le lanceur, les alias si.");
+  process.exit(1);
+}
 fs.writeFileSync(manifestPath, manifest);
 
 // 2. Activité principale
@@ -209,6 +239,15 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
     applyOrientation()
+    pushSystemDark()
+  }
+
+  /** Mode sombre du téléphone, pour le mode « Comme le système » de la personnalisation. */
+  private fun pushSystemDark() {
+    val dark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+    MediaCommands.webView?.post {
+      MediaCommands.webView?.evaluateJavascript("window.__mpSystemDark && window.__mpSystemDark(" + dark + ")", null)
+    }
   }
 
   override fun onWebViewCreate(webView: WebView) {
@@ -233,6 +272,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     }
     webView.addJavascriptInterface(MediaBridge(applicationContext), "AndroidMedia")
     updates = UpdateBridge(this).also { webView.addJavascriptInterface(it, "AndroidUpdate") }
+    webView.addJavascriptInterface(LookBridge(applicationContext), "AndroidLook")
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -244,6 +284,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
 
   override fun onResume() {
     super.onResume()
+    pushSystemDark()
     // Retour des réglages « installer des applis inconnues » : l'installation reprend.
     updates?.resumePending()
   }
@@ -1039,6 +1080,96 @@ object AudioFiles {
 `,
 );
 
+// 3 bis. Personnalisation : icône de l'écran d'accueil, raccourci avec photo, mode sombre.
+fs.writeFileSync(
+  path.join(kotlinDir, "LookBridge.kt"),
+  `package ${pkg}
+
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.content.pm.ShortcutInfo
+import android.content.pm.ShortcutManager
+import android.content.res.Configuration
+import android.graphics.BitmapFactory
+import android.graphics.drawable.Icon
+import android.os.Build
+import android.webkit.JavascriptInterface
+import java.io.File
+
+class LookBridge(private val context: Context) {
+  private val icons = listOf(${iconVariants.map((id) => `"${id}"`).join(", ")})
+
+  private fun alias(id: String) = ComponentName(context, "${pkg}.Icon_" + id)
+
+  @JavascriptInterface
+  fun systemDark(): Boolean =
+    (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+  @JavascriptInterface
+  fun currentIcon(): String {
+    val pm = context.packageManager
+    for (id in icons) {
+      val state = pm.getComponentEnabledSetting(alias(id))
+      val enabled = state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED ||
+        (state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT && id == "origine")
+      if (enabled) return id
+    }
+    return "origine"
+  }
+
+  /** Active l'icône choisie, puis désactive les autres : jamais d'instant sans icône. */
+  @JavascriptInterface
+  fun setIcon(id: String): Boolean {
+    if (id !in icons) return false
+    return try {
+      val pm = context.packageManager
+      pm.setComponentEnabledSetting(alias(id), PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP)
+      for (other in icons) {
+        if (other != id) {
+          pm.setComponentEnabledSetting(alias(other), PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP)
+        }
+      }
+      true
+    } catch (e: Exception) {
+      false
+    }
+  }
+
+  @JavascriptInterface
+  fun canPinShortcut(): Boolean =
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+      context.getSystemService(ShortcutManager::class.java)?.isRequestPinShortcutSupported == true
+
+  /** Raccourci sur l'écran d'accueil avec l'image donnée (préparée par l'appli, dans son
+   *  propre dossier : aucun autre fichier n'est accepté). Android demande confirmation. */
+  @JavascriptInterface
+  fun pinShortcut(label: String, path: String): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    return try {
+      val file = File(path).canonicalFile
+      if (!file.isFile || !file.path.startsWith(context.dataDir.canonicalPath + File.separator)) return false
+      val bitmap = BitmapFactory.decodeFile(file.path) ?: return false
+      val manager = context.getSystemService(ShortcutManager::class.java) ?: return false
+      if (!manager.isRequestPinShortcutSupported) return false
+      val intent = Intent(context, MainActivity::class.java)
+        .setAction(Intent.ACTION_MAIN)
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+      val info = ShortcutInfo.Builder(context, "photo-" + System.currentTimeMillis())
+        .setShortLabel(label.trim().take(24).ifBlank { "Music Player" })
+        .setIcon(Icon.createWithAdaptiveBitmap(bitmap))
+        .setIntent(intent)
+        .build()
+      manager.requestPinShortcut(info, null)
+    } catch (e: Exception) {
+      false
+    }
+  }
+}
+`,
+);
+
 // 4. Icônes : icône adaptative dont le premier plan contient l'image entière dans la zone
 // visible (sinon le lanceur la rogne et elle paraît grossie), fond = même image floutée.
 const res = path.join(root, "res");
@@ -1063,6 +1194,26 @@ for (const dir of anydpiDirs) {
   for (const name of ["ic_launcher.xml", "ic_launcher_round.xml"]) {
     fs.writeFileSync(path.join(res, dir, name), adaptive);
   }
+}
+// Icônes au choix (scripts/render-icons.mjs) : calques adaptatifs et icône classique.
+const variantsSrc = path.resolve("src-tauri/icons/android-variants");
+for (const dir of fs.readdirSync(variantsSrc)) {
+  const out = path.join(res, dir);
+  fs.mkdirSync(out, { recursive: true });
+  for (const file of fs.readdirSync(path.join(variantsSrc, dir))) {
+    fs.copyFileSync(path.join(variantsSrc, dir, file), path.join(out, file));
+  }
+}
+for (const id of iconVariants.filter((v) => v !== "origine")) {
+  fs.writeFileSync(
+    path.join(res, "mipmap-anydpi-v26", `ic_alt_${id}.xml`),
+    `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_alt_${id}_bg" />
+    <foreground android:drawable="@mipmap/ic_alt_${id}_fg" />
+</adaptive-icon>
+`,
+  );
 }
 fs.mkdirSync(path.join(res, "xml"), { recursive: true });
 fs.writeFileSync(

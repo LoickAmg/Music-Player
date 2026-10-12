@@ -109,7 +109,7 @@ async function remove(id: string) {
 <template>
   <div class="font-picker">
     <div class="bar">
-      <label class="search">
+      <label class="search fieldbox">
         <Icon name="search" :size="15" />
         <input v-model="query" type="search" placeholder="Chercher une police" aria-label="Chercher une police" />
       </label>

@@ -45,7 +45,7 @@ export const BUILTIN_THEMES: Theme[] = [
   { id: "japon", name: "Japon", colors: { bg: "#110b0b", surface: "#241717", text: "#f7ece6", accent: "#e8384f", accent2: "#f5c6cf" }, radius: 8, glow: 0.6, fonts: { display: "dela-gothic-one", lyrics: "zen-maru-gothic" }, builtin: true },
   { id: "sakura", name: "Sakura (clair)", colors: { bg: "#fff5f8", surface: "#ffffff", text: "#3a1d2a", accent: "#e2507d", accent2: "#ffb3cb" }, radius: 14, glow: 0.5, fonts: { display: "zen-maru-gothic" }, builtin: true },
   { id: "papier", name: "Papier (clair)", colors: { bg: "#f4f1ea", surface: "#fffdf8", text: "#24211c", accent: "#2f6fdb", accent2: "#9fc0ff" }, radius: 8, glow: 0.3, fonts: { display: "lora", lyrics: "lora" }, builtin: true },
-  { id: "croquis", name: "Croquis (clair)", colors: { bg: "#fbfaf6", surface: "#ffffff", text: "#2b2b2b", accent: "#ff7a1a", accent2: "#3aa0ff" }, radius: 16, glow: 0.2, fonts: { display: "permanent-marker", lyrics: "caveat", ui: "patrick-hand" }, builtin: true },
+  { id: "croquis", name: "Croquis (clair)", colors: { bg: "#fbfaf6", surface: "#ffffff", text: "#2b2b2b", accent: "#d95800", accent2: "#3aa0ff" }, radius: 16, glow: 0.2, fonts: { display: "permanent-marker", lyrics: "caveat", ui: "patrick-hand" }, builtin: true },
 ];
 
 // ------------------------------------------------------------------ couleurs
@@ -136,6 +136,42 @@ export function themeVariables(theme: Theme): Record<string, string> {
       `linear-gradient(165deg, ${hex(mix(bg, accent, light ? 0.06 : 0.12))} 0%, ${hex(bg)} 45%, ${hex(mix(bg, black, light ? 0.02 : 0.35))} 100%)`,
     ].join(", "),
   };
+}
+
+/** Accent éclairci ou foncé jusqu'à rester lisible sur le fond (contraste minimal). */
+function readableOn(accent: Rgb, bg: Rgb, min: number, light: boolean): Rgb {
+  let c = accent;
+  for (let i = 0; i < 20 && contrast(c, bg) < min; i++) c = mix(c, light ? [0, 0, 0] : [255, 255, 255], 0.1);
+  return c;
+}
+
+/** Le thème dans le mode demandé : tel quel s'il y est déjà, sinon sa version claire ou
+ *  sombre, calculée à partir de ses couleurs (même accent, fond et texte inversés). */
+export function withScheme(theme: Theme, light: boolean): Theme {
+  if (isLight(theme) === light) return theme;
+  const accent = parseHex(theme.colors.accent) ?? [58, 168, 255];
+  const accent2 = parseHex(theme.colors.accent2 ?? "") ?? mix(accent, [255, 255, 255], 0.35);
+  let colors: ThemeColors;
+  if (light) {
+    const bg = mix([250, 250, 252], accent, 0.05);
+    colors = {
+      bg: hex(bg),
+      surface: "#ffffff",
+      text: hex(mix([22, 24, 30], accent, 0.12)),
+      accent: hex(readableOn(accent, bg, 3.2, true)),
+      accent2: hex(accent2),
+    };
+  } else {
+    const bg = mix([6, 8, 14], accent, 0.08);
+    colors = {
+      bg: hex(bg),
+      surface: hex(mix(bg, [255, 255, 255], 0.07)),
+      text: hex(mix([240, 243, 248], accent, 0.05)),
+      accent: hex(readableOn(accent, bg, 4, false)),
+      accent2: hex(accent2),
+    };
+  }
+  return { ...theme, colors };
 }
 
 /** Thème neuf, copie modifiable d'un autre. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BUILTIN_THEMES, contrast, isLight, parseHex, parseThemeFile, themeFile, themeVariables } from "./themes";
+import { BUILTIN_THEMES, contrast, isLight, parseHex, parseThemeFile, themeFile, themeVariables, withScheme } from "./themes";
 
 describe("thèmes", () => {
   it("dérive toutes les variables, voiles foncés sur thème clair", () => {
@@ -37,5 +37,19 @@ describe("thèmes", () => {
     const hostile = parseThemeFile(JSON.stringify({ name: "x", colors: { bg: "#000", surface: "#111", text: "#fff", accent: "#0f0" }, radius: 999, fonts: { ui: "url(evil)" } }))!;
     expect(hostile.radius).toBe(20);
     expect(hostile.fonts).toBeUndefined();
+  });
+
+  it("passe chaque thème en clair ou en sombre, toujours lisible", () => {
+    for (const t of BUILTIN_THEMES) {
+      for (const light of [true, false]) {
+        const v = withScheme(t, light);
+        expect(isLight(v), `${t.name} ${light}`).toBe(light);
+        const bg = parseHex(v.colors.bg)!;
+        expect(contrast(bg, parseHex(v.colors.text)!)).toBeGreaterThan(7);
+        expect(contrast(bg, parseHex(v.colors.accent)!), `${t.name} accent`).toBeGreaterThanOrEqual(3);
+      }
+    }
+    const neon = BUILTIN_THEMES.find((t) => t.id === "neon")!;
+    expect(withScheme(neon, false)).toBe(neon);
   });
 });
