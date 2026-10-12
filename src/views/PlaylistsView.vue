@@ -17,7 +17,7 @@ const ui = useUiStore();
     </div>
     <div v-if="playlists.items.length" class="grid">
       <button v-for="p in playlists.items" :key="p.id" type="button" class="card" @click="ui.go({ name: 'playlist', id: p.id })">
-        <PlaylistCover :name="p.name" :theme="p.theme" :radius="10" />
+        <PlaylistCover :name="p.name" :theme="p.theme" :styling="p.style" :radius="10" />
         <span class="name">{{ p.name }}</span>
         <span class="count">{{ p.track_ids.length }} morceau{{ p.track_ids.length > 1 ? "x" : "" }}</span>
       </button>

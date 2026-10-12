@@ -16,6 +16,10 @@ pub struct Playlist {
     /// Thème de la jaquette générée (identifiant défini côté interface).
     #[serde(default = "default_theme")]
     pub theme: String,
+    /// Personnalisation de la jaquette et de la page (image, police, couleurs…), dont la
+    /// forme est décidée par l'interface. Absente : jaquette générée par le thème.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub style: Option<serde_json::Value>,
 }
 
 fn default_theme() -> String {
@@ -55,6 +59,7 @@ impl PlaylistStore {
             name,
             track_ids: Vec::new(),
             theme: theme.unwrap_or_else(default_theme),
+            style: None,
         });
         id
     }
@@ -66,6 +71,20 @@ impl PlaylistStore {
             .find(|p| p.id == id)
             .ok_or(PlaylistError::NotFound)?;
         playlist.theme = theme;
+        Ok(())
+    }
+
+    pub fn set_style(
+        &mut self,
+        id: &str,
+        style: Option<serde_json::Value>,
+    ) -> Result<(), PlaylistError> {
+        let playlist = self
+            .playlists
+            .iter_mut()
+            .find(|p| p.id == id)
+            .ok_or(PlaylistError::NotFound)?;
+        playlist.style = style.filter(|s| !s.is_null());
         Ok(())
     }
 

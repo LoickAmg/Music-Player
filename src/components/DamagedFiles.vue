@@ -102,7 +102,7 @@ async function reveal(path: string) {
   margin-bottom: 16px;
   padding: 18px 20px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--fg-rgb), 0.04);
   box-shadow: inset 0 0 0 0.5px var(--separator);
   /* Lien « N fichiers illisibles » : le titre reste visible sous la barre du haut. */
   scroll-margin-top: 24px;

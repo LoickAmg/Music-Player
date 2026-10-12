@@ -72,6 +72,24 @@ autoriser l'installation depuis cette source. Au premier lancement, l'applicatio
 l'accès aux fichiers audio, puis « Analyser la musique du téléphone » parcourt le stockage
 partagé (Musique, Téléchargements…).
 
+### Personnalisation
+
+Réglages → Personnalisation :
+- **thèmes** : 15 fournis (Nuit bleue d'origine, Noir OLED, Néon, Cyberpunk, Galaxie, Espace,
+  Océan, Forêt, Braise, Théâtre, Arcade, Japon, et trois clairs : Sakura, Papier, Croquis),
+  ou créés à partir de l'un d'eux (fond, surfaces, texte, accent, halo, arrondi, intensité
+  des lueurs ; alerte si le texte devient peu lisible) ; copier, coller ou importer un thème
+  pour le partager ;
+- **polices** de l'interface, des titres et des paroles : 73 polices libres de droits livrées
+  avec l'application (Simples, Cyber & futuriste, Espace & galaxie, Rétro & jeu vidéo,
+  Musique & affiche, Théâtre & classique, Dessin & manuscrit, Japonais), chargées seulement
+  quand on les choisit, ou importées (.ttf, .otf, .woff, .woff2) ;
+- taille des paroles, couleur d'accent tirée de la pochette en cours.
+
+Chaque playlist (bouton « Personnaliser ») : dégradé et motif, ou **image à soi** recadrée
+(glisser, zoom, voile sous le nom) ; nom en police, couleur, taille, alignement et position
+au choix, repris au besoin par le titre de la page de la playlist.
+
 ### Fichiers illisibles
 
 Un fichier audio vide ou abîmé (téléchargement interrompu, début rempli de zéros) que le

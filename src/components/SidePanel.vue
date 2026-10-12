@@ -68,6 +68,8 @@ const remaining = computed(() => {
 
 <style scoped>
 .side-panel {
+  /* Paroles sur le fond du thème : couleur du texte du thème. */
+  --lyrics-rgb: var(--fg-rgb);
   width: 340px;
   display: flex;
   flex-direction: column;

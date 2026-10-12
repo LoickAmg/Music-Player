@@ -7,6 +7,7 @@ import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
 import { useAmbienceStore } from "@/stores/ambience";
+import { useAppearanceStore } from "@/stores/appearance";
 import { useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
@@ -34,12 +35,14 @@ import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
 import SearchView from "@/views/SearchView.vue";
 import SettingsView from "@/views/SettingsView.vue";
+import AppearanceView from "@/views/AppearanceView.vue";
 import SongsView from "@/views/SongsView.vue";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const eq = useEqStore();
+const appearance = useAppearanceStore();
 const ui = useUiStore();
 const lyrics = useLyricsStore();
 const ambience = useAmbienceStore();
@@ -185,6 +188,7 @@ onMounted(async () => {
     updated: (tracks) => library.applyScanResult(tracks),
   });
   const initial = await api.getInitialState();
+  appearance.setFromInitialState(initial.appearance, initial.custom_dir);
   library.setFromInitialState(initial.library_root, initial.library, initial.scanning);
   playlists.setFromInitialState(initial.playlists);
   eq.setFromInitialState(initial.eq_gains);
@@ -303,6 +307,7 @@ onBeforeUnmount(() => {
             <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
             <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
             <SettingsView v-else-if="ui.route.name === 'settings'" />
+            <AppearanceView v-else-if="ui.route.name === 'appearance'" />
             <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
           </template>
           <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
@@ -380,7 +385,11 @@ onBeforeUnmount(() => {
     radial-gradient(ellipse 50% 40% at 100% 0%, color-mix(in srgb, var(--amb-secondary) 18%, transparent), transparent 70%);
 }
 /* Accueil : palette de Persona 3 Reload (bleu nuit, bleu électrique, cyan), couleurs seulement. */
-.content.home {
+/* Thème d'origine : palette de Persona 3 Reload. Thème personnalisé : son propre fond. */
+:root[data-themed] .content.home {
+  background: var(--home-bg);
+}
+:root:not([data-themed]) .content.home {
   --accent: #3fb8ff;
   --accent-soft: rgba(63, 184, 255, 0.16);
   --bg-hover: rgba(63, 184, 255, 0.08);
@@ -492,7 +501,7 @@ onBeforeUnmount(() => {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 3px solid rgba(255, 255, 255, 0.12);
+  border: 3px solid rgba(var(--fg-rgb), 0.12);
   border-top-color: var(--accent);
   animation: spin 0.9s linear infinite;
 }
@@ -509,7 +518,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   padding: 9px 16px;
   border-radius: 10px;
-  background: rgba(10, 26, 64, 0.95);
+  background: rgba(var(--surface-rgb), 0.95);
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow);
   font-size: 13px;

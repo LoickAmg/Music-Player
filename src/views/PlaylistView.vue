@@ -5,6 +5,7 @@ import type { Track } from "@/lib/types";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useAppearanceStore } from "@/stores/appearance";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 import PlaylistCover from "@/components/PlaylistCover.vue";
@@ -15,12 +16,18 @@ const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const ui = useUiStore();
+const appearance = useAppearanceStore();
 
 const playlist = computed(() => playlists.byId(props.id));
 const tracks = computed(
   () => (playlist.value?.track_ids.map((id) => library.byId(id)).filter(Boolean) as Track[]) ?? [],
 );
 const ids = computed(() => tracks.value.map((t) => t.id));
+// Titre de la page dans la police de la jaquette, si demandé dans la personnalisation.
+const titleFont = computed(() => {
+  const st = playlist.value?.style;
+  return st?.titleFont === "cover" && st.font ? appearance.fontStackFor(st.font) : undefined;
+});
 const duration = computed(() => tracks.value.reduce((s, t) => s + t.duration_secs, 0));
 
 const editing = ref(false);
@@ -50,13 +57,13 @@ async function remove() {
   <div v-if="playlist" class="page">
     <header class="hero">
       <button type="button" class="cover" title="Personnaliser la jaquette" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }">
-        <PlaylistCover :name="playlist.name" :theme="playlist.theme" :radius="10" />
+        <PlaylistCover :name="playlist.name" :theme="playlist.theme" :styling="playlist.style" :radius="10" />
         <span class="cover-edit">Personnaliser</span>
       </button>
       <div class="info">
         <p class="kicker">Playlist</p>
         <input v-if="editing" ref="input" v-model="draft" class="title-input" aria-label="Nom de la playlist" @keydown.enter="commitEdit" @keydown.esc="editing = false" @blur="commitEdit" />
-        <h1 v-else title="Cliquer pour renommer" @click="startEdit">{{ playlist.name }}</h1>
+        <h1 v-else title="Cliquer pour renommer" :style="{ fontFamily: titleFont }" @click="startEdit">{{ playlist.name }}</h1>
         <p class="muted">{{ formatCollection(tracks.length, duration) }}</p>
         <div class="actions">
           <button type="button" class="pill pill-accent" :disabled="!ids.length" @click="player.playQueue(ids, ids[0])"><Icon name="play" :size="14" /> Lire</button>

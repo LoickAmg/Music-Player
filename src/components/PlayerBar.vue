@@ -196,8 +196,8 @@ function toggleMute() {
   align-items: stretch;
   height: 48px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.06);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.08);
   overflow: hidden;
 }
 .lcd-idle {
@@ -292,7 +292,7 @@ function toggleMute() {
   right: 0;
   bottom: 0;
   height: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--fg-rgb), 0.1);
   cursor: pointer;
   outline: none;
 }
@@ -329,7 +329,7 @@ function toggleMute() {
   width: 96px;
   height: 4px;
   border-radius: 2px;
-  background: linear-gradient(to right, var(--text-2) var(--v), rgba(255, 255, 255, 0.15) var(--v));
+  background: linear-gradient(to right, var(--text-2) var(--v), rgba(var(--fg-rgb), 0.15) var(--v));
 }
 .volume input::-webkit-slider-thumb {
   appearance: none;

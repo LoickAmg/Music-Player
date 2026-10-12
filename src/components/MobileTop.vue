@@ -37,7 +37,7 @@ const ui = useUiStore();
   align-items: center;
   gap: 8px;
   padding: calc(var(--safe-top) + 10px) 12px 10px;
-  background: linear-gradient(rgba(5, 13, 36, 0.96), rgba(5, 13, 36, 0.82));
+  background: linear-gradient(rgba(var(--bar-rgb), 0.96), rgba(var(--bar-rgb), 0.82));
   backdrop-filter: blur(20px);
 }
 .search {

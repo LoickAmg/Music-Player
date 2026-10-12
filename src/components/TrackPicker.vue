@@ -352,8 +352,8 @@ const resultLabel = computed(() => {
   width: min(780px, calc(100vw - 40px));
   height: min(760px, calc(100vh - 60px));
   border-radius: 16px;
-  background: rgba(9, 24, 60, 0.98);
-  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  background: rgba(var(--surface-rgb), 0.98);
+  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.12);
   overflow: hidden;
   animation: pop 0.24s var(--ease);
 }
@@ -397,7 +397,7 @@ h2 {
   padding: 0 12px;
   height: 42px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.08);
   color: var(--text-2);
 }
 .search:focus-within {
@@ -423,7 +423,7 @@ h2 {
   height: 26px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--fg-rgb), 0.1);
 }
 .bar {
   display: flex;
@@ -437,7 +437,7 @@ h2 {
   gap: 4px;
   padding: 3px;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--fg-rgb), 0.06);
 }
 .tabs button,
 .sort {
@@ -455,7 +455,7 @@ h2 {
   color: #fff;
 }
 .sort {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--fg-rgb), 0.06);
 }
 .meta {
   display: flex;
@@ -499,7 +499,7 @@ h2 {
   -webkit-tap-highlight-color: transparent;
 }
 .item:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(var(--fg-rgb), 0.05);
 }
 .item:focus-visible {
   outline: 2px solid var(--accent);
@@ -520,7 +520,7 @@ h2 {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 1.6px rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 0 0 1.6px rgba(var(--fg-rgb), 0.35);
   transition: background 0.15s, box-shadow 0.15s;
 }
 .check svg {
@@ -542,7 +542,7 @@ h2 {
   box-shadow: none;
 }
 .item.done .check {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(var(--fg-rgb), 0.25);
   box-shadow: none;
 }
 .item.on .check svg,
@@ -602,13 +602,13 @@ h2 {
   padding: 0 12px;
   border: 0;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(var(--fg-rgb), 0.07);
   font-size: 12px;
   font-weight: 600;
   color: var(--text-2);
 }
 .open:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--fg-rgb), 0.14);
   color: var(--text);
 }
 .chev {
@@ -622,7 +622,7 @@ h2 {
   gap: 12px;
   padding: 12px 20px;
   border-top: 1px solid var(--separator);
-  background: rgba(6, 16, 42, 0.6);
+  background: rgba(var(--bar-rgb), 0.6);
 }
 .count {
   min-width: 0;
@@ -638,7 +638,7 @@ h2 {
 }
 .count:hover,
 .count.on {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.08);
 }
 .hint {
   font-size: 12px;
@@ -663,7 +663,7 @@ h2 {
     width: 100%;
     height: 100%;
     border-radius: 0;
-    background: rgb(9, 24, 60);
+    background: rgb(var(--surface-rgb));
     padding-left: var(--safe-left);
     padding-right: var(--safe-right);
     animation: slide 0.26s var(--ease);
@@ -728,6 +728,6 @@ h2 {
 }
 :root[data-perf="lite"] .picker,
 :root[data-perf="lite"] .foot {
-  background: rgb(9, 24, 60);
+  background: rgb(var(--surface-rgb));
 }
 </style>

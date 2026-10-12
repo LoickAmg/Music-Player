@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
-import type { Playlist } from "@/lib/types";
+import type { Playlist, PlaylistStyle } from "@/lib/types";
 
 export const usePlaylistsStore = defineStore("playlists", {
   state: () => ({
@@ -31,7 +31,10 @@ export const usePlaylistsStore = defineStore("playlists", {
     async remove(id: string) {
       this.error = null;
       try {
+        const image = this.byId(id)?.style?.image;
         await api.deletePlaylist(id);
+        // Image de jaquette importée : plus utile une fois la playlist supprimée.
+        if (image) void api.deleteAsset(image).catch(() => {});
         await this.fetchAll();
       } catch (e) {
         this.error = String(e);
@@ -41,6 +44,15 @@ export const usePlaylistsStore = defineStore("playlists", {
       this.error = null;
       try {
         await api.renamePlaylist(id, name);
+        await this.fetchAll();
+      } catch (e) {
+        this.error = String(e);
+      }
+    },
+    async setStyle(id: string, style: PlaylistStyle | null) {
+      this.error = null;
+      try {
+        await api.setPlaylistStyle(id, style);
         await this.fetchAll();
       } catch (e) {
         this.error = String(e);

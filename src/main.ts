@@ -1,6 +1,7 @@
 import { createApp } from "vue";
 import { createPinia } from "pinia";
 import App from "./App.vue";
+import { applyCachedAppearance } from "./stores/appearance";
 import "./style.css";
 
 async function bootstrap() {
@@ -11,6 +12,8 @@ async function bootstrap() {
     installTauriMock();
   }
 
+  // Thème du dernier lancement posé avant le premier rendu (pas d'éclair de couleurs).
+  applyCachedAppearance();
   createApp(App).use(createPinia()).mount("#app");
 }
 

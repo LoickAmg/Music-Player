@@ -267,12 +267,12 @@ onBeforeUnmount(() => {
 }
 .line {
   margin: 0 0 0.72em;
-  font-family: var(--font-display);
-  font-size: 24px;
+  font-family: var(--font-lyrics);
+  font-size: calc(24px * var(--lyrics-scale));
   font-weight: 800;
   line-height: 1.22;
   letter-spacing: -0.01em;
-  color: #fff;
+  color: rgb(var(--lyrics-rgb));
   cursor: pointer;
   opacity: calc(0.46 - var(--d, 4) * 0.05);
   transform: scale(0.955);
@@ -295,8 +295,8 @@ onBeforeUnmount(() => {
   --fill: calc(var(--p, 0) * 108%);
   background-image: linear-gradient(
     90deg,
-    #fff calc(var(--fill) - 8%),
-    rgba(255, 255, 255, 0.4) var(--fill)
+    rgb(var(--lyrics-rgb)) calc(var(--fill) - 8%),
+    rgba(var(--lyrics-rgb), 0.4) var(--fill)
   );
   -webkit-background-clip: text;
   background-clip: text;
@@ -323,17 +323,18 @@ onBeforeUnmount(() => {
   padding: 22vh 8% 50vh;
 }
 .large .line {
-  font-size: clamp(28px, 3.2vw, 44px);
+  font-size: calc(clamp(28px, 3.2vw, 44px) * var(--lyrics-scale));
 }
 .plain {
   white-space: pre-line;
-  font-size: 18px;
+  font-size: calc(18px * var(--lyrics-scale));
+  font-family: var(--font-lyrics);
   font-weight: 600;
   line-height: 1.6;
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(var(--lyrics-rgb), 0.82);
 }
 .large .plain {
-  font-size: 24px;
+  font-size: calc(24px * var(--lyrics-scale));
 }
 .source {
   margin-top: 32px;
@@ -404,8 +405,8 @@ onBeforeUnmount(() => {
   height: 34px;
   border: 0;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.75);
+  background: rgba(var(--lyrics-rgb), 0.08);
+  color: rgba(var(--lyrics-rgb), 0.75);
   opacity: 0.55;
   transition: opacity 0.2s, background 0.2s;
 }
@@ -415,7 +416,7 @@ onBeforeUnmount(() => {
   opacity: 1;
 }
 .tools-btn.on {
-  background: rgba(255, 255, 255, 0.18);
+  background: rgba(var(--lyrics-rgb), 0.18);
 }
 .tools-scrim {
   position: fixed;
@@ -429,8 +430,8 @@ onBeforeUnmount(() => {
   width: 260px;
   padding: 6px;
   border-radius: 12px;
-  background: rgba(10, 26, 64, 0.97);
-  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  background: rgba(var(--surface-rgb), 0.97);
+  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(var(--lyrics-rgb), 0.12);
 }
 .tools-head,
 .tools-label {
@@ -455,7 +456,7 @@ onBeforeUnmount(() => {
   padding: 0 8px;
   border: 0;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--lyrics-rgb), 0.08);
   font-size: 12px;
   font-weight: 600;
 }
@@ -479,13 +480,13 @@ onBeforeUnmount(() => {
 }
 .tools-item:hover {
   background: var(--accent);
-  color: #fff;
+  color: rgb(var(--lyrics-rgb));
 }
 .tools-item.danger {
   color: #ff8a98;
 }
 .tools-item.danger:hover {
-  color: #fff;
+  color: rgb(var(--lyrics-rgb));
 }
 .hint {
   font-size: 12px;
@@ -549,7 +550,7 @@ onBeforeUnmount(() => {
   .line {
     /* Proportionnel à la largeur : lisible sur l'écran extérieur d'un Z Flip comme sur un
        grand téléphone. */
-    font-size: clamp(20px, 6.4vw, 26px);
+    font-size: calc(clamp(20px, 6.4vw, 26px) * var(--lyrics-scale));
   }
   .line.active .txt {
     filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amb-glow) calc(30% + var(--amb-energy) * 40%), transparent));
@@ -581,7 +582,7 @@ onBeforeUnmount(() => {
 }
 :root[data-perf="lite"] .line.active .txt {
   background: none;
-  color: #fff;
+  color: rgb(var(--lyrics-rgb));
   filter: none;
 }
 </style>

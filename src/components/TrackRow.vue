@@ -93,7 +93,7 @@ function openMenu(event: MouseEvent) {
   grid-template-columns: 32px minmax(0, 1fr) 56px 32px;
 }
 .track-row.striped {
-  background: rgba(255, 255, 255, 0.025);
+  background: rgba(var(--fg-rgb), 0.025);
 }
 .track-row:hover,
 .track-row:focus-visible {

@@ -5,6 +5,7 @@ import { formatCollection } from "@/lib/format";
 import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
+import { useUiStore } from "@/stores/ui";
 import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
 import DamagedFiles from "@/components/DamagedFiles.vue";
@@ -15,6 +16,7 @@ const library = useLibraryStore();
 const eq = useEqStore();
 const lyrics = useLyricsStore();
 const updater = useUpdaterStore();
+const ui = useUiStore();
 const PERF_CHOICES: { value: PerfSetting; label: string }[] = [
   { value: "auto", label: "Automatique" },
   { value: "full", label: "Complet" },
@@ -67,6 +69,14 @@ const shortcuts = [
 <template>
   <div class="page settings">
     <h1 class="page-title">Réglages</h1>
+
+    <section class="card custom-card">
+      <h2><Icon name="brush" :size="17" /> Personnalisation</h2>
+      <p class="muted">Thèmes et couleurs, polices de l'interface, des titres et des paroles, taille des paroles. Jaquettes de playlists : bouton « Personnaliser » de chaque playlist.</p>
+      <div class="actions">
+        <button type="button" class="pill pill-accent" @click="ui.go({ name: 'appearance' })">Ouvrir la personnalisation</button>
+      </div>
+    </section>
 
     <section class="card">
       <h2><Icon name="folder" :size="17" /> Bibliothèque</h2>
@@ -200,7 +210,7 @@ const shortcuts = [
   margin-bottom: 16px;
   padding: 18px 20px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--fg-rgb), 0.04);
   box-shadow: inset 0 0 0 0.5px var(--separator);
 }
 h2 {

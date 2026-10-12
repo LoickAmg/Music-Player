@@ -194,8 +194,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey, { capture: tr
   width: min(640px, calc(100vw - 40px));
   height: min(680px, calc(100vh - 60px));
   border-radius: 16px;
-  background: rgb(9, 24, 60);
-  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+  background: rgb(var(--surface-rgb));
+  box-shadow: var(--shadow), inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.12);
   overflow: hidden;
   animation: pop 0.24s var(--ease);
 }
@@ -239,7 +239,7 @@ h2 {
   padding: 0 6px 0 12px;
   height: 44px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.08);
   color: var(--text-2);
 }
 .search:focus-within {
@@ -308,7 +308,7 @@ h2 {
   -webkit-tap-highlight-color: transparent;
 }
 .item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--fg-rgb), 0.06);
 }
 .item.busy {
   background: var(--accent-soft);
@@ -362,7 +362,7 @@ h2 {
 }
 .badge.text,
 .badge.inst {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(var(--fg-rgb), 0.08);
   color: var(--text-2);
 }
 .dur {

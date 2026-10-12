@@ -7,6 +7,7 @@ import type {
   Lyrics,
   LyricsCandidate,
   Playlist,
+  PlaylistStyle,
   PlaybackStatus,
   QueueView,
   RepeatMode,
@@ -47,6 +48,12 @@ export const api = {
   listPlaylists: () => invoke<Playlist[]>("list_playlists"),
   createPlaylist: (name: string, theme?: string) => invoke<string>("create_playlist", { name, theme: theme ?? null }),
   setPlaylistTheme: (id: string, theme: string) => invoke<void>("set_playlist_theme", { id, theme }),
+  setPlaylistStyle: (id: string, style: PlaylistStyle | null) => invoke<void>("set_playlist_style", { id, style }),
+  setAppearance: (value: unknown) => invoke<void>("set_appearance", { value }),
+  /** Envoie un fichier importé tel quel (sans passer par du JSON) ; renvoie son nom. */
+  importAsset: (kind: "font" | "image", ext: string, bytes: Uint8Array) =>
+    invoke<string>("import_asset", bytes, { headers: { "x-kind": kind, "x-ext": ext } }),
+  deleteAsset: (name: string) => invoke<void>("delete_asset", { name }),
   deletePlaylist: (id: string) => invoke<void>("delete_playlist", { id }),
   renamePlaylist: (id: string, name: string) => invoke<void>("rename_playlist", { id, name }),
   addToPlaylist: (playlistId: string, trackId: string) =>

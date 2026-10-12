@@ -9,7 +9,8 @@ export type Route =
   | { name: "playlist"; id: string }
   | { name: "search"; query: string }
   | { name: "playlists" }
-  | { name: "settings" };
+  | { name: "settings" }
+  | { name: "appearance" };
 
 export type SidePanel = "lyrics" | "queue" | null;
 

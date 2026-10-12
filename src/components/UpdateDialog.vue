@@ -132,7 +132,7 @@ h2 {
 .track {
   height: 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(var(--fg-rgb), 0.16);
   overflow: hidden;
 }
 .track span {
@@ -175,7 +175,7 @@ h2 {
   color: #fff;
 }
 .btn.secondary {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--fg-rgb), 0.1);
   color: #e6f1ff;
 }
 .dialog-enter-active,

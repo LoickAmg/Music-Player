@@ -6,6 +6,15 @@
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--sa-bottom, 0px));
   --safe-left: max(env(safe-area-inset-left, 0px), var(--sa-left, 0px));
   --safe-right: max(env(safe-area-inset-right, 0px), var(--sa-right, 0px));
+  /* Canaux RVB (« r, g, b ») pour les voiles translucides : texte (voiles clairs sur thème
+     sombre, foncés sur thème clair), surfaces des fenêtres et des barres, paroles. Les
+     thèmes de la personnalisation les redéfinissent (lib/themes.ts). */
+  --fg-rgb: 255, 255, 255;
+  --surface-rgb: 9, 24, 60;
+  --bar-rgb: 5, 13, 36;
+  --lyrics-rgb: 255, 255, 255;
+  --on-accent: #fff;
+  --font-lyrics: var(--font-display);
   --bg: #050d24;
   --bg-content: #071433;
   --bg-sidebar: #040b20;
@@ -22,10 +31,14 @@
   --radius-sm: 6px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
   --ease: cubic-bezier(0.25, 1, 0.5, 1);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui,
-    sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI",
+  --font-system: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
     system-ui, sans-serif;
+  --font-system-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display",
+    "Segoe UI", system-ui, sans-serif;
+  /* Polices choisies dans la personnalisation (sinon celles du système). */
+  --font: var(--font-system);
+  --font-display: var(--font-system-display);
+  --lyrics-scale: 1;
   color-scheme: dark;
   font-family: var(--font);
   font-size: 14px;
@@ -77,13 +90,13 @@ input {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--fg-rgb), 0.14);
   border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 8px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(255, 255, 255, 0.24);
+  background-color: rgba(var(--fg-rgb), 0.24);
 }
 ::-webkit-scrollbar-track {
   background: transparent;
@@ -109,6 +122,11 @@ input {
   background: linear-gradient(120deg, #1f6bff, #3aa8ff);
   color: #fff;
 }
+/* Thème personnalisé : bouton plein à la couleur d'accent, texte lisible dessus. */
+:root[data-themed] .pill-accent {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 78%, #000), var(--accent));
+  color: var(--on-accent);
+}
 .pill-accent:hover {
   filter: brightness(1.08);
 }
@@ -117,7 +135,7 @@ input {
   color: var(--accent);
 }
 .pill-ghost:hover {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--fg-rgb), 0.14);
 }
 
 .icon-btn {
@@ -236,10 +254,10 @@ input {
 }
 /* … et fonds opaques à la place, sinon le contenu se lit au travers des barres. */
 :root[data-perf="lite"] .mobile-top {
-  background: rgb(5, 13, 36);
+  background: rgb(var(--bar-rgb));
 }
 :root[data-perf="lite"] .mobile-bar {
-  background: rgb(4, 11, 32);
+  background: rgb(var(--bar-rgb));
 }
 :root[data-perf="lite"] .mobile-bar .mini {
   background: linear-gradient(120deg, #142f69, #0c2148);
@@ -249,4 +267,28 @@ input {
 }
 :root[data-perf="lite"] .scrim {
   background: rgba(0, 0, 0, 0.7);
+}
+
+/* Thème personnalisé : barres, panneau latéral et mini-lecteur prennent ses couleurs (le
+   thème d'origine garde ses dégradés bleu nuit faits main, dans chaque composant). */
+:root[data-themed] .sidebar {
+  background: var(--bg-sidebar);
+}
+:root[data-themed] .player-bar {
+  background: rgba(var(--bar-rgb), 0.9);
+}
+:root[data-themed] .mobile-bar .mini {
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 26%, transparent), color-mix(in srgb, var(--accent-2) 12%, transparent));
+}
+:root[data-themed] .mobile-top .search {
+  background: rgba(var(--fg-rgb), 0.08);
+}
+:root[data-themed] .update-card {
+  background: var(--bg-elevated);
+}
+:root[data-themed][data-perf="lite"] .player-bar {
+  background: rgb(var(--bar-rgb));
+}
+:root[data-themed][data-perf="lite"] .mobile-bar .mini {
+  background: var(--bg-elevated);
 }

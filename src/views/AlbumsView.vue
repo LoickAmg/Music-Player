@@ -61,7 +61,7 @@ const ui = useUiStore();
   gap: 2px;
   padding: 2px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(var(--fg-rgb), 0.06);
 }
 .sorts button {
   height: 26px;
@@ -73,7 +73,7 @@ const ui = useUiStore();
   font-size: 12.5px;
 }
 .sorts button.on {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(var(--fg-rgb), 0.14);
   color: var(--text);
 }
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {

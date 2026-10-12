@@ -67,7 +67,7 @@ function active(route: Route) {
   bottom: 0;
   z-index: 30;
   padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
-  background: rgba(4, 11, 32, 0.94);
+  background: rgba(var(--bar-rgb), 0.94);
   backdrop-filter: blur(24px) saturate(1.4);
   border-top: 1px solid var(--separator);
 }

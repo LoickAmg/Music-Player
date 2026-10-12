@@ -1,3 +1,4 @@
+pub mod appearance;
 pub mod audio;
 pub mod commands;
 pub mod eq;
@@ -102,6 +103,10 @@ pub fn run() {
             commands::delete_playlist,
             commands::rename_playlist,
             commands::set_playlist_theme,
+            commands::set_playlist_style,
+            commands::set_appearance,
+            commands::import_asset,
+            commands::delete_asset,
             commands::add_to_playlist,
             commands::add_tracks_to_playlist,
             commands::remove_from_playlist,

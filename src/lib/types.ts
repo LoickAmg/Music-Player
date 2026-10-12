@@ -41,6 +41,33 @@ export interface Playlist {
   track_ids: string[];
   /** Thème de la jaquette générée (voir lib/playlistThemes.ts). */
   theme: string;
+  /** Personnalisation de la jaquette et de la page (image, police…). */
+  style?: PlaylistStyle | null;
+}
+
+/** Jaquette et page d'une playlist personnalisées (tout est facultatif). */
+export interface PlaylistStyle {
+  /** Image choisie (fichier du dossier de personnalisation), à la place du dégradé. */
+  image?: string | null;
+  /** Cadrage de l'image : centre horizontal et vertical (0 à 100 %), zoom (1 à 3). */
+  imageX?: number;
+  imageY?: number;
+  imageZoom?: number;
+  /** Assombrissement de l'image sous le nom (0 à 0,7), pour la lisibilité. */
+  dim?: number;
+  /** Afficher le nom sur la jaquette. */
+  showName?: boolean;
+  /** Police, couleur, taille (multiplicateur) et position du nom. */
+  font?: string | null;
+  ink?: string | null;
+  size?: number;
+  align?: "start" | "center" | "end";
+  place?: "top" | "middle" | "bottom";
+  uppercase?: boolean;
+  /** Motif décoratif du dégradé. */
+  pattern?: "rings" | "none" | "dots" | "stripes" | "grid" | "waves" | "stars";
+  /** Police du titre sur la page de la playlist. */
+  titleFont?: string | null;
 }
 
 export interface LyricLine {
@@ -82,6 +109,10 @@ export interface InitialState {
   eq_gains: [number, number, number];
   playlists: Playlist[];
   scanning: boolean;
+  /** Réglages d'apparence enregistrés (null : apparence d'origine). */
+  appearance: unknown;
+  /** Dossier des fichiers importés (polices, images). */
+  custom_dir: string;
 }
 
 /** Album reconstitué côté interface à partir des pistes. */

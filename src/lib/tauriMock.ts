@@ -84,6 +84,9 @@ export function installTauriMock() {
   let positionSecs = 0;
   let eqGains: [number, number, number] = [0, 0, 0];
   const dismissedLyrics = new Set<string>();
+  // Personnalisation : réglages et fichiers importés (adresses blob) le temps de la session.
+  let appearance: unknown = null;
+  const assets = new Map<string, string>();
   const playlists: Playlist[] = [
     { id: "pl-1", name: "Favoris", track_ids: [library[0].id, library[3].id, library[7].id], theme: "sunset" },
     { id: "pl-2", name: "Soirée d'été entre amis", track_ids: [library[1].id], theme: "midnight" },
@@ -116,7 +119,7 @@ export function installTauriMock() {
     ensureTicker();
   }
 
-  const handlers: Record<string, (args: any) => unknown> = {
+  const handlers: Record<string, (args: any, options?: unknown) => unknown> = {
     pick_library_folder: () => "/musique/demo",
     scan_library: () => library,
     get_library: () => library,
@@ -237,6 +240,22 @@ export function installTauriMock() {
       const pl = playlists.find((p) => p.id === playlistId);
       if (pl && !pl.track_ids.includes(trackId)) pl.track_ids.push(trackId);
     },
+    set_playlist_style: ({ id, style }) => {
+      const pl = playlists.find((p) => p.id === id);
+      if (pl) pl.style = style;
+    },
+    set_appearance: ({ value }) => {
+      appearance = value;
+    },
+    import_asset: (bytes, options) => {
+      const headers = (options as { headers?: Record<string, string> } | undefined)?.headers ?? {};
+      const name = `${headers["x-kind"]}-${assets.size + 1}.${headers["x-ext"]}`;
+      assets.set(name, URL.createObjectURL(new Blob([bytes as Uint8Array])));
+      return name;
+    },
+    delete_asset: ({ name }) => {
+      assets.delete(name);
+    },
     add_tracks_to_playlist: ({ playlistId, trackIds }) => {
       const pl = playlists.find((p) => p.id === playlistId);
       if (!pl) throw new Error("Playlist introuvable.");
@@ -271,19 +290,22 @@ export function installTauriMock() {
       eq_gains: eqGains,
       playlists,
       scanning: false,
+      appearance,
+      custom_dir: "/custom",
     }),
     save_session: () => undefined,
   };
 
   (window as any).__TAURI_INTERNALS__ = {
-    convertFileSrc: (path: string) => path,
-    invoke: async (cmd: string, args: any = {}) => {
+    // Fichiers importés pendant la session : servis par leur adresse blob.
+    convertFileSrc: (path: string) => assets.get(path.split("/").pop() ?? "") ?? path,
+    invoke: async (cmd: string, args: any = {}, options?: unknown) => {
       const handler = handlers[cmd];
       if (!handler) {
         console.warn(`[tauriMock] commande non simulée : ${cmd}`);
         return null;
       }
-      const result = handler(args);
+      const result = handler(args, options);
       // Le vrai pont Tauri sérialise chaque retour en JSON (IPC) : le
       // frontend ne reçoit donc jamais la même référence d'objet deux fois
       // de suite. On reproduit ça ici pour éviter des bugs de réactivité

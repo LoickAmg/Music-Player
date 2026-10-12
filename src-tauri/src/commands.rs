@@ -462,6 +462,56 @@ pub fn set_playlist_theme(state: State<AppState>, id: String, theme: String) -> 
 }
 
 #[tauri::command]
+pub fn set_playlist_style(
+    state: State<AppState>,
+    id: String,
+    style: Option<serde_json::Value>,
+) -> Result<(), String> {
+    let mut store = state.playlists.lock().unwrap();
+    store
+        .set_style(&id, style)
+        .map_err(|_| "Playlist introuvable.".to_string())?;
+    store
+        .save(&state.playlists_path())
+        .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------
+// Personnalisation
+// ---------------------------------------------------------------------
+
+#[tauri::command]
+pub fn set_appearance(state: State<AppState>, value: serde_json::Value) -> Result<(), String> {
+    crate::appearance::save(&state.data_dir, &value).map_err(|e| e.to_string())
+}
+
+/// Fichier importé (police, image) envoyé tel quel, sans conversion en JSON : en-têtes
+/// `x-kind` (« font » ou « image ») et `x-ext` (extension). Renvoie le nom donné au fichier.
+#[tauri::command(async)]
+pub fn import_asset(
+    state: State<'_, AppState>,
+    request: tauri::ipc::Request<'_>,
+) -> Result<String, String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("Fichier manquant.".into());
+    };
+    let header = |name: &str| {
+        request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_string()
+    };
+    crate::appearance::import(&state.data_dir, &header("x-kind"), &header("x-ext"), bytes)
+}
+
+#[tauri::command]
+pub fn delete_asset(state: State<AppState>, name: String) -> Result<(), String> {
+    crate::appearance::remove(&state.data_dir, &name)
+}
+
+#[tauri::command]
 pub fn add_to_playlist(
     state: State<AppState>,
     playlist_id: String,
@@ -555,6 +605,10 @@ pub struct InitialState {
     pub playlists: Vec<Playlist>,
     /// Un scan tourne en arrière-plan : la bibliothèque affichée vient du cache.
     pub scanning: bool,
+    /// Réglages d'apparence enregistrés (`null` : apparence par défaut).
+    pub appearance: serde_json::Value,
+    /// Dossier des fichiers importés (polices, images), servis par le protocole « asset ».
+    pub custom_dir: String,
 }
 
 #[tauri::command]
@@ -579,6 +633,10 @@ pub fn get_initial_state(state: State<AppState>) -> InitialState {
         eq_gains: *state.eq_gains.lock().unwrap(),
         playlists: state.playlists.lock().unwrap().playlists.clone(),
         scanning: state.scanning.load(Ordering::SeqCst),
+        appearance: crate::appearance::load(&state.data_dir),
+        custom_dir: crate::appearance::custom_dir(&state.data_dir)
+            .to_string_lossy()
+            .to_string(),
     }
 }
 

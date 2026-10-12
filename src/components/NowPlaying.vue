@@ -179,6 +179,10 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
 <style scoped>
 .now-playing {
+  /* Fond tiré de la pochette, toujours sombre : texte et paroles en blanc quel que soit le
+     thème. */
+  --lyrics-rgb: 255, 255, 255;
+  --fg-rgb: 255, 255, 255;
   position: fixed;
   inset: 0;
   z-index: 40;

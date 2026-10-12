@@ -1,0 +1,104 @@
+// Polices proposées dans la personnalisation : toutes libres de droits (OFL ou Apache 2.0),
+// livrées avec l'application (fonctionnent hors ligne) et chargées seulement quand on les
+// choisit. Sous-ensemble « latin » : accents français compris ; les caractères japonais
+// d'un titre s'affichent avec la police du système. Catalogue généré à partir des paquets
+// @fontsource installés.
+
+export type FontCategory = "simple" | "cyber" | "space" | "retro" | "music" | "theatre" | "drawing" | "japanese";
+
+export interface FontChoice {
+  id: string;
+  label: string;
+  category: FontCategory;
+  generic: "sans-serif" | "serif" | "monospace" | "cursive";
+  /** Décorative : belle en grand (titres, paroles, jaquettes), illisible en petit. */
+  displayOnly: boolean;
+  load: () => Promise<unknown>;
+}
+
+export const FONT_CATEGORIES: { id: FontCategory; label: string }[] = [
+  { id: "simple", label: "Simples" },
+  { id: "cyber", label: "Cyber & futuriste" },
+  { id: "space", label: "Espace & galaxie" },
+  { id: "retro", label: "Rétro & jeu vidéo" },
+  { id: "music", label: "Musique & affiche" },
+  { id: "theatre", label: "Théâtre & classique" },
+  { id: "drawing", label: "Dessin & manuscrit" },
+  { id: "japanese", label: "Japonais" },
+];
+
+export const FONTS: FontChoice[] = [
+  { id: "inter", label: "Inter", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/inter/latin-400.css"), import("@fontsource/inter/latin-700.css")]) },
+  { id: "nunito", label: "Nunito", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/nunito/latin-400.css"), import("@fontsource/nunito/latin-700.css")]) },
+  { id: "poppins", label: "Poppins", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/poppins/latin-400.css"), import("@fontsource/poppins/latin-700.css")]) },
+  { id: "montserrat", label: "Montserrat", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/montserrat/latin-400.css"), import("@fontsource/montserrat/latin-700.css")]) },
+  { id: "quicksand", label: "Quicksand", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/quicksand/latin-400.css"), import("@fontsource/quicksand/latin-700.css")]) },
+  { id: "raleway", label: "Raleway", category: "simple", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/raleway/latin-400.css"), import("@fontsource/raleway/latin-700.css")]) },
+  { id: "lora", label: "Lora", category: "simple", generic: "serif", displayOnly: false, load: () => Promise.all([import("@fontsource/lora/latin-400.css"), import("@fontsource/lora/latin-700.css")]) },
+  { id: "playfair-display", label: "Playfair Display", category: "simple", generic: "serif", displayOnly: false, load: () => Promise.all([import("@fontsource/playfair-display/latin-400.css"), import("@fontsource/playfair-display/latin-700.css")]) },
+  { id: "dm-serif-display", label: "DM Serif Display", category: "simple", generic: "serif", displayOnly: false, load: () => Promise.all([import("@fontsource/dm-serif-display/latin-400.css")]) },
+  { id: "jetbrains-mono", label: "JetBrains Mono", category: "simple", generic: "monospace", displayOnly: false, load: () => Promise.all([import("@fontsource/jetbrains-mono/latin-400.css"), import("@fontsource/jetbrains-mono/latin-700.css")]) },
+  { id: "orbitron", label: "Orbitron", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/orbitron/latin-400.css"), import("@fontsource/orbitron/latin-700.css")]) },
+  { id: "audiowide", label: "Audiowide", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/audiowide/latin-400.css")]) },
+  { id: "rajdhani", label: "Rajdhani", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/rajdhani/latin-400.css"), import("@fontsource/rajdhani/latin-700.css")]) },
+  { id: "share-tech-mono", label: "Share Tech Mono", category: "cyber", generic: "monospace", displayOnly: false, load: () => Promise.all([import("@fontsource/share-tech-mono/latin-400.css")]) },
+  { id: "exo-2", label: "Exo 2", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/exo-2/latin-400.css"), import("@fontsource/exo-2/latin-700.css")]) },
+  { id: "michroma", label: "Michroma", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/michroma/latin-400.css")]) },
+  { id: "oxanium", label: "Oxanium", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/oxanium/latin-400.css"), import("@fontsource/oxanium/latin-700.css")]) },
+  { id: "chakra-petch", label: "Chakra Petch", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/chakra-petch/latin-400.css"), import("@fontsource/chakra-petch/latin-700.css")]) },
+  { id: "tomorrow", label: "Tomorrow", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/tomorrow/latin-400.css"), import("@fontsource/tomorrow/latin-700.css")]) },
+  { id: "syncopate", label: "Syncopate", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/syncopate/latin-400.css"), import("@fontsource/syncopate/latin-700.css")]) },
+  { id: "zen-dots", label: "Zen Dots", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/zen-dots/latin-400.css")]) },
+  { id: "rubik-glitch", label: "Rubik Glitch", category: "cyber", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/rubik-glitch/latin-400.css")]) },
+  { id: "major-mono-display", label: "Major Mono Display", category: "cyber", generic: "monospace", displayOnly: true, load: () => Promise.all([import("@fontsource/major-mono-display/latin-400.css")]) },
+  { id: "electrolize", label: "Electrolize", category: "cyber", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/electrolize/latin-400.css")]) },
+  { id: "space-grotesk", label: "Space Grotesk", category: "space", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/space-grotesk/latin-400.css"), import("@fontsource/space-grotesk/latin-700.css")]) },
+  { id: "space-mono", label: "Space Mono", category: "space", generic: "monospace", displayOnly: false, load: () => Promise.all([import("@fontsource/space-mono/latin-400.css"), import("@fontsource/space-mono/latin-700.css")]) },
+  { id: "quantico", label: "Quantico", category: "space", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/quantico/latin-400.css"), import("@fontsource/quantico/latin-700.css")]) },
+  { id: "bruno-ace-sc", label: "Bruno Ace SC", category: "space", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/bruno-ace-sc/latin-400.css")]) },
+  { id: "megrim", label: "Megrim", category: "space", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/megrim/latin-400.css")]) },
+  { id: "nova-square", label: "Nova Square", category: "space", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/nova-square/latin-400.css")]) },
+  { id: "aldrich", label: "Aldrich", category: "space", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/aldrich/latin-400.css")]) },
+  { id: "press-start-2p", label: "Press Start 2P", category: "retro", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/press-start-2p/latin-400.css")]) },
+  { id: "vt323", label: "VT323", category: "retro", generic: "monospace", displayOnly: true, load: () => Promise.all([import("@fontsource/vt323/latin-400.css")]) },
+  { id: "silkscreen", label: "Silkscreen", category: "retro", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/silkscreen/latin-400.css"), import("@fontsource/silkscreen/latin-700.css")]) },
+  { id: "monoton", label: "Monoton", category: "retro", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/monoton/latin-400.css")]) },
+  { id: "bungee", label: "Bungee", category: "retro", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/bungee/latin-400.css")]) },
+  { id: "righteous", label: "Righteous", category: "retro", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/righteous/latin-400.css")]) },
+  { id: "bebas-neue", label: "Bebas Neue", category: "music", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/bebas-neue/latin-400.css")]) },
+  { id: "pacifico", label: "Pacifico", category: "music", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/pacifico/latin-400.css")]) },
+  { id: "lobster", label: "Lobster", category: "music", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/lobster/latin-400.css")]) },
+  { id: "kaushan-script", label: "Kaushan Script", category: "music", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/kaushan-script/latin-400.css")]) },
+  { id: "satisfy", label: "Satisfy", category: "music", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/satisfy/latin-400.css")]) },
+  { id: "rubik-mono-one", label: "Rubik Mono One", category: "music", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/rubik-mono-one/latin-400.css")]) },
+  { id: "faster-one", label: "Faster One", category: "music", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/faster-one/latin-400.css")]) },
+  { id: "cinzel", label: "Cinzel", category: "theatre", generic: "serif", displayOnly: false, load: () => Promise.all([import("@fontsource/cinzel/latin-400.css"), import("@fontsource/cinzel/latin-700.css")]) },
+  { id: "cinzel-decorative", label: "Cinzel Decorative", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/cinzel-decorative/latin-400.css"), import("@fontsource/cinzel-decorative/latin-700.css")]) },
+  { id: "abril-fatface", label: "Abril Fatface", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/abril-fatface/latin-400.css")]) },
+  { id: "limelight", label: "Limelight", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/limelight/latin-400.css")]) },
+  { id: "rye", label: "Rye", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/rye/latin-400.css")]) },
+  { id: "unifrakturmaguntia", label: "UnifrakturMaguntia", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/unifrakturmaguntia/latin-400.css")]) },
+  { id: "pirata-one", label: "Pirata One", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/pirata-one/latin-400.css")]) },
+  { id: "uncial-antiqua", label: "Uncial Antiqua", category: "theatre", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/uncial-antiqua/latin-400.css")]) },
+  { id: "bodoni-moda", label: "Bodoni Moda", category: "theatre", generic: "serif", displayOnly: false, load: () => Promise.all([import("@fontsource/bodoni-moda/latin-400.css"), import("@fontsource/bodoni-moda/latin-700.css")]) },
+  { id: "caveat", label: "Caveat", category: "drawing", generic: "cursive", displayOnly: false, load: () => Promise.all([import("@fontsource/caveat/latin-400.css"), import("@fontsource/caveat/latin-700.css")]) },
+  { id: "indie-flower", label: "Indie Flower", category: "drawing", generic: "cursive", displayOnly: false, load: () => Promise.all([import("@fontsource/indie-flower/latin-400.css")]) },
+  { id: "permanent-marker", label: "Permanent Marker", category: "drawing", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/permanent-marker/latin-400.css")]) },
+  { id: "patrick-hand", label: "Patrick Hand", category: "drawing", generic: "cursive", displayOnly: false, load: () => Promise.all([import("@fontsource/patrick-hand/latin-400.css")]) },
+  { id: "gloria-hallelujah", label: "Gloria Hallelujah", category: "drawing", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/gloria-hallelujah/latin-400.css")]) },
+  { id: "shadows-into-light", label: "Shadows Into Light", category: "drawing", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/shadows-into-light/latin-400.css")]) },
+  { id: "rock-salt", label: "Rock Salt", category: "drawing", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/rock-salt/latin-400.css")]) },
+  { id: "amatic-sc", label: "Amatic SC", category: "drawing", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/amatic-sc/latin-400.css"), import("@fontsource/amatic-sc/latin-700.css")]) },
+  { id: "kalam", label: "Kalam", category: "drawing", generic: "cursive", displayOnly: false, load: () => Promise.all([import("@fontsource/kalam/latin-400.css"), import("@fontsource/kalam/latin-700.css")]) },
+  { id: "gochi-hand", label: "Gochi Hand", category: "drawing", generic: "cursive", displayOnly: false, load: () => Promise.all([import("@fontsource/gochi-hand/latin-400.css")]) },
+  { id: "dela-gothic-one", label: "Dela Gothic One", category: "japanese", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/dela-gothic-one/latin-400.css")]) },
+  { id: "reggae-one", label: "Reggae One", category: "japanese", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/reggae-one/latin-400.css")]) },
+  { id: "rampart-one", label: "Rampart One", category: "japanese", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/rampart-one/latin-400.css")]) },
+  { id: "potta-one", label: "Potta One", category: "japanese", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/potta-one/latin-400.css")]) },
+  { id: "zen-maru-gothic", label: "Zen Maru Gothic", category: "japanese", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/zen-maru-gothic/latin-400.css"), import("@fontsource/zen-maru-gothic/latin-700.css")]) },
+  { id: "kaisei-decol", label: "Kaisei Decol", category: "japanese", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/kaisei-decol/latin-400.css"), import("@fontsource/kaisei-decol/latin-700.css")]) },
+  { id: "yuji-syuku", label: "Yuji Syuku", category: "japanese", generic: "serif", displayOnly: true, load: () => Promise.all([import("@fontsource/yuji-syuku/latin-400.css")]) },
+  { id: "mochiy-pop-one", label: "Mochiy Pop One", category: "japanese", generic: "sans-serif", displayOnly: true, load: () => Promise.all([import("@fontsource/mochiy-pop-one/latin-400.css")]) },
+  { id: "hachi-maru-pop", label: "Hachi Maru Pop", category: "japanese", generic: "cursive", displayOnly: true, load: () => Promise.all([import("@fontsource/hachi-maru-pop/latin-400.css")]) },
+  { id: "zen-kaku-gothic-new", label: "Zen Kaku Gothic New", category: "japanese", generic: "sans-serif", displayOnly: false, load: () => Promise.all([import("@fontsource/zen-kaku-gothic-new/latin-400.css"), import("@fontsource/zen-kaku-gothic-new/latin-700.css")]) },
+];

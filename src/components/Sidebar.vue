@@ -76,7 +76,7 @@ function newPlaylist() {
         :class="{ active: ui.route.name === 'playlist' && ui.route.id === p.id }"
         @click="ui.go({ name: 'playlist', id: p.id })"
       >
-        <PlaylistCover :name="p.name" :theme="p.theme" :radius="4" mini class="pl-thumb" />
+        <PlaylistCover :name="p.name" :theme="p.theme" :styling="p.style" :radius="4" mini class="pl-thumb" />
         <span class="ellipsis">{{ p.name }}</span>
       </button>
       <p v-if="!playlists.items.length" class="empty">Aucune playlist pour l'instant.</p>
@@ -119,9 +119,9 @@ function newPlaylist() {
   padding: 0 9px;
   margin: 0 4px 18px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.07);
+  background: rgba(var(--fg-rgb), 0.07);
   color: var(--text-2);
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.06);
 }
 .search:focus-within {
   box-shadow: 0 0 0 2px var(--accent);
@@ -227,7 +227,7 @@ function newPlaylist() {
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(var(--fg-rgb), 0.15);
   border-top-color: var(--accent);
   animation: spin 0.8s linear infinite;
 }
