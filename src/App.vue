@@ -367,6 +367,11 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
+  /* Jamais de défilement horizontal : sans cela, un seul élément un peu trop large (titre
+     sans espace, décor de pochette) laissait le doigt faire glisser toute la page de côté
+     sur téléphone, barre du haut comprise. */
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
 /* Hors accueil : un halo discret aux couleurs de la pochette en cours. */
 .content.ambient {

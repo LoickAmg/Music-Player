@@ -181,6 +181,13 @@ fn strip_noise_raw(title: &str) -> String {
 /// Mots qui, seuls dans un morceau de titre, ne désignent ni l'artiste ni la chanson
 /// (« … | Netflix », « … - Topic », « _HQ HD_ nosubs »).
 const PIECE_NOISE: &[&str] = &[
+    "slowed",
+    "reverb",
+    "sped",
+    "speed",
+    "up",
+    "nightcore",
+    "daycore",
     "lyrics",
     "lyric",
     "paroles",
@@ -456,12 +463,65 @@ fn record_title(record: &LrclibRecord) -> String {
     }
 }
 
+/// Version ralentie ou accélérée (« Slowed + Reverb », « Sped Up », « Nightcore ») : mêmes
+/// paroles que l'original, mais horodatages à mettre à l'échelle de la durée.
+pub fn speed_variant(title: &str) -> bool {
+    let n = normalize(title);
+    [
+        "slowed",
+        "sped up",
+        "speed up",
+        "spedup",
+        "nightcore",
+        "daycore",
+    ]
+    .iter()
+    .any(|w| n.contains(w))
+}
+
+/// Écart de durée entre un résultat et le morceau (`Ok(None)` : durée inconnue), ou `Err`
+/// s'il exclut le résultat. Version ralentie / accélérée : la durée diffère forcément ; seul
+/// le rapport des durées doit rester plausible.
+fn duration_gap(
+    record: Option<f64>,
+    track: f64,
+    variant: bool,
+    max: f64,
+) -> Result<Option<f64>, ()> {
+    let (Some(d), true) = (record, track > 0.0) else {
+        return Ok(None);
+    };
+    if d <= 0.0 {
+        return Ok(None);
+    }
+    if variant {
+        let ratio = track / d;
+        return if (0.6..=1.6).contains(&ratio) {
+            Ok(Some(3.0))
+        } else {
+            Err(())
+        };
+    }
+    let gap = (d - track).abs();
+    if gap > max {
+        Err(())
+    } else {
+        Ok(Some(gap))
+    }
+}
+
 /// Note d'un résultat de recherche (plus haut = meilleur), ou `None` s'il ne correspond pas
 /// au morceau. Le titre doit concorder ; si l'artiste est connu, il doit concorder aussi
 /// (un titre courant comme « Sans toi » existe chez des dizaines d'artistes : mieux vaut
 /// pas de paroles que celles d'une autre chanson). Artiste inconnu : titre identique et
 /// durée quasi identique exigés.
-fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64) -> Option<f64> {
+fn score(
+    record: &LrclibRecord,
+    title: &str,
+    artist: Option<&str>,
+    duration: f64,
+    variant: bool,
+) -> Option<f64> {
     if !record.has_content() {
         return None;
     }
@@ -474,13 +534,7 @@ fn score(record: &LrclibRecord, title: &str, artist: Option<&str>, duration: f64
     if !title_exact && !got.contains(&want) && !want.contains(&got) {
         return None;
     }
-    let gap = match (record.duration, duration > 0.0) {
-        (Some(d), true) => Some((d - duration).abs()),
-        _ => None,
-    };
-    if gap.is_some_and(|g| g > 12.0) {
-        return None;
-    }
+    let gap = duration_gap(record.duration, duration, variant, 12.0).ok()?;
     let artist_ok = match artist {
         Some(a) => {
             let want = normalize(&main_artist(a));
@@ -521,6 +575,7 @@ fn score_loose(
     record: &LrclibRecord,
     words: &std::collections::HashSet<String>,
     duration: f64,
+    variant: bool,
 ) -> Option<f64> {
     if !record.has_content() {
         return None;
@@ -536,13 +591,7 @@ fn score_loose(
         .or_else(|| inside(&strip_groups(&full)))
         .or_else(|| inside(&head))?;
     let artist_words = inside(&main_artist(record.artist_name.as_deref().unwrap_or("")))?;
-    let gap = match (record.duration, duration > 0.0) {
-        (Some(d), true) => Some((d - duration).abs()),
-        _ => None,
-    };
-    if gap.is_some_and(|g| g > 8.0) {
-        return None;
-    }
+    let gap = duration_gap(record.duration, duration, variant, 8.0).ok()?;
     let coverage = (title_words + artist_words) as f64 / words.len().max(1) as f64;
     let mut s = 30.0 * coverage.min(1.0) + 30.0;
     if record.synced_lyrics.is_some() {
@@ -641,15 +690,82 @@ impl Lrclib {
     }
 }
 
-fn best<F: Fn(&LrclibRecord) -> Option<f64>>(
-    records: Vec<LrclibRecord>,
-    rate: F,
-) -> Option<LrclibRecord> {
-    records
-        .into_iter()
-        .filter_map(|r| rate(&r).map(|s| (s, r)))
-        .max_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|(_, r)| r)
+/// Meilleur résultat vu jusqu'ici, toutes recherches confondues : une recherche plus large
+/// trouve parfois une version à la durée plus juste (paroles mieux calées) que la première.
+#[derive(Default)]
+struct Best {
+    pick: Option<(f64, LrclibRecord)>,
+}
+
+impl Best {
+    fn offer<F: Fn(&LrclibRecord) -> Option<f64>>(&mut self, records: Vec<LrclibRecord>, rate: F) {
+        for r in records {
+            if let Some(score) = rate(&r) {
+                if self.pick.as_ref().is_none_or(|(s, _)| score > *s) {
+                    self.pick = Some((score, r));
+                }
+            }
+        }
+    }
+
+    /// Inutile de chercher plus loin : paroles synchronisées d'une version à 2 s près.
+    fn settled(&self, duration: f64, variant: bool) -> bool {
+        self.pick.as_ref().is_some_and(|(_, r)| {
+            r.synced_lyrics.is_some()
+                && (variant
+                    || duration <= 0.0
+                    || r.duration.is_some_and(|d| (d - duration).abs() <= 2.0))
+        })
+    }
+
+    fn take(self) -> Option<LrclibRecord> {
+        self.pick.map(|(_, r)| r)
+    }
+}
+
+/// Paroles d'un résultat, calées sur le morceau : version ralentie ou accélérée, horodatages
+/// mis à l'échelle ; autre version nettement plus longue ou plus courte (intro de clip…),
+/// horodatages abandonnés plutôt que des paroles à contretemps (le texte reste affiché).
+fn fit_to_track(record: LrclibRecord, track: &Track) -> Lyrics {
+    let record_duration = record.duration;
+    let mut lyrics = record.into_lyrics();
+    let (Some(d), true) = (record_duration, track.duration_secs > 0.0) else {
+        return lyrics;
+    };
+    if d <= 0.0 {
+        return lyrics;
+    }
+    let ratio = track.duration_secs / d;
+    if speed_variant(&track.title) {
+        if (ratio - 1.0).abs() > 0.02 {
+            if let Some(lines) = &mut lyrics.synced {
+                for line in lines.iter_mut() {
+                    line.time_ms = (line.time_ms as f64 * ratio).round() as u64;
+                }
+                lyrics.source = format!(
+                    "LRCLIB (calées sur la version {})",
+                    if ratio > 1.0 {
+                        "ralentie"
+                    } else {
+                        "accélérée"
+                    }
+                );
+            }
+        }
+    } else if (d - track.duration_secs).abs() > 6.0 {
+        if let Some(lines) = lyrics.synced.take() {
+            if lyrics.plain.as_deref().is_none_or(|p| p.trim().is_empty()) {
+                lyrics.plain = Some(
+                    lines
+                        .iter()
+                        .map(|l| l.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                );
+            }
+        }
+    }
+    lyrics
 }
 
 /// Cherche sur LRCLIB, du plus précis au plus large : correspondance exacte (artiste, titre,
@@ -661,10 +777,10 @@ fn best<F: Fn(&LrclibRecord) -> Option<f64>>(
 pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
     let mut lrclib = Lrclib::new();
     if let Some(found) = tagged_search(&mut lrclib, track) {
-        return Ok(Some(found.into_lyrics()));
+        return Ok(Some(fit_to_track(found, track)));
     }
     if let Some(found) = loose_search(&mut lrclib, track) {
-        return Ok(Some(found.into_lyrics()));
+        return Ok(Some(fit_to_track(found, track)));
     }
     lrclib.nothing()
 }
@@ -679,20 +795,23 @@ fn tagged_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
         return None;
     }
     let duration = track.duration_secs;
+    let variant = speed_variant(&track.title);
 
     if let Some(artist) = &artist {
         let mut params = vec![
             ("artist_name", artist.clone()),
             ("track_name", title.clone()),
         ];
-        if duration > 0.0 {
+        // Durée exacte demandée seulement pour une version normale (une version ralentie
+        // n'existe pas telle quelle sur LRCLIB).
+        if duration > 0.0 && !variant {
             params.push(("duration", (duration.round() as u64).to_string()));
         }
         if track.album != library::UNKNOWN_ALBUM {
             params.push(("album_name", track.album.clone()));
         }
         if let Reply::Found(record) = lrclib.get::<LrclibRecord>("/get", &params) {
-            if score(&record, &title, Some(artist), duration).is_some() {
+            if score(&record, &title, Some(artist), duration, variant).is_some() {
                 return Some(record);
             }
         }
@@ -722,16 +841,20 @@ fn tagged_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
     }
 
     let mut seen = std::collections::HashSet::new();
+    let mut best = Best::default();
     for params in searches {
         if !seen.insert(params.clone()) {
             continue;
         }
         let results = lrclib.search(&params);
-        if let Some(record) = best(results, |r| score(r, &title, artist.as_deref(), duration)) {
-            return Some(record);
+        best.offer(results, |r| {
+            score(r, &title, artist.as_deref(), duration, variant)
+        });
+        if best.settled(duration, variant) {
+            break;
         }
     }
-    None
+    best.take()
 }
 
 fn loose_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
@@ -764,6 +887,7 @@ fn loose_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
         .filter(|w| !w.is_empty())
         .collect();
     let duration = track.duration_secs;
+    let variant = speed_variant(&track.title);
     // Paires de morceaux d'abord (la recherche libre de LRCLIB exige tous les mots), puis
     // le tout.
     let mut queries: Vec<String> = Vec::new();
@@ -775,13 +899,52 @@ fn loose_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
     if pieces.len() > 2 {
         queries.push(pieces.join(" "));
     }
+    let mut best = Best::default();
     for q in queries {
         let results = lrclib.search(&[("q", q)]);
-        if let Some(record) = best(results, |r| score_loose(r, &words, duration)) {
-            return Some(record);
+        best.offer(results, |r| score_loose(r, &words, duration, variant));
+        if best.settled(duration, variant) {
+            break;
         }
     }
-    None
+    best.take()
+}
+
+/// Empreinte d'une chanson, pour reconnaître les doublons de la bibliothèque (« Arctic
+/// Monkeys - Why'd You… » étiqueté et « Arctic Monkeys  Whyd You… (Official Video) » tiré
+/// d'une vidéo) : les mots de l'artiste principal et du titre nu, sans ordre ni mentions de
+/// vidéo. `None` si le morceau est trop peu identifié pour être comparé sans risque.
+pub fn song_key(track: &Track) -> Option<String> {
+    let mut words = std::collections::BTreeSet::new();
+    let mut add = |text: &str| {
+        for w in normalize(text).split(' ') {
+            if !w.is_empty() && !PIECE_NOISE.contains(&w) {
+                words.insert(w.to_string());
+            }
+        }
+    };
+    if let Some(artist) = tagged_artist(track) {
+        let (_, title) = search_terms(track);
+        add(&main_artist(&artist));
+        add(&bare_title(&title));
+    } else {
+        let pieces = title_pieces(&track.title);
+        if pieces.len() < 2 {
+            return None;
+        }
+        for piece in pieces.iter().take(3) {
+            add(&bare_title(piece));
+        }
+    }
+    if words.len() < 2 {
+        return None;
+    }
+    let mut key = words.into_iter().collect::<Vec<_>>().join(" ");
+    // Une version ralentie n'a pas le même minutage que l'original.
+    if speed_variant(&track.title) {
+        key.push_str(" #vitesse");
+    }
+    Some(key)
 }
 
 /// Noms de dossiers qui ne disent rien du morceau (racines de bibliothèque, téléchargements,
@@ -1029,6 +1192,46 @@ pub fn lyrics_for(
     cache_dir: &Path,
     allow_online: bool,
     refresh: bool,
+    siblings: impl FnOnce() -> Vec<Track>,
+) -> Result<Option<Lyrics>, String> {
+    let found = own_lyrics(track, cache_dir, allow_online, refresh);
+    if matches!(found, Ok(Some(_))) {
+        return found;
+    }
+    // Rien pour ce fichier, mais un doublon de la bibliothèque a ses paroles (trouvées ou
+    // choisies à la main) : on les reprend.
+    for other in siblings() {
+        if let Some(Some(mut lyrics)) = read_cache(cache_dir, &other.id) {
+            let gap = (other.duration_secs - track.duration_secs).abs();
+            if other.duration_secs > 0.0 && track.duration_secs > 0.0 && gap > 3.0 {
+                // Autre montage : le texte vaut, pas le minutage.
+                if let Some(lines) = lyrics.synced.take() {
+                    if lyrics.plain.is_none() {
+                        lyrics.plain = Some(
+                            lines
+                                .iter()
+                                .map(|l| l.text.as_str())
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                    }
+                }
+            }
+            if !lyrics.is_empty() {
+                write_cache(cache_dir, &track.id, &Some(lyrics.clone()));
+                return Ok(Some(lyrics));
+            }
+        }
+    }
+    found
+}
+
+/// Paroles propres au fichier : `.lrc`, choix de l'utilisateur, étiquettes, puis en ligne.
+fn own_lyrics(
+    track: &Track,
+    cache_dir: &Path,
+    allow_online: bool,
+    refresh: bool,
 ) -> Result<Option<Lyrics>, String> {
     // Un `.lrc` posé à côté du morceau est un choix de l'utilisateur : toujours prioritaire.
     // Les paroles des étiquettes viennent de qui a diffusé le fichier : nettoyées de leurs
@@ -1249,14 +1452,16 @@ mod tests {
             &record("Timeless", "The Weeknd & Playboi Carti", 256.0),
             "Timeless",
             Some("The Weeknd"),
-            250.0
+            250.0,
+            false
         )
         .is_some());
         assert!(score(
             &record("Other", "The Weeknd", 250.0),
             "Timeless",
             Some("The Weeknd"),
-            250.0
+            250.0,
+            false
         )
         .is_none());
         // Artiste inconnu : il faut une durée quasi identique.
@@ -1265,7 +1470,8 @@ mod tests {
             &record("Sans Toi", "Amel Bent", 180.0),
             "Sans toi",
             Some("Tiakola"),
-            180.0
+            180.0,
+            false
         )
         .is_none());
         // Titre façon vidéo côté LRCLIB.
@@ -1273,12 +1479,27 @@ mod tests {
             &record("Tiakola - Meuda (Clip officiel)", "TIAKOLA", 170.0),
             "Meuda",
             Some("Tiakola"),
-            171.0
+            171.0,
+            false
         )
         .is_some());
         // Artiste inconnu : il faut une durée quasi identique.
-        assert!(score(&record("Timeless", "X", 251.0), "Timeless", None, 250.0).is_some());
-        assert!(score(&record("Timeless", "X", 262.0), "Timeless", None, 250.0).is_none());
+        assert!(score(
+            &record("Timeless", "X", 251.0),
+            "Timeless",
+            None,
+            250.0,
+            false
+        )
+        .is_some());
+        assert!(score(
+            &record("Timeless", "X", 262.0),
+            "Timeless",
+            None,
+            250.0,
+            false
+        )
+        .is_none());
     }
 
     /// Interroge vraiment LRCLIB : `cargo test -- --ignored online`.
@@ -1381,27 +1602,31 @@ mod tests {
         assert!(score_loose(
             &record("LEVEL UP - Nouvelle École", "Nayte", 155.0),
             &level_up,
-            154.1
+            154.1,
+            false
         )
         .is_some());
         assert!(score_loose(
             &record("LEVEL UP - Nouvelle École", "Nayte, Nouvelle Ecole", 154.0),
             &level_up,
-            154.1
+            154.1,
+            false
         )
         .is_some());
         // Bonne chanson, autre version bien plus longue : refusée.
         assert!(score_loose(
             &record("LEVEL UP - Nouvelle École", "Nayte", 211.0),
             &level_up,
-            154.1
+            154.1,
+            false
         )
         .is_none());
         // Autre titre du même artiste : refusé.
         assert!(score_loose(
             &record("Dis-moi - Nouvelle École", "Nayte", 155.0),
             &level_up,
-            154.1
+            154.1,
+            false
         )
         .is_none());
         // Apostrophes retirées du nom de fichier.
@@ -1413,7 +1638,8 @@ mod tests {
                 161.0
             ),
             &arctic,
-            162.0
+            162.0,
+            false
         )
         .is_some());
         // Hommage par un autre artiste : refusé.
@@ -1424,7 +1650,8 @@ mod tests {
                 166.0
             ),
             &arctic,
-            162.0
+            162.0,
+            false
         )
         .is_none());
     }
@@ -1435,10 +1662,13 @@ mod tests {
         let t = track("Timeless", "The Weeknd");
         dismiss(&t, dir.path());
         // Retirées par l'utilisateur : rien, sans même interroger le service.
-        assert_eq!(lyrics_for(&t, dir.path(), false, false), Ok(None));
+        assert_eq!(lyrics_for(&t, dir.path(), false, false, Vec::new), Ok(None));
         let chosen = Some(from_text("[00:01.00]Choisies", "LRCLIB"));
         write_entry(dir.path(), &t.id, &chosen, true);
-        assert_eq!(lyrics_for(&t, dir.path(), false, false), Ok(chosen.clone()));
+        assert_eq!(
+            lyrics_for(&t, dir.path(), false, false, Vec::new),
+            Ok(chosen.clone())
+        );
         // Un ancien cache d'une version précédente n'efface pas un choix.
         assert_eq!(read_cache(dir.path(), &t.id), Some(chosen));
     }
@@ -1460,6 +1690,78 @@ mod tests {
         .unwrap();
         assert_eq!(read_cache(dir.path(), "miss"), None);
         assert!(read_cache(dir.path(), "hit").unwrap().is_some());
+    }
+
+    fn lrclib(title: &str, artist: &str, duration: f64, synced: &str) -> LrclibRecord {
+        LrclibRecord {
+            id: Some(1),
+            track_name: Some(title.into()),
+            album_name: None,
+            artist_name: Some(artist.into()),
+            duration: Some(duration),
+            instrumental: None,
+            plain_lyrics: None,
+            synced_lyrics: Some(synced.into()),
+        }
+    }
+
+    #[test]
+    fn slowed_versions_get_rescaled_lyrics() {
+        let mut t = track("Sea Of Feelings (Slowed + Reverb)", "LOWX");
+        t.duration_secs = 220.0;
+        assert!(speed_variant(&t.title));
+        assert!(!speed_variant("LEVEL UP"));
+        let record = lrclib("Sea Of Feelings", "LOWX", 176.0, "[00:10.00]a\n[01:00.00]b");
+        // Durée très différente : acceptée pour une version ralentie, refusée sinon.
+        assert!(score(&record, &t.title, Some("LOWX"), 220.0, true).is_some());
+        assert!(score(&record, &t.title, Some("LOWX"), 220.0, false).is_none());
+        let lyrics = fit_to_track(record, &t);
+        let lines = lyrics.synced.unwrap();
+        assert_eq!(lines[0].time_ms, 12_500);
+        assert_eq!(lines[1].time_ms, 75_000);
+        assert!(lyrics.source.contains("ralentie"));
+    }
+
+    #[test]
+    fn other_cuts_keep_the_text_but_not_the_timing() {
+        let mut t = track("Timeless", "The Weeknd");
+        t.duration_secs = 256.0;
+        // 9 s d'écart : autre montage, horodatages abandonnés, texte gardé.
+        let far = fit_to_track(
+            lrclib("Timeless", "The Weeknd", 247.0, "[00:01.00]x\n[00:02.00]y"),
+            &t,
+        );
+        assert!(far.synced.is_none());
+        assert_eq!(far.plain.as_deref(), Some("x\ny"));
+        let near = fit_to_track(lrclib("Timeless", "The Weeknd", 255.0, "[00:01.00]x"), &t);
+        assert!(near.synced.is_some());
+    }
+
+    #[test]
+    fn duplicates_share_their_lyrics() {
+        let tagged = track("Why'd You Only Call Me When You're High?", "Arctic Monkeys");
+        let mut video = track(
+            "Arctic Monkeys  Whyd You Only Call Me When Youre High_ (Official Video)",
+            UNKNOWN_ARTIST,
+        );
+        video.id = "video".into();
+        assert!(song_key(&tagged).is_some());
+        assert_eq!(song_key(&tagged), song_key(&video));
+        assert_ne!(
+            song_key(&tagged),
+            song_key(&track(
+                "Why'd You Only Call Me When You're High? (Slowed)",
+                "Arctic Monkeys"
+            ))
+        );
+        assert_eq!(song_key(&track("Timeless", UNKNOWN_ARTIST)), None);
+
+        let dir = tempfile::tempdir().unwrap();
+        let found = Some(from_text("[00:01.00]Paroles du doublon", "LRCLIB"));
+        write_cache(dir.path(), &tagged.id, &found);
+        // Hors ligne et sans paroles propres : celles du doublon.
+        let shared = lyrics_for(&video, dir.path(), false, false, || vec![tagged.clone()]).unwrap();
+        assert_eq!(shared, found);
     }
 
     #[test]

@@ -189,6 +189,22 @@ pub fn get_lyrics(
         &state.lyrics_dir(),
         allow_online,
         refresh.unwrap_or(false),
+        || {
+            // Doublons du morceau dans la bibliothèque (même chanson, autre fichier).
+            let Some(key) = lyrics::song_key(&track) else {
+                return Vec::new();
+            };
+            state
+                .library
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|t| {
+                    t.id != track.id && lyrics::song_key(t).as_deref() == Some(key.as_str())
+                })
+                .cloned()
+                .collect()
+        },
     )
 }
 

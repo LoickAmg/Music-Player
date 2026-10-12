@@ -49,6 +49,13 @@ body,
   user-select: none;
 }
 
+/* Titres d'albums ou de morceaux d'un seul tenant (« MUSEUM-THE BEST OF MYTH & ROID- ») :
+   coupés au besoin plutôt que de dépasser de l'écran. */
+h1,
+h2 {
+  overflow-wrap: break-word;
+}
+
 button {
   font: inherit;
   color: inherit;

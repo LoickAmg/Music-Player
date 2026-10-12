@@ -74,8 +74,10 @@ partagé (Musique, Téléchargements…).
 
 ### Fichiers illisibles
 
-Un fichier audio vide ou abîmé (téléchargement interrompu, début rempli de zéros) n'apparaît
-ni dans les albums ni dans les morceaux : il est listé dans Réglages → « Fichiers
+Un fichier audio vide ou abîmé (téléchargement interrompu, début rempli de zéros) que le
+lecteur de l'application ne sait pas lire n'apparaît ni dans les albums ni dans les morceaux
+(un fichier aux étiquettes illisibles mais au son intact, comme l'AAC brut enregistré en
+« .m4a » par certains téléchargeurs, reste une piste normale, durée comprise) : il est listé dans Réglages → « Fichiers
 illisibles », par dossier et avec la raison. Remplacé, il reprend sa place à l'analyse
 suivante.
 
@@ -89,7 +91,11 @@ paroles des étiquettes (nettoyées des lignes publicitaires), puis recherche su
 résultat doit concorder en titre, artiste et durée. Un service surchargé n'est jamais pris
 pour « pas de paroles » : l'application réessaie toute seule. Le bouton « … » des paroles
 permet de chercher soi-même et choisir la bonne version, de retirer des paroles fausses et
-de décaler la synchronisation par pas d'une demi-seconde.
+de décaler la synchronisation par pas d'une demi-seconde. La version retenue est celle dont
+la durée est la plus proche du fichier ; une version ralentie ou accélérée (« Slowed »,
+« Sped Up », « Nightcore ») reprend les paroles de l'original, horodatages mis à l'échelle ;
+un autre montage trop différent garde le texte mais pas le minutage ; un doublon de la
+bibliothèque sans paroles reprend celles de sa copie.
 
 Sur un écran étroit, l'interface passe en mode mobile : onglets en bas, mini-lecteur,
 écran « À l'écoute » plein écran avec pochette ou paroles.

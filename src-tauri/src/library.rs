@@ -104,14 +104,23 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
     let Some(tagged_file) = read_tagged(path, true).or_else(|| read_tagged(path, false)) else {
         let mut track = track_from_probe(path);
         track.has_cover = folder_has_cover;
-        // Ni étiquettes ni durée, dans un format que l'application lit elle-même : le fichier
-        // est abîmé (les formats confiés à ffmpeg peuvent juste attendre son installation).
+        // Étiquettes illisibles : c'est le lecteur de l'application qui tranche. AAC brut
+        // enregistré en « .m4a » (fréquent avec les téléchargeurs) : pas d'étiquettes, mais un
+        // son parfaitement lisible. Abîmé seulement si le lecteur n'en tire rien non plus (les
+        // formats confiés à ffmpeg peuvent juste attendre son installation).
         if track.duration_secs <= 0.0 && ffmpeg::is_native(path) {
-            track.damage = Some(damage_reason(path));
+            match stream_duration(path) {
+                Some(secs) => track.duration_secs = secs,
+                None => track.damage = Some(damage_reason(path)),
+            }
         }
         return Some(track);
     };
-    let duration_secs = tagged_file.properties().duration().as_secs_f64();
+    let mut duration_secs = tagged_file.properties().duration().as_secs_f64();
+    // MP4 fragmenté (audio extrait des vidéos) : la durée n'est pas dans l'en-tête.
+    if duration_secs <= 0.0 && ffmpeg::is_native(path) {
+        duration_secs = stream_duration(path).unwrap_or(0.0);
+    }
     let tag = tagged_file
         .primary_tag()
         .or_else(|| tagged_file.first_tag());
@@ -145,6 +154,142 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
         added_secs: modified_secs(path),
         damage: None,
     })
+}
+
+/// Fichier dont le début est une étiquette ID3 avant le flux (FLAC « tagués » par certains
+/// outils) : le décodeur ne voit que ce qui suit.
+struct SkipHeader {
+    file: std::fs::File,
+    offset: u64,
+    len: u64,
+}
+
+impl std::io::Read for SkipHeader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.file.read(buf)
+    }
+}
+
+impl std::io::Seek for SkipHeader {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        let absolute = match pos {
+            std::io::SeekFrom::Start(n) => {
+                self.file.seek(std::io::SeekFrom::Start(n + self.offset))?
+            }
+            other => self.file.seek(other)?,
+        };
+        Ok(absolute.saturating_sub(self.offset))
+    }
+}
+
+impl symphonia::core::io::MediaSource for SkipHeader {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.len - self.offset)
+    }
+}
+
+/// Lecture du flux audio par le décodeur de l'application : `Some(durée en secondes)` s'il
+/// sait le lire (au moins un paquet décodé), `None` sinon. La durée vient de l'en-tête du
+/// flux, sinon de la somme des paquets (MP4 fragmenté, AAC brut), sans rien décoder de plus.
+pub fn stream_duration(path: &Path) -> Option<f64> {
+    use std::io::{Read, Seek, SeekFrom};
+    use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut header = [0u8; 10];
+    let offset = if file.read_exact(&mut header).is_ok() {
+        crate::audio::leading_id3_len(&header).min(len)
+    } else {
+        0
+    };
+    // L'étiquette ID3 en tête ne gêne que le FLAC ; les autres lecteurs la sautent seuls.
+    let offset = if ffmpeg::extension_of(path) == "flac" {
+        offset
+    } else {
+        0
+    };
+    file.seek(SeekFrom::Start(offset)).ok()?;
+    let source = SkipHeader { file, offset, len };
+    let stream = MediaSourceStream::new(Box::new(source), MediaSourceStreamOptions::default());
+    let mut hint = Hint::new();
+    hint.with_extension(&ffmpeg::extension_of(path));
+
+    let probed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        symphonia::default::get_probe().format(
+            &hint,
+            stream,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+    }))
+    .ok()?
+    .ok()?;
+    let mut format = probed.format;
+    let track = format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)?
+        .clone();
+    let params = track.codec_params.clone();
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&params, &DecoderOptions::default())
+        .ok()?;
+
+    let to_secs = |units: u64| -> Option<f64> {
+        if let Some(tb) = params.time_base {
+            let t = tb.calc_time(units);
+            Some(t.seconds as f64 + t.frac)
+        } else {
+            params
+                .sample_rate
+                .map(|rate| units as f64 / f64::from(rate))
+        }
+    };
+
+    // Lisible ? Il faut qu'au moins un paquet se décode (un en-tête valide suivi de zéros
+    // ne suffit pas).
+    let mut summed: u64 = 0;
+    let mut decoded = false;
+    let mut packets = 0;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        while let Ok(packet) = format.next_packet() {
+            if packet.track_id() != track.id {
+                continue;
+            }
+            summed += packet.dur;
+            packets += 1;
+            if !decoded {
+                if decoder.decode(&packet).is_ok() {
+                    decoded = true;
+                    // Durée annoncée par l'en-tête : inutile de parcourir la suite. (Un MP4
+                    // fragmenté annonce 0 : la somme des paquets fera foi.)
+                    if let (Some(frames @ 1..), Some(rate)) = (params.n_frames, params.sample_rate)
+                    {
+                        return Some(frames as f64 / f64::from(rate));
+                    }
+                } else if packets > 64 {
+                    return None;
+                }
+            }
+        }
+        None
+    }))
+    .ok()?;
+    if let Some(secs) = result {
+        return Some(secs);
+    }
+    if !decoded {
+        return None;
+    }
+    to_secs(summed).or(Some(0.0))
 }
 
 /// Pourquoi un fichier est illisible, en mots simples.
@@ -293,8 +438,10 @@ pub fn scan_library_incremental(
             let unchanged = path.to_str().and_then(|p| known.get(p)).filter(|t| {
                 t.added_secs == modified_secs(path)
                     && (t.has_cover || !folder_has_cover)
-                    // Sans durée ni diagnostic (bibliothèque d'une version précédente) : relu.
-                    && (t.duration_secs > 0.0 || t.damage.is_some())
+                    // Fichier signalé illisible ou sans durée : toujours réexaminé (peu nombreux,
+                    // et la détection s'améliore d'une version à l'autre).
+                    && t.duration_secs > 0.0
+                    && t.damage.is_none()
             });
             let track = match unchanged {
                 Some(t) => Some((*t).clone()),
@@ -456,9 +603,8 @@ mod tests {
     #[test]
     fn incremental_scan_reuses_unchanged_tracks() {
         let dir = tempfile::tempdir().unwrap();
-        let a = dir.path().join("a.wav");
-        std::fs::write(&a, b"RIFF").unwrap();
-        let mut known = read_track(&a).expect("piste lisible même mal formée");
+        let a = make_test_wav(dir.path(), "a.wav", 1);
+        let mut known = read_track(&a).expect("piste lisible");
         known.title = "Titre déjà connu".into();
         let tracks = scan_library_incremental(dir.path(), std::slice::from_ref(&known), |_, _| {});
         assert_eq!(tracks.len(), 1);
@@ -467,7 +613,7 @@ mod tests {
             "le fichier inchangé n'est pas relu"
         );
         // Un fichier nouveau est bien lu.
-        std::fs::write(dir.path().join("b.wav"), b"RIFF").unwrap();
+        make_test_wav(dir.path(), "b.wav", 1);
         let tracks = scan_library_incremental(dir.path(), &[known], |_, _| {});
         assert_eq!(tracks.len(), 2);
     }
