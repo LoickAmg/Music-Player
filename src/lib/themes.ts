@@ -122,6 +122,8 @@ export function themeVariables(theme: Theme): Record<string, string> {
     "--accent": hex(accent),
     "--accent-soft": rgba(accent, 0.16),
     "--accent-2": hex(accent2),
+    // Accent lisible sur fond sombre (écran « À l'écoute », toujours sur la pochette).
+    "--accent-on-dark": hex(light ? readableOn(accent, [14, 14, 20], 4.5, false) : accent),
     "--on-accent": onAccent,
     "--fg-rgb": channels(text),
     "--surface-rgb": channels(surface),

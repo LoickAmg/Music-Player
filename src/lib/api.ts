@@ -16,6 +16,19 @@ import type {
   UpdateInfo,
 } from "./types";
 
+// Android : la vue web ne transmet pas d'octets bruts à l'appli (seulement du texte) ; les
+// fichiers importés y partent donc en base64.
+const ON_ANDROID = /Android/i.test(navigator.userAgent);
+
+function toBase64(bytes: Uint8Array): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",", 2)[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(new Blob([bytes as BlobPart]));
+  });
+}
+
 export const api = {
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
@@ -51,8 +64,10 @@ export const api = {
   setPlaylistStyle: (id: string, style: PlaylistStyle | null) => invoke<void>("set_playlist_style", { id, style }),
   setAppearance: (value: unknown) => invoke<void>("set_appearance", { value }),
   /** Envoie un fichier importé tel quel (sans passer par du JSON) ; renvoie son nom. */
-  importAsset: (kind: "font" | "image", ext: string, bytes: Uint8Array) =>
-    invoke<string>("import_asset", bytes, { headers: { "x-kind": kind, "x-ext": ext } }),
+  importAsset: async (kind: "font" | "image", ext: string, bytes: Uint8Array) =>
+    ON_ANDROID
+      ? invoke<string>("import_asset", { kind, ext, data: await toBase64(bytes) })
+      : invoke<string>("import_asset", bytes, { headers: { "x-kind": kind, "x-ext": ext } }),
   deleteAsset: (name: string) => invoke<void>("delete_asset", { name }),
   deletePlaylist: (id: string) => invoke<void>("delete_playlist", { id }),
   renamePlaylist: (id: string, name: string) => invoke<void>("rename_playlist", { id, name }),

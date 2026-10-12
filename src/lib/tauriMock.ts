@@ -247,10 +247,15 @@ export function installTauriMock() {
     set_appearance: ({ value }) => {
       appearance = value;
     },
-    import_asset: (bytes, options) => {
-      const headers = (options as { headers?: Record<string, string> } | undefined)?.headers ?? {};
-      const name = `${headers["x-kind"]}-${assets.size + 1}.${headers["x-ext"]}`;
-      assets.set(name, URL.createObjectURL(new Blob([bytes as Uint8Array])));
+    import_asset: (body, options) => {
+      // Ordinateur : octets bruts et en-têtes ; Android : { kind, ext, data } en base64.
+      const headers = (options as { headers?: Record<string, string> } | undefined)?.headers;
+      const json = headers ? null : (body as { kind: string; ext: string; data: string });
+      const kind = headers?.["x-kind"] ?? json?.kind;
+      const ext = headers?.["x-ext"] ?? json?.ext;
+      const bytes = json ? Uint8Array.from(atob(json.data), (c) => c.charCodeAt(0)) : (body as Uint8Array);
+      const name = `${kind}-${assets.size + 1}.${ext}`;
+      assets.set(name, URL.createObjectURL(new Blob([bytes as BlobPart])));
       return name;
     },
     delete_asset: ({ name }) => {

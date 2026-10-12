@@ -2429,6 +2429,7 @@ dependencies = [
 name = "music-player"
 version = "0.5.0"
 dependencies = [
+ "base64 0.22.1",
  "lofty",
  "rand",
  "rayon",

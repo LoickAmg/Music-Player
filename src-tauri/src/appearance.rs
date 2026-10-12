@@ -61,6 +61,15 @@ pub fn import(data_dir: &Path, kind: &str, ext: &str, bytes: &[u8]) -> Result<St
     Ok(name)
 }
 
+/// Contenu d'un fichier envoyé en base64 (Android), avec ou sans préfixe « data:…;base64, ».
+pub fn decode_base64(data: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine;
+    let payload = data.split_once(";base64,").map_or(data, |(_, b)| b);
+    base64::engine::general_purpose::STANDARD
+        .decode(payload.trim())
+        .map_err(|_| "Fichier illisible.".to_string())
+}
+
 /// Supprime un fichier importé devenu inutile. Le nom doit être un simple nom de fichier
 /// du dossier `custom/` (jamais un chemin).
 pub fn remove(data_dir: &Path, name: &str) -> Result<(), String> {
@@ -107,5 +116,15 @@ mod tests {
         assert!(!custom_dir(dir.path()).join(&name).exists());
         // Déjà supprimé : pas une erreur.
         remove(dir.path(), &name).unwrap();
+    }
+
+    #[test]
+    fn decodes_files_sent_as_text_from_android() {
+        assert_eq!(decode_base64("cG9saWNl").unwrap(), b"police");
+        assert_eq!(
+            decode_base64("data:image/png;base64,cG9saWNl").unwrap(),
+            b"police"
+        );
+        assert!(decode_base64("pas du base64 !").is_err());
     }
 }

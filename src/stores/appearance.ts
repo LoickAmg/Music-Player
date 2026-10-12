@@ -200,6 +200,7 @@ export const useAppearanceStore = defineStore("appearance", {
         const fallback = vars["--accent"] ?? "#3aa8ff";
         vars["--accent"] = `var(--amb-glow, ${fallback})`;
         vars["--accent-soft"] = `color-mix(in srgb, var(--amb-glow, ${fallback}) 16%, transparent)`;
+        vars["--accent-on-dark"] = `var(--amb-glow, ${vars["--accent-on-dark"] ?? fallback})`;
       }
       if (s.fonts.ui !== SYSTEM_FONT) vars["--font"] = fontStack(s.fonts.ui, "ui");
       if (s.fonts.display !== SYSTEM_FONT) vars["--font-display"] = fontStack(s.fonts.display, "display");

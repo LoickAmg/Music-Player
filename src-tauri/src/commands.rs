@@ -485,25 +485,33 @@ pub fn set_appearance(state: State<AppState>, value: serde_json::Value) -> Resul
     crate::appearance::save(&state.data_dir, &value).map_err(|e| e.to_string())
 }
 
-/// Fichier importé (police, image) envoyé tel quel, sans conversion en JSON : en-têtes
-/// `x-kind` (« font » ou « image ») et `x-ext` (extension). Renvoie le nom donné au fichier.
+/// Fichier importé (police, image). Ordinateur : octets envoyés tels quels, en-têtes `x-kind`
+/// (« font » ou « image ») et `x-ext` (extension). Android : la vue web n'y transmet pas
+/// d'octets bruts, le fichier arrive en JSON `{ kind, ext, data }` (data en base64).
+/// Renvoie le nom donné au fichier.
 #[tauri::command(async)]
 pub fn import_asset(
     state: State<'_, AppState>,
     request: tauri::ipc::Request<'_>,
 ) -> Result<String, String> {
-    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
-        return Err("Fichier manquant.".into());
-    };
-    let header = |name: &str| {
-        request
-            .headers()
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string()
-    };
-    crate::appearance::import(&state.data_dir, &header("x-kind"), &header("x-ext"), bytes)
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            let header = |name: &str| {
+                request
+                    .headers()
+                    .get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string()
+            };
+            crate::appearance::import(&state.data_dir, &header("x-kind"), &header("x-ext"), bytes)
+        }
+        tauri::ipc::InvokeBody::Json(value) => {
+            let field = |name: &str| value.get(name).and_then(|v| v.as_str()).unwrap_or("");
+            let bytes = crate::appearance::decode_base64(field("data"))?;
+            crate::appearance::import(&state.data_dir, field("kind"), field("ext"), &bytes)
+        }
+    }
 }
 
 #[tauri::command]

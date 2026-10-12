@@ -183,6 +183,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
      thème. */
   --lyrics-rgb: 255, 255, 255;
   --fg-rgb: 255, 255, 255;
+  --text: #f5f7fb;
+  --text-2: rgba(240, 244, 250, 0.72);
+  --text-3: rgba(235, 240, 250, 0.48);
+  --separator: rgba(255, 255, 255, 0.14);
+  --bg-hover: rgba(255, 255, 255, 0.08);
+  --bg-active: rgba(255, 255, 255, 0.14);
+  /* En mode clair, l'accent du thème est foncé pour le fond clair : ici, sa version lisible
+     sur fond sombre. */
+  --accent: var(--accent-on-dark, #3aa8ff);
+  --accent-soft: color-mix(in srgb, var(--accent-on-dark, #3aa8ff) 18%, transparent);
+  color: var(--text);
   position: fixed;
   inset: 0;
   z-index: 40;
