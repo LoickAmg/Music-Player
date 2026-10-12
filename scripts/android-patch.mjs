@@ -784,6 +784,7 @@ object Updates {
       DownloadManager.ERROR_INSUFFICIENT_SPACE -> "Espace de stockage insuffisant."
       DownloadManager.ERROR_HTTP_DATA_ERROR, DownloadManager.ERROR_CANNOT_RESUME -> "Connexion interrompue."
       DownloadManager.ERROR_DEVICE_NOT_FOUND -> "Stockage indisponible."
+      in 500..599 -> "Le serveur de téléchargement (GitHub) ne répond pas pour l'instant."
       else -> if (status == DownloadManager.STATUS_FAILED) "Téléchargement interrompu (code " + reason + ")." else "Téléchargement en pause…"
     }
 
@@ -934,10 +935,21 @@ class UpdateBridge(private val activity: Activity) {
       return
     }
     Updates.watchedByPage = true
-    Thread { watch(id) }.start()
+    Thread { watch(id, url, version) }.start()
   }
 
-  private fun watch(id: Long) {
+  /** Échec passager (serveur de GitHub surchargé, réponse 5xx ; connexion coupée) : on
+   *  relance tout seul, de plus en plus espacé, avant d'abandonner. */
+  private fun transient(reason: Int): Boolean =
+    reason in 500..599 || reason == 408 || reason == 429 ||
+      reason == DownloadManager.ERROR_HTTP_DATA_ERROR ||
+      reason == DownloadManager.ERROR_CANNOT_RESUME ||
+      reason == DownloadManager.ERROR_UNKNOWN
+
+  private fun watch(firstId: Long, url: String, version: String) {
+    val delays = longArrayOf(10, 30, 60, 120)
+    var id = firstId
+    var attempt = 0
     while (true) {
       val state = Updates.query(activity, id)
       if (state == null) {
@@ -954,8 +966,24 @@ class UpdateBridge(private val activity: Activity) {
           return
         }
         DownloadManager.STATUS_FAILED -> {
+          val reason = state[1].toInt()
+          if (transient(reason) && attempt < delays.size) {
+            val wait = delays[attempt++]
+            for (left in wait downTo 1) {
+              report("waiting", JSONObject.quote("Serveur de GitHub surchargé : nouvel essai dans " + left + " s (" + attempt + "/" + delays.size + ")…"))
+              Thread.sleep(1000)
+            }
+            id = try {
+              Updates.download(activity, url, version)
+            } catch (e: Exception) {
+              Updates.watchedByPage = false
+              report("error", JSONObject.quote(e.message ?: e.toString()))
+              return
+            }
+            continue
+          }
           Updates.watchedByPage = false
-          report("error", JSONObject.quote(Updates.reasonText(status, state[1].toInt())))
+          report("error", JSONObject.quote(Updates.reasonText(status, reason)))
           return
         }
         DownloadManager.STATUS_PAUSED ->
