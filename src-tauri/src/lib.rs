@@ -4,6 +4,7 @@ pub mod commands;
 pub mod eq;
 pub mod ffmpeg;
 pub mod library;
+pub mod listening;
 pub mod lyrics;
 pub mod playlists;
 pub mod queue;
@@ -46,9 +47,20 @@ pub fn run() {
             // Enchaînement des morceaux côté Rust : continue écran éteint (Android), quand
             // l'interface est en veille. L'interface est prévenue par un événement.
             let handle = app.handle().clone();
+            let mut tracker = listening::Tracker::default();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 let state = handle.state::<AppState>();
+                // Journal d'écoute (rétrospective du mois et de l'année) : temps réellement écouté.
+                {
+                    let status = state.audio.status();
+                    let playing = status.current_path.is_some() && !status.is_paused && !status.finished;
+                    let current = state.queue.lock().unwrap().current().cloned().and_then(|id| state.find_track(&id));
+                    let shown = if status.current_path.is_some() { current.as_ref() } else { None };
+                    if let Some(done) = tracker.tick(shown, playing) {
+                        let _ = listening::record(&state.data_dir, &done);
+                    }
+                }
                 match commands::auto_advance(&state) {
                     Some(Ok(track)) => {
                         let _ = handle.emit("track-changed", track);
