@@ -206,6 +206,30 @@ export function installTauriMock() {
     set_repeat: ({ mode }) => {
       queue = { ...queue, repeat: mode as RepeatMode };
     },
+    queue_play_next: ({ trackIds }) => {
+      const current = currentTrack()?.id ?? null;
+      const ids = (trackIds as string[]).filter((id) => id !== current);
+      if (!current) {
+        queue = { ...queue, track_ids: ids, position: 0 };
+        startTrack(ids[0] ?? null);
+        return currentTrack();
+      }
+      const rest = queue.track_ids.filter((id) => !ids.includes(id) || id === current);
+      const at = rest.indexOf(current) + 1;
+      queue = { ...queue, track_ids: [...rest.slice(0, at), ...ids, ...rest.slice(at)], position: at - 1 };
+      return null;
+    },
+    queue_append: ({ trackIds }) => {
+      const current = currentTrack()?.id ?? null;
+      const ids = (trackIds as string[]).filter((id) => id !== current);
+      const rest = queue.track_ids.filter((id) => !ids.includes(id) || id === current);
+      queue = { ...queue, track_ids: [...rest, ...ids], position: current ? rest.indexOf(current) : rest.length };
+      if (!current) {
+        startTrack(ids[0] ?? null);
+        return currentTrack();
+      }
+      return null;
+    },
     remove_from_queue: ({ index }) => {
       queue.track_ids.splice(index, 1);
     },

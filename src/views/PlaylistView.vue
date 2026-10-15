@@ -51,6 +51,12 @@ async function remove() {
   await playlists.remove(props.id);
   ui.go({ name: "recent" });
 }
+
+/** « Lire ensuite » pour tout le lot : juste après le morceau en cours. */
+async function playPlaylistNext() {
+  const started = await player.playNext(ids.value);
+  if (!started) ui.notify("La playlist sera lue juste après");
+}
 </script>
 
 <template>
@@ -68,6 +74,16 @@ async function remove() {
         <div class="actions">
           <button type="button" class="pill pill-accent" :disabled="!ids.length" @click="player.playQueue(ids, ids[0])"><Icon name="play" :size="14" /> Lire</button>
           <button type="button" class="pill pill-ghost" :disabled="!ids.length" @click="player.playShuffled(ids)"><Icon name="shuffle" :size="15" /> Aléatoire</button>
+          <button
+            v-if="player.currentTrack"
+            type="button"
+            class="pill pill-ghost"
+            :disabled="!ids.length"
+            title="Ajouter toute la playlist juste après le morceau en cours"
+            @click="playPlaylistNext"
+          >
+            <Icon name="queue" :size="15" /> Lire ensuite
+          </button>
           <button type="button" class="pill pill-ghost" @click="ui.trackPicker = playlist.id"><Icon name="plus" :size="15" /> Ajouter</button>
           <button type="button" class="icon-btn" title="Personnaliser (nom, jaquette)" aria-label="Personnaliser la playlist" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }"><Icon name="brush" :size="17" /></button>
           <button type="button" class="icon-btn" title="Supprimer la playlist" aria-label="Supprimer la playlist" @click="remove"><Icon name="trash" :size="17" /></button>

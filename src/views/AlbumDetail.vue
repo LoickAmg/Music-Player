@@ -19,6 +19,12 @@ const genre = computed(() => album.value?.tracks.find((t) => t.genre)?.genre ?? 
 const others = computed(() =>
   album.value ? library.albums.filter((a) => a.artist === album.value!.artist && a.key !== album.value!.key).slice(0, 12) : [],
 );
+
+/** « Lire ensuite » pour tout le lot : juste après le morceau en cours. */
+async function playAlbumNext() {
+  const started = await player.playNext(ids.value);
+  if (!started) ui.notify("L'album sera lu juste après");
+}
 </script>
 
 <template>
@@ -38,6 +44,15 @@ const others = computed(() =>
           </button>
           <button type="button" class="pill pill-ghost" @click="player.playShuffled(ids)">
             <Icon name="shuffle" :size="15" /> Aléatoire
+          </button>
+          <button
+            v-if="player.currentTrack"
+            type="button"
+            class="pill pill-ghost"
+            title="Ajouter tout l'album juste après le morceau en cours"
+            @click="playAlbumNext"
+          >
+            <Icon name="queue" :size="15" /> Lire ensuite
           </button>
         </div>
       </div>

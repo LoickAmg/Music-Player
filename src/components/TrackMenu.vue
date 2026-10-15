@@ -61,6 +61,14 @@ function addToNew() {
   ui.playlistDialog = { mode: "create", addTrackId: track.value.id };
   close();
 }
+async function queue(where: "next" | "end") {
+  if (!track.value) return;
+  const { id, title } = track.value;
+  close();
+  const started = where === "next" ? await player.playNext([id]) : await player.enqueue([id]);
+  if (started) ui.notify(`Lecture de « ${title} »`);
+  else ui.notify(where === "next" ? `« ${title} » sera lu juste après` : `« ${title} » ajouté à la file d'attente`);
+}
 async function removeFromPlaylist() {
   if (!track.value || !ui.menu?.playlistId) return;
   await playlists.removeTrack(ui.menu.playlistId, track.value.id);
@@ -73,6 +81,8 @@ async function removeFromPlaylist() {
     <div ref="box" class="menu" role="menu" :style="{ left: `${pos.x}px`, top: `${pos.y}px` }">
       <p class="head">{{ track.title }}</p>
       <button type="button" role="menuitem" @click="player.playTrackNow(track.id); close()">Lire maintenant</button>
+      <button type="button" role="menuitem" @click="queue('next')">Lire ensuite</button>
+      <button type="button" role="menuitem" @click="queue('end')">Ajouter à la file d'attente</button>
       <button type="button" role="menuitem" @click="showPlaylists = !showPlaylists">
         Ajouter à une playlist <span class="chev">›</span>
       </button>

@@ -167,6 +167,26 @@ export const usePlayerStore = defineStore("player", {
         this.error = String(e);
       }
     },
+    /** « Lire ensuite » : juste après le morceau en cours (ou tout de suite si rien ne joue). */
+    async playNext(trackIds: string[]) {
+      return this.addToQueue(trackIds, "next");
+    },
+    /** « Ajouter à la file d'attente » : après tout ce qui est prévu. */
+    async enqueue(trackIds: string[]) {
+      return this.addToQueue(trackIds, "end");
+    },
+    async addToQueue(trackIds: string[], where: "next" | "end") {
+      this.error = null;
+      try {
+        const started = where === "next" ? await api.queuePlayNext(trackIds) : await api.queueAppend(trackIds);
+        if (started) await this.afterTrackChange(started);
+        else await this.refreshQueue();
+        return started !== null;
+      } catch (e) {
+        this.error = String(e);
+        return false;
+      }
+    },
     async removeFromQueue(index: number) {
       try {
         await api.removeFromQueue(index);

@@ -94,6 +94,8 @@ pub fn run() {
             commands::set_volume,
             commands::set_shuffle,
             commands::set_repeat,
+            commands::queue_play_next,
+            commands::queue_append,
             commands::remove_from_queue,
             commands::get_queue,
             commands::get_playback_status,

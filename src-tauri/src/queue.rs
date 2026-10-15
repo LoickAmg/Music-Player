@@ -244,6 +244,69 @@ impl Queue {
         };
     }
 
+    /// « Lire ensuite » : place ces pistes juste après celle en cours, dans l'ordre donné
+    /// (une piste déjà dans la file y est déplacée ; la piste en cours n'est pas touchée).
+    /// File vide : les pistes deviennent la file, la première est la piste courante.
+    /// Renvoie `true` si la file était vide (l'appelant doit alors lancer la lecture).
+    pub fn play_next(&mut self, ids: &[String]) -> bool {
+        let current = self.current().cloned();
+        let ids: Vec<String> = ids.iter().filter(|id| Some(*id) != current.as_ref()).cloned().collect();
+        if ids.is_empty() {
+            return false;
+        }
+        // Rien en cours (file vide, ou terminée) : ces pistes deviennent la file et démarrent.
+        if current.is_none() {
+            self.set_items(ids, None);
+            return true;
+        }
+        self.remove_ids(&ids);
+        let at = self.position.map_or(self.playback.len(), |p| p + 1);
+        for (offset, id) in ids.iter().enumerate() {
+            self.playback.insert(at + offset, id.clone());
+        }
+        // Dans l'ordre d'origine aussi, pour que couper le mode aléatoire les garde « juste après ».
+        let at_original = current
+            .as_ref()
+            .and_then(|c| self.original.iter().position(|x| x == c))
+            .map_or(self.original.len(), |p| p + 1);
+        for (offset, id) in ids.iter().enumerate() {
+            self.original.insert(at_original + offset, id.clone());
+        }
+        false
+    }
+
+    /// « Ajouter à la file d'attente » : à la fin, après tout ce qui est prévu (une piste déjà
+    /// présente plus loin dans la file y est déplacée). Renvoie `true` si la file était vide.
+    pub fn enqueue(&mut self, ids: &[String]) -> bool {
+        let current = self.current().cloned();
+        let ids: Vec<String> = ids.iter().filter(|id| Some(*id) != current.as_ref()).cloned().collect();
+        if ids.is_empty() {
+            return false;
+        }
+        if self.playback.is_empty() {
+            self.set_items(ids, None);
+            return true;
+        }
+        self.remove_ids(&ids);
+        let first_new = self.playback.len();
+        self.original.extend(ids.iter().cloned());
+        self.playback.extend(ids);
+        // File terminée : la lecture reprend sur la première piste ajoutée.
+        if current.is_none() {
+            self.position = Some(first_new);
+            return true;
+        }
+        false
+    }
+
+    /// Retire ces pistes de la file (sauf la piste en cours) en gardant la position.
+    fn remove_ids(&mut self, ids: &[String]) {
+        let current = self.current().cloned();
+        self.playback.retain(|x| !ids.contains(x) || Some(x) == current.as_ref());
+        self.original.retain(|x| !ids.contains(x) || Some(x) == current.as_ref());
+        self.position = current.and_then(|c| self.playback.iter().position(|x| *x == c));
+    }
+
     /// Déplace la position courante directement sur une piste donnée
     /// (par exemple double-clic sur une piste déjà présente dans la file).
     pub fn jump_to(&mut self, id: &str) -> bool {
@@ -390,6 +453,67 @@ mod tests {
         assert!(q.jump_to("c"));
         assert_eq!(q.current(), Some(&"c".to_string()));
         assert!(!q.jump_to("z"));
+    }
+
+    #[test]
+    fn play_next_inserts_right_after_current_in_order() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a", "b", "c"]), Some("a"));
+        assert!(!q.play_next(&ids(&["x", "y"])));
+        assert_eq!(q.playback_order(), ["a", "x", "y", "b", "c"]);
+        assert_eq!(q.current(), Some(&"a".to_string()));
+        assert_eq!(q.next(), Some(&"x".to_string()));
+    }
+
+    #[test]
+    fn play_next_moves_a_track_already_queued_and_ignores_the_current_one() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a", "b", "c", "d"]), Some("b"));
+        q.play_next(&ids(&["d", "b"]));
+        assert_eq!(q.playback_order(), ["a", "b", "d", "c"]);
+        assert_eq!(q.current(), Some(&"b".to_string()));
+    }
+
+    #[test]
+    fn play_next_survives_shuffle_off() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a", "b", "c", "d"]), Some("a"));
+        q.set_shuffle(true);
+        q.play_next(&ids(&["z"]));
+        assert_eq!(q.playback_order()[1], "z");
+        q.set_shuffle(false);
+        assert_eq!(q.playback_order(), ["a", "z", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn play_next_on_empty_queue_starts_it() {
+        let mut q = Queue::new();
+        assert!(q.play_next(&ids(&["x"])));
+        assert_eq!(q.current(), Some(&"x".to_string()));
+    }
+
+    #[test]
+    fn adding_after_the_end_of_the_queue_starts_playback() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a"]), None);
+        assert_eq!(q.next(), None); // file terminée
+        assert!(q.enqueue(&ids(&["x"])));
+        assert_eq!(q.current(), Some(&"x".to_string()));
+        assert_eq!(q.next(), None);
+        assert!(q.play_next(&ids(&["y"])));
+        assert_eq!(q.current(), Some(&"y".to_string()));
+    }
+
+    #[test]
+    fn enqueue_appends_at_the_end_and_moves_duplicates() {
+        let mut q = Queue::new();
+        q.set_items(ids(&["a", "b", "c"]), Some("a"));
+        assert!(!q.enqueue(&ids(&["b", "x"])));
+        assert_eq!(q.playback_order(), ["a", "c", "b", "x"]);
+        assert_eq!(q.current(), Some(&"a".to_string()));
+        let mut empty = Queue::new();
+        assert!(empty.enqueue(&ids(&["x"])));
+        assert_eq!(empty.current(), Some(&"x".to_string()));
     }
 
     #[test]

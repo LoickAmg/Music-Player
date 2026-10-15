@@ -356,6 +356,29 @@ pub fn set_repeat(state: State<AppState>, mode: RepeatMode) -> Result<(), String
     Ok(())
 }
 
+/// « Lire ensuite » : ces pistes passent juste après celle en cours. Si rien n'était prévu,
+/// la lecture démarre sur la première (et la piste lancée est renvoyée).
+#[tauri::command(async)]
+pub fn queue_play_next(state: State<'_, AppState>, track_ids: Vec<String>) -> Result<Option<Track>, String> {
+    let started = state.queue.lock().unwrap().play_next(&track_ids);
+    start_if_needed(&state, started)
+}
+
+/// « Ajouter à la file d'attente » : à la fin de ce qui est prévu.
+#[tauri::command(async)]
+pub fn queue_append(state: State<'_, AppState>, track_ids: Vec<String>) -> Result<Option<Track>, String> {
+    let started = state.queue.lock().unwrap().enqueue(&track_ids);
+    start_if_needed(&state, started)
+}
+
+fn start_if_needed(state: &State<'_, AppState>, started: bool) -> Result<Option<Track>, String> {
+    if !started {
+        return Ok(None);
+    }
+    let current = state.queue.lock().unwrap().current().cloned();
+    track_or_stop(state, current)
+}
+
 #[tauri::command]
 pub fn remove_from_queue(state: State<AppState>, index: usize) -> Result<(), String> {
     state.queue.lock().unwrap().remove_at(index);

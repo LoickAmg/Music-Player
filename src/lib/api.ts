@@ -54,6 +54,9 @@ export const api = {
   setShuffle: (on: boolean) => invoke<void>("set_shuffle", { on }),
   setRepeat: (mode: RepeatMode) => invoke<void>("set_repeat", { mode }),
   removeFromQueue: (index: number) => invoke<void>("remove_from_queue", { index }),
+  /** Renvoie la piste lancée si rien ne jouait, sinon null. */
+  queuePlayNext: (trackIds: string[]) => invoke<Track | null>("queue_play_next", { trackIds }),
+  queueAppend: (trackIds: string[]) => invoke<Track | null>("queue_append", { trackIds }),
   getQueue: () => invoke<QueueView>("get_queue"),
   getPlaybackStatus: () => invoke<PlaybackStatus>("get_playback_status"),
   pollAutoAdvance: () => invoke<Track | null>("poll_auto_advance"),
