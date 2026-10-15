@@ -307,18 +307,24 @@ export const useAppearanceStore = defineStore("appearance", {
       }
       this.changed();
     },
-    /** Icône de la fenêtre (ordinateur) : barre des tâches, Alt+Tab, titre de la fenêtre. */
-    async applyWindowIcon() {
+    /**
+     * Icône de l'appli sur ordinateur, partout : la fenêtre (titre, barre des tâches, Alt+Tab)
+     * et les raccourcis Windows (menu Démarrer, Bureau, épinglés). `force` : réapplique même si
+     * c'est déjà fait (au moment où l'on choisit une icône).
+     */
+    async applyWindowIcon(force = false) {
       if (ON_ANDROID || !("__TAURI_INTERNALS__" in window)) return;
       const s = this.settings;
-      if (s.appIcon === "origine" && !s.appIconImage) return;
+      const original = s.appIcon === "origine" || (s.appIcon === "photo" && !s.appIconImage);
       try {
-        const url = s.appIcon === "photo" && s.appIconImage ? this.assetUrl(s.appIconImage) : `/app-icons/${s.appIcon}.png`;
+        const url = original ? "/app-icons/origine.png" : s.appIcon === "photo" ? this.assetUrl(s.appIconImage!) : `/app-icons/${s.appIcon}.png`;
         const bytes = new Uint8Array(await (await fetch(url)).arrayBuffer());
         const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        // Revenir à « origine » remet aussi l'icône d'origine sur la fenêtre (avant, l'ancienne restait).
         await getCurrentWindow().setIcon(bytes);
+        await api.syncAppIcon(original ? null : bytes, force);
       } catch {
-        // icône d'origine conservée
+        // l'icône actuelle est conservée
       }
     },
     /** Change l'icône de l'application. Android : l'icône de l'écran d'accueil (variantes
@@ -333,7 +339,7 @@ export const useAppearanceStore = defineStore("appearance", {
       }
       this.settings.appIcon = id;
       this.changed();
-      await this.applyWindowIcon();
+      await this.applyWindowIcon(true);
       return true;
     },
     reset() {

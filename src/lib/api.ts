@@ -54,6 +54,9 @@ export const api = {
   setShuffle: (on: boolean) => invoke<void>("set_shuffle", { on }),
   setRepeat: (mode: RepeatMode) => invoke<void>("set_repeat", { mode }),
   removeFromQueue: (index: number) => invoke<void>("remove_from_queue", { index }),
+  /** Icône des raccourcis Windows (menu Démarrer, Bureau, barre des tâches) ; PNG absent = d'origine. */
+  syncAppIcon: async (png: Uint8Array | null, force = false) =>
+    invoke<number | null>("sync_app_icon", { png: png ? await toBase64(png) : null, force }),
   /** Renvoie la piste lancée si rien ne jouait, sinon null. */
   queuePlayNext: (trackIds: string[]) => invoke<Track | null>("queue_play_next", { trackIds }),
   queueAppend: (trackIds: string[]) => invoke<Track | null>("queue_append", { trackIds }),

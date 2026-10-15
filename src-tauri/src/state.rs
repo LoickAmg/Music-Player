@@ -61,6 +61,10 @@ impl AppState {
         self.data_dir.join("covers")
     }
 
+    pub fn app_icon_dir(&self) -> PathBuf {
+        crate::shortcut_icon::icons_dir(&self.data_dir)
+    }
+
     pub fn lyrics_dir(&self) -> PathBuf {
         self.data_dir.join("lyrics")
     }

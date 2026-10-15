@@ -2430,6 +2430,7 @@ name = "music-player"
 version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
+ "image",
  "lofty",
  "rand",
  "rayon",
@@ -2446,6 +2447,7 @@ dependencies = [
  "ureq",
  "uuid",
  "walkdir",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

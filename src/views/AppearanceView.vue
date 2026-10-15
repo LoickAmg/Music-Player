@@ -445,7 +445,8 @@ const COLOR_FIELDS: { key: keyof Theme["colors"]; label: string }[] = [
         Android n'accepte comme icône principale que des dessins prévus dans l'appli. Pour une photo à toi, ajoute un raccourci sur l'écran d'accueil :
       </p>
       <p v-else class="muted small">
-        Change l'icône de la fenêtre (barre des tâches, Alt+Tab). Le raccourci du Bureau et du menu Démarrer garde l'icône d'installation : Windows ne permet pas à une appli de la changer elle-même.
+        L'icône change partout : la fenêtre (barre des tâches, Alt+Tab) et les raccourcis du menu Démarrer, du Bureau et de la barre des tâches. Si l'un d'eux
+        garde l'ancienne icône quelques instants, c'est Windows qui la redessine : elle suit au prochain rafraîchissement.
       </p>
       <div v-if="onAndroid" class="row">
         <button type="button" class="pill pill-accent" :disabled="!canPin || busy" @click="pickImage('shortcut')"><Icon name="image" :size="15" /> Raccourci avec ma photo</button>

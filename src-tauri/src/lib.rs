@@ -8,6 +8,7 @@ pub mod lyrics;
 pub mod playlists;
 pub mod queue;
 pub mod session;
+pub mod shortcut_icon;
 pub mod state;
 pub mod updater;
 
@@ -94,6 +95,7 @@ pub fn run() {
             commands::set_volume,
             commands::set_shuffle,
             commands::set_repeat,
+            commands::sync_app_icon,
             commands::queue_play_next,
             commands::queue_append,
             commands::remove_from_queue,

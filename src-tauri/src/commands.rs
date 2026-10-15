@@ -356,6 +356,15 @@ pub fn set_repeat(state: State<AppState>, mode: RepeatMode) -> Result<(), String
     Ok(())
 }
 
+/// Icône de l'appli sur les raccourcis Windows (menu Démarrer, Bureau, barre des tâches).
+/// `png` (base64) absent : icône d'origine. Renvoie le nombre de raccourcis mis à jour, ou
+/// rien si c'était déjà fait.
+#[tauri::command(async)]
+pub fn sync_app_icon(state: State<'_, AppState>, png: Option<String>, force: Option<bool>) -> Result<Option<usize>, String> {
+    let bytes = png.as_deref().map(crate::appearance::decode_base64).transpose()?;
+    crate::shortcut_icon::sync(bytes.as_deref(), &state.app_icon_dir(), force.unwrap_or(false))
+}
+
 /// « Lire ensuite » : ces pistes passent juste après celle en cours. Si rien n'était prévu,
 /// la lecture démarre sur la première (et la piste lancée est renvoyée).
 #[tauri::command(async)]

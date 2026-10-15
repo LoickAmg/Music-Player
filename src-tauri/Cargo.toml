@@ -36,10 +36,16 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 walkdir = "2"
 rayon = "1"
 ureq = { version = "3", features = ["json"] }
+# Icône choisie appliquée aux raccourcis Windows : PNG → .ico multi-tailles.
+image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 
 # Mise à jour automatique depuis les versions GitHub (ordinateur seulement).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+
+# Rafraîchir les icônes de l'Explorateur après avoir changé celle des raccourcis.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
 
 [dev-dependencies]
 tempfile = "3"

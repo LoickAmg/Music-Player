@@ -271,6 +271,7 @@ export function installTauriMock() {
     set_appearance: ({ value }) => {
       appearance = value;
     },
+    sync_app_icon: () => null,
     import_asset: (body, options) => {
       // Ordinateur : octets bruts et en-têtes ; Android : { kind, ext, data } en base64.
       const headers = (options as { headers?: Record<string, string> } | undefined)?.headers;
