@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RecapBanner from "@/components/RecapBanner.vue";
 import { computed } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
@@ -24,6 +25,7 @@ function play(index: number) {
 <template>
   <div class="page">
     <h1 class="page-title">Ajouts récents</h1>
+    <RecapBanner />
 
     <section v-if="recentAlbums.length">
       <div class="head">

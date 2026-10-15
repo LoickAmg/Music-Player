@@ -20,6 +20,7 @@ const nav = [
   { name: "artists", label: "Artistes", icon: "artist" },
   { name: "albums", label: "Albums", icon: "album" },
   { name: "songs", label: "Morceaux", icon: "songs" },
+  { name: "stats", label: "Mon écoute", icon: "stats" },
 ] as const;
 
 const progress = computed(() => {

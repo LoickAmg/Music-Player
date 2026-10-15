@@ -37,6 +37,7 @@ import SearchView from "@/views/SearchView.vue";
 import SettingsView from "@/views/SettingsView.vue";
 import AppearanceView from "@/views/AppearanceView.vue";
 import SongsView from "@/views/SongsView.vue";
+import StatsView from "@/views/StatsView.vue";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
@@ -308,6 +309,7 @@ onBeforeUnmount(() => {
             <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
             <SettingsView v-else-if="ui.route.name === 'settings'" />
             <AppearanceView v-else-if="ui.route.name === 'appearance'" />
+            <StatsView v-else-if="ui.route.name === 'stats'" />
             <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
           </template>
           <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">

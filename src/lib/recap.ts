@@ -118,7 +118,7 @@ function rank(listens: Listen[], keyOf: (l: Listen) => string | null, describe: 
     map.set(key, entry);
   }
   return [...map.values()]
-    .map(({ lastSecs: _ignored, ...r }) => r)
+    .map((entry) => ({ key: entry.key, label: entry.label, sub: entry.sub, trackId: entry.trackId, secs: entry.secs, plays: entry.plays }))
     .sort((a, b) => (by === "plays" ? b.plays - a.plays || b.secs - a.secs : b.secs - a.secs || b.plays - a.plays));
 }
 
