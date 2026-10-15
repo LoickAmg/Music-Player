@@ -102,6 +102,39 @@ pub fn record(data_dir: &Path, listen: &Listen) -> Result<(), String> {
     writeln!(file, "{line}").map_err(|e| e.to_string())
 }
 
+fn pending_path(data_dir: &Path) -> PathBuf {
+    dir(data_dir).join("en-cours.json")
+}
+
+/// Écoute en cours mise de côté régulièrement : si l'appli est fermée ou tuée (Android) au
+/// milieu d'un morceau, elle est récupérée au lancement suivant au lieu d'être perdue.
+pub fn save_pending(data_dir: &Path, listen: Option<&Listen>) {
+    let path = pending_path(data_dir);
+    match listen {
+        Some(l) => {
+            if std::fs::create_dir_all(dir(data_dir)).is_ok() {
+                if let Ok(json) = serde_json::to_vec(l) {
+                    let _ = std::fs::write(path, json);
+                }
+            }
+        }
+        None => {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// Au lancement : enregistre l'écoute laissée en cours la dernière fois.
+pub fn recover_pending(data_dir: &Path) {
+    let path = pending_path(data_dir);
+    if let Some(listen) = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Listen>(&b).ok()) {
+        if listen.secs >= MIN_LISTEN_SECS {
+            let _ = record(data_dir, &listen);
+        }
+    }
+    let _ = std::fs::remove_file(path);
+}
+
 /// Toutes les écoutes enregistrées (fichiers de toutes les années).
 pub fn load_all(data_dir: &Path) -> Vec<Listen> {
     let Ok(entries) = std::fs::read_dir(dir(data_dir)) else { return Vec::new() };
@@ -141,6 +174,16 @@ mod tests {
         let done = t.tick(Some(&a), true).unwrap();
         assert_eq!(done.track_id, "b");
         assert_eq!(done.secs, 42.0);
+    }
+
+    #[test]
+    fn a_listen_left_pending_is_recovered_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let listen = Listen { track_id: "x".into(), title: "T".into(), artist: "A".into(), album: "B".into(), genre: None, started: 1_790_000_000, secs: 95.0, duration_secs: 200.0 };
+        save_pending(dir.path(), Some(&listen));
+        recover_pending(dir.path());
+        recover_pending(dir.path());
+        assert_eq!(load_all(dir.path()), vec![listen]);
     }
 
     #[test]

@@ -356,6 +356,47 @@ pub fn set_repeat(state: State<AppState>, mode: RepeatMode) -> Result<(), String
     Ok(())
 }
 
+/// Journal d'écoute complet (rétrospective du mois et de l'année, calculée par l'interface,
+/// qui connaît l'heure locale). Y compris l'écoute en cours si elle compte déjà.
+#[tauri::command(async)]
+pub fn get_listens(state: State<'_, AppState>) -> Vec<crate::listening::Listen> {
+    crate::listening::load_all(&state.data_dir)
+}
+
+/// Enregistre une image (carte de la rétrospective) dans « Images/Music Player » et renvoie
+/// son chemin. Le nom est réduit à des caractères sûrs ; un nom déjà pris reçoit un numéro.
+#[tauri::command(async)]
+pub fn save_image(app: AppHandle, png: String, name: String) -> Result<String, String> {
+    let bytes = crate::appearance::decode_base64(&png)?;
+    if !bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Err("Image invalide.".into());
+    }
+    let dir = app
+        .path()
+        .picture_dir()
+        .map_err(|_| "Dossier Images introuvable sur cet appareil.".to_string())?
+        .join("Music Player");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let stem: String = name
+        .trim_end_matches(".png")
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == ' ' { c } else { '-' })
+        .collect::<String>()
+        .trim()
+        .chars()
+        .take(60)
+        .collect();
+    let stem = if stem.is_empty() { "retrospective".to_string() } else { stem };
+    let mut path = dir.join(format!("{stem}.png"));
+    let mut n = 2;
+    while path.exists() {
+        path = dir.join(format!("{stem} ({n}).png"));
+        n += 1;
+    }
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
+}
+
 /// Icône de l'appli sur les raccourcis Windows (menu Démarrer, Bureau, barre des tâches).
 /// `png` (base64) absent : icône d'origine. Renvoie le nombre de raccourcis mis à jour, ou
 /// rien si c'était déjà fait.

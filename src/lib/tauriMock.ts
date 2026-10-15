@@ -289,6 +289,25 @@ export function installTauriMock() {
       appearance = value;
     },
     sync_app_icon: () => null,
+    save_image: ({ name }) => `C:/Users/Moi/Pictures/Music Player/${name}`,
+    // Trois mois d'écoutes inventées (soirées surtout), pour voir la rétrospective.
+    get_listens: () => {
+      const out = [];
+      const now = Date.now();
+      let seed = 7;
+      const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+      for (let day = 0; day < 95; day++) {
+        const count = Math.floor(rnd() * 14);
+        for (let k = 0; k < count; k++) {
+          const t = library[Math.floor(Math.pow(rnd(), 2.2) * 40)];
+          const hour = rnd() < 0.55 ? 20 + Math.floor(rnd() * 5) : 8 + Math.floor(rnd() * 11);
+          const started = new Date(now - day * 86_400_000);
+          started.setHours(hour % 24, Math.floor(rnd() * 60));
+          out.push({ track_id: t.id, title: t.title, artist: t.artist, album: t.album, genre: t.genre, started: Math.floor(started.getTime() / 1000), secs: rnd() < 0.15 ? 15 : t.duration_secs * (0.6 + rnd() * 0.4), duration_secs: t.duration_secs });
+        }
+      }
+      return out.sort((a, b) => a.started - b.started);
+    },
     import_asset: (body, options) => {
       // Ordinateur : octets bruts et en-têtes ; Android : { kind, ext, data } en base64.
       const headers = (options as { headers?: Record<string, string> } | undefined)?.headers;

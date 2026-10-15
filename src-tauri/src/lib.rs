@@ -47,7 +47,10 @@ pub fn run() {
             // Enchaînement des morceaux côté Rust : continue écran éteint (Android), quand
             // l'interface est en veille. L'interface est prévenue par un événement.
             let handle = app.handle().clone();
+            // Écoute laissée en cours à la dernière fermeture : enregistrée maintenant.
+            listening::recover_pending(&data_dir);
             let mut tracker = listening::Tracker::default();
+            let mut ticks: u32 = 0;
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 let state = handle.state::<AppState>();
@@ -59,6 +62,11 @@ pub fn run() {
                     let shown = if status.current_path.is_some() { current.as_ref() } else { None };
                     if let Some(done) = tracker.tick(shown, playing) {
                         let _ = listening::record(&state.data_dir, &done);
+                        listening::save_pending(&state.data_dir, None);
+                    }
+                    ticks = ticks.wrapping_add(1);
+                    if ticks.is_multiple_of(50) && playing {
+                        listening::save_pending(&state.data_dir, tracker.current());
                     }
                 }
                 match commands::auto_advance(&state) {
@@ -108,6 +116,8 @@ pub fn run() {
             commands::set_shuffle,
             commands::set_repeat,
             commands::sync_app_icon,
+            commands::get_listens,
+            commands::save_image,
             commands::queue_play_next,
             commands::queue_append,
             commands::remove_from_queue,
