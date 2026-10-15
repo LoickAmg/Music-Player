@@ -70,9 +70,16 @@ export interface PlaylistStyle {
   titleFont?: string | null;
 }
 
+export interface LyricWord {
+  time_ms: number;
+  text: string;
+}
+
 export interface LyricLine {
   time_ms: number;
   text: string;
+  /** Minutage mot par mot (LRC enrichi), quand la source le donne. */
+  words?: LyricWord[] | null;
 }
 
 export interface Lyrics {

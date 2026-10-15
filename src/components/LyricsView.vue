@@ -2,7 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { useNow } from "@/lib/clock";
 import { lite } from "@/lib/perf";
-import { activeLineIndex, useLyricsStore } from "@/stores/lyrics";
+import { activeItemIndex, buildItems, progress } from "@/lib/lyricsTiming";
+import { useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
@@ -15,7 +16,8 @@ const ui = useUiStore();
 const now = useNow();
 
 const container = ref<HTMLElement | null>(null);
-// Éléments des lignes (hors réactivité : on ne fait que les lire et leur donner --p).
+// Éléments des lignes et des pauses (hors réactivité : on ne fait que les lire et leur
+// donner --p / --wp).
 const lineEls: HTMLElement[] = [];
 /** Le texte suit la chanson ; faux pendant que l'utilisateur fait défiler au doigt. */
 const following = ref(true);
@@ -23,29 +25,35 @@ let resumeTimer: ReturnType<typeof setTimeout> | undefined;
 let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
+/** Lignes découpées en mots minutés, et pauses pour les passages sans voix. */
+const items = computed(() => (synced.value ? buildItems(synced.value, (player.currentTrack?.duration_secs ?? 0) * 1000) : []));
 // Légère avance : la ligne s'allume au moment où elle commence à être chantée. Plus le
 // décalage réglé à la main pour ce morceau (paroles en avance ou en retard sur la voix).
 const positionMs = computed(() => player.positionAt(now.value) * 1000 + 150 + lyricsStore.offsetMs);
-const active = computed(() => (synced.value ? activeLineIndex(synced.value, positionMs.value) : -1));
+const active = computed(() => activeItemIndex(items.value, positionMs.value));
 
-function isBreak(text: string) {
-  return !text.trim() || /^[♪♫\s.…]+$/.test(text);
-}
-
-// Remplissage « karaoké » de la ligne chantée, image par image, sans rendu Vue : seule la
-// variable CSS --p de la ligne active change. Pas en mode léger (ligne surlignée en entier).
+// Karaoké mot par mot, image par image, sans rendu Vue : chaque mot de la ligne chantée
+// reçoit son avancement (--wp, de 0 à 1) ; une pause reçoit le sien (--p) pour remplir ses
+// points. Pas en mode léger (ligne surlignée en entier).
+let wordEls: HTMLElement[] = [];
+let wordsOf = -1;
 watch(positionMs, (ms) => {
   if (lite.value) return;
-  const lines = synced.value;
   const i = active.value;
+  const item = items.value[i];
   const el = lineEls[i];
-  if (!lines || i < 0 || !el) return;
-  const start = lines[i].time_ms;
-  const next = lines[i + 1]?.time_ms ?? start + 6000;
-  // La voix finit en général un peu avant la ligne suivante.
-  const span = Math.max(500, Math.min(next - start, 15000) * 0.88);
-  const p = Math.min(1, Math.max(0, (ms - start) / span));
-  el.style.setProperty("--p", p.toFixed(3));
+  if (!item || !el) return;
+  if (item.kind === "pause") {
+    el.style.setProperty("--p", progress(item.start, item.end, ms).toFixed(3));
+    return;
+  }
+  if (wordsOf !== i) {
+    wordEls = Array.from(el.querySelectorAll<HTMLElement>(".w"));
+    wordsOf = i;
+  }
+  item.words.forEach((word, k) => {
+    wordEls[k]?.style.setProperty("--wp", progress(word.start, word.end, ms).toFixed(3));
+  });
 });
 
 /** Ligne chantée amenée vers le tiers haut de la zone. Défilement doux confié au navigateur :
@@ -75,6 +83,7 @@ watch(
   () => lyricsStore.lyrics,
   () => {
     lineEls.length = 0;
+    wordsOf = -1;
     following.value = true;
     clearTimeout(resumeTimer);
     nextTick(() => scrollToActive(false));
@@ -106,6 +115,10 @@ function onWheel() {
 function seekTo(ms: number) {
   void player.seek(ms / 1000);
   resume();
+}
+/** Clic sur une pause : on passe le passage instrumental (reprise 1,5 s avant le chant). */
+function skipPause(end: number) {
+  seekTo(Math.max(0, end - 1500 - lyricsStore.offsetMs));
 }
 
 // Menu « Paroles » : autre version, décalage, retrait.
@@ -182,16 +195,17 @@ onBeforeUnmount(() => {
         >
           <template v-if="synced">
             <p
-              v-for="(line, i) in synced"
-              :key="i"
+              v-for="(item, i) in items"
+              :key="`${item.kind}-${item.start}-${i}`"
               :ref="(el) => { if (el) lineEls[i] = el as HTMLElement }"
               class="line"
-              :class="{ active: i === active, past: i < active }"
+              :class="{ active: i === active, past: i < active, pause: item.kind === 'pause' }"
               :style="{ '--d': Math.min(4, Math.abs(i - active)) }"
-              @click="seekTo(line.time_ms)"
+              :title="item.kind === 'pause' ? 'Passer au chant' : undefined"
+              @click="item.kind === 'pause' ? skipPause(item.end) : seekTo(item.start - lyricsStore.offsetMs)"
             >
-              <span v-if="isBreak(line.text)" class="dots"><i /><i /><i /></span>
-              <span v-else class="txt">{{ line.text }}</span>
+              <span v-if="item.kind === 'pause'" class="dots" aria-label="Passage instrumental"><i /><i /><i /></span>
+              <span v-else class="txt"><span v-for="(word, k) in item.words" :key="k" class="w">{{ word.text }}</span></span>
             </p>
           </template>
           <p v-else class="plain">{{ lyricsStore.lyrics.plain }}</p>
@@ -289,18 +303,21 @@ onBeforeUnmount(() => {
   opacity: 1;
   transform: scale(1);
 }
-/* Ligne chantée : le blanc gagne la ligne au rythme de la voix ; la lueur prend la teinte
-   de la pochette, plus vive quand la pochette est lumineuse (--amb-energy). */
-.line.active .txt {
-  --fill: calc(var(--p, 0) * 108%);
+/* Ligne chantée : chaque mot s'allume à son tour, au rythme de la voix (minutage exact du
+   LRC enrichi, sinon estimé d'après les syllabes) ; la lueur prend la teinte de la pochette,
+   plus vive quand la pochette est lumineuse (--amb-energy). */
+.line.active .w {
+  --fill: calc(var(--wp, 0) * 118%);
   background-image: linear-gradient(
     90deg,
-    rgb(var(--lyrics-rgb)) calc(var(--fill) - 8%),
-    rgba(var(--lyrics-rgb), 0.4) var(--fill)
+    rgb(var(--lyrics-rgb)) calc(var(--fill) - 18%),
+    rgba(var(--lyrics-rgb), 0.38) var(--fill)
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+.line.active .txt {
   filter: drop-shadow(
     0 0 calc(5px + var(--amb-energy) * 10px)
       color-mix(in srgb, var(--amb-glow) calc(35% + var(--amb-energy) * 40%), transparent)
@@ -527,6 +544,34 @@ onBeforeUnmount(() => {
 .dots i:nth-child(3) {
   animation-delay: 0.4s;
 }
+/* Passage instrumental en cours : les trois points s'allument l'un après l'autre jusqu'à la
+   reprise du chant, en respirant doucement. */
+.line.pause.active .dots i {
+  animation-name: breathe-scale;
+  opacity: calc(0.22 + clamp(0, var(--p, 0) * 3 - var(--n), 1) * 0.78);
+  transition: opacity 0.3s linear;
+}
+.line.pause.active .dots i:nth-child(1) {
+  --n: 0;
+}
+.line.pause.active .dots i:nth-child(2) {
+  --n: 1;
+}
+.line.pause.active .dots i:nth-child(3) {
+  --n: 2;
+}
+.line.pause {
+  font-size: calc(20px * var(--lyrics-scale));
+}
+@keyframes breathe-scale {
+  0%,
+  100% {
+    transform: scale(0.82);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
 @keyframes breathe {
   0%,
   100% {
@@ -581,8 +626,10 @@ onBeforeUnmount(() => {
   transition: opacity 0.3s ease;
 }
 :root[data-perf="lite"] .line.active .txt {
+  filter: none;
+}
+:root[data-perf="lite"] .line.active .w {
   background: none;
   color: rgb(var(--lyrics-rgb));
-  filter: none;
 }
 </style>

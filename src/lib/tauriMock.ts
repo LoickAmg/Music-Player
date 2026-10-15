@@ -51,12 +51,29 @@ function makeTrack(i: number, overrides: Partial<Track> = {}): Track {
   };
 }
 
+// Démonstration : une intro, un pont instrumental, et une ligne minutée mot par mot (LRC enrichi).
 const DEMO_LYRICS: Lyrics = {
   synced: [
-    "Sous les néons de la ville", "Je compte les heures qui filent", "", "Et la nuit me répond",
-    "Par des échos sans nom", "Minuit passé, je reste là", "À écouter battre le monde", "", "Encore une fois",
-    "Encore une fois",
-  ].map((text, i) => ({ time_ms: 2000 + i * 3500, text })),
+    ...[
+      [6000, "Sous les néons de la ville"],
+      [9500, "Je compte les heures qui filent"],
+      [13000, "Et la nuit me répond"],
+      [16500, "Par des échos sans nom"],
+      [30000, "Minuit passé, je reste là"],
+      [33500, "À écouter battre le monde"],
+      [37000, "Encore une fois"],
+    ].map(([time_ms, text]) => ({ time_ms: time_ms as number, text: text as string })),
+    {
+      time_ms: 40500,
+      text: "Encore une fois",
+      words: [
+        { time_ms: 40500, text: "En" },
+        { time_ms: 40900, text: "core " },
+        { time_ms: 41600, text: "une " },
+        { time_ms: 42300, text: "fois" },
+      ],
+    },
+  ],
   plain: null,
   instrumental: false,
   source: "démonstration",

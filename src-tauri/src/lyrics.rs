@@ -12,6 +12,62 @@ use crate::library::{self, Track, UNKNOWN_ARTIST};
 pub struct LyricLine {
     pub time_ms: u64,
     pub text: String,
+    /// Minutage mot par mot, quand la source le donne (LRC « enrichi » : `<mm:ss.xx>mot`).
+    /// Absent : l'interface estime le rythme des mots à partir de la ligne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub words: Option<Vec<LyricWord>>,
+}
+
+/// Un mot (ou une syllabe) et l'instant où il commence à être chanté. Le texte garde
+/// l'espace qui le suit, pour se recoller tel quel.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LyricWord {
+    pub time_ms: u64,
+    pub text: String,
+}
+
+/// Sépare les balises de mots d'une ligne LRC enrichie (`<00:12.34>Il <00:12.80>pleut`).
+/// Renvoie le texte nettoyé et, s'il y avait au moins une balise, les mots minutés
+/// (horodatages bruts, avant décalage). Le texte avant la première balise commence avec la ligne.
+fn split_word_tags(text: &str, line_ms: u64) -> (String, Option<Vec<(u64, String)>>) {
+    if !text.contains('<') {
+        return (text.to_string(), None);
+    }
+    let mut words: Vec<(u64, String)> = Vec::new();
+    let mut current_ms = line_ms;
+    let mut current = String::new();
+    let mut tagged = false;
+    let mut rest = text;
+    while let Some(open) = rest.find('<') {
+        let Some(close) = rest[open..].find('>') else { break };
+        let tag = &rest[open + 1..open + close];
+        let Some(ms) = parse_timestamp(tag) else {
+            // Pas une balise de temps (« <3 », « < > ») : texte ordinaire.
+            current.push_str(&rest[..open + close + 1]);
+            rest = &rest[open + close + 1..];
+            continue;
+        };
+        current.push_str(&rest[..open]);
+        if !current.trim().is_empty() {
+            words.push((current_ms, std::mem::take(&mut current)));
+        } else if let Some(last) = words.last_mut() {
+            // Espace entre deux balises : il revient au mot précédent.
+            last.1.push_str(&current);
+            current.clear();
+        }
+        current_ms = ms;
+        tagged = true;
+        rest = &rest[open + close + 1..];
+    }
+    current.push_str(rest);
+    if !current.trim().is_empty() {
+        words.push((current_ms, current));
+    }
+    let clean: String = words.iter().map(|(_, w)| w.as_str()).collect::<String>().split_whitespace().collect::<Vec<_>>().join(" ");
+    if !tagged || words.is_empty() {
+        return (if tagged { clean } else { text.to_string() }, None);
+    }
+    (clean, Some(words))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -64,13 +120,25 @@ pub fn parse_lrc(text: &str) -> Option<Vec<LyricLine>> {
             }
             rest = after.trim_start();
         }
-        let text = rest.trim().to_string();
+        let first_stamp = stamps.first().copied().unwrap_or(0);
+        let (text, raw_words) = split_word_tags(rest.trim(), first_stamp);
+        let text = text.trim().to_string();
         for ms in stamps {
             // Un offset positif avance les paroles (convention LRC).
             let time_ms = (ms as i64 - offset).max(0) as u64;
+            // Ligne répétée (plusieurs horodatages) : les mots gardent leur écart au début de ligne.
+            let words = raw_words.as_ref().map(|list| {
+                list.iter()
+                    .map(|(w_ms, w)| LyricWord {
+                        time_ms: (time_ms as i64 + *w_ms as i64 - first_stamp as i64).max(time_ms as i64) as u64,
+                        text: w.trim_start().to_string(),
+                    })
+                    .collect()
+            });
             lines.push(LyricLine {
                 time_ms,
                 text: text.clone(),
+                words,
             });
         }
     }
@@ -637,9 +705,10 @@ impl Lrclib {
             return Reply::Unavailable(e.clone());
         }
         let mut last = String::new();
+        let mut wait = Duration::from_millis(1200);
         for attempt in 0..2 {
             if attempt > 0 {
-                std::thread::sleep(Duration::from_millis(1200));
+                std::thread::sleep(wait);
             }
             let mut request = self
                 .agent
@@ -654,6 +723,14 @@ impl Lrclib {
                     if status == 429 || status >= 500 {
                         last =
                             "Le service de paroles est surchargé, réessayez dans un moment.".into();
+                        // « Trop de demandes » : le service dit combien de temps patienter
+                        // (dans la limite de 4 s, pour ne pas faire attendre l'écran).
+                        wait = response
+                            .headers()
+                            .get("retry-after")
+                            .and_then(|v| v.to_str().ok())
+                            .and_then(|v| v.trim().parse::<u64>().ok())
+                            .map_or(Duration::from_millis(1200), |secs| Duration::from_secs(secs.clamp(1, 4)));
                         continue;
                     }
                     self.answered = true;
@@ -741,6 +818,9 @@ fn fit_to_track(record: LrclibRecord, track: &Track) -> Lyrics {
             if let Some(lines) = &mut lyrics.synced {
                 for line in lines.iter_mut() {
                     line.time_ms = (line.time_ms as f64 * ratio).round() as u64;
+                    for word in line.words.iter_mut().flatten() {
+                        word.time_ms = (word.time_ms as f64 * ratio).round() as u64;
+                    }
                 }
                 lyrics.source = format!(
                     "LRCLIB (calées sur la version {})",
@@ -1380,18 +1460,49 @@ mod tests {
             vec![
                 LyricLine {
                     time_ms: 4_500,
-                    text: "Refrain".into()
+                    text: "Refrain".into(),
+                    words: None
                 },
                 LyricLine {
                     time_ms: 12_000,
-                    text: "Première".into()
+                    text: "Première".into(),
+                    words: None
                 },
                 LyricLine {
                     time_ms: 29_623,
-                    text: "Refrain".into()
+                    text: "Refrain".into(),
+                    words: None
                 },
             ]
         );
+    }
+
+    #[test]
+    fn reads_word_by_word_timing_and_cleans_the_text() {
+        let lines = parse_lrc("[00:10.00]<00:10.00>Il <00:10.40>pleut <00:11.10>encore
+[00:20.00]Sans balise").unwrap();
+        assert_eq!(lines[0].text, "Il pleut encore");
+        let words = lines[0].words.as_ref().unwrap();
+        assert_eq!(words.iter().map(|w| w.time_ms).collect::<Vec<_>>(), vec![10_000, 10_400, 11_100]);
+        assert_eq!(words.iter().map(|w| w.text.as_str()).collect::<String>(), "Il pleut encore");
+        assert!(lines[1].words.is_none());
+    }
+
+    #[test]
+    fn word_timing_follows_offset_and_repeated_lines() {
+        let lines = parse_lrc("[offset:+1000]
+[00:10.00][01:00.00]<00:10.00>Re<00:10.50>frain").unwrap();
+        assert_eq!(lines[0].time_ms, 9_000);
+        assert_eq!(lines[0].words.as_ref().unwrap()[1].time_ms, 9_500);
+        assert_eq!(lines[1].time_ms, 59_000);
+        assert_eq!(lines[1].words.as_ref().unwrap()[1].time_ms, 59_500);
+    }
+
+    #[test]
+    fn angle_brackets_that_are_not_times_stay_in_the_text() {
+        let lines = parse_lrc("[00:01.00]Je t'aime <3").unwrap();
+        assert_eq!(lines[0].text, "Je t'aime <3");
+        assert!(lines[0].words.is_none());
     }
 
     #[test]
