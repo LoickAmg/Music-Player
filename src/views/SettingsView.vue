@@ -171,7 +171,7 @@ const shortcuts = [
       <h2><Icon name="lyrics" :size="17" /> Paroles</h2>
       <label class="toggle">
         <input type="checkbox" :checked="lyrics.allowOnline" @change="lyrics.setAllowOnline(($event.target as HTMLInputElement).checked)" />
-        <span>Trouver automatiquement les paroles en ligne (LRCLIB)</span>
+        <span>Trouver automatiquement les paroles en ligne (LRCLIB, et lyrics.ovh en secours)</span>
       </label>
       <p class="muted small">
         Utilisé seulement si le morceau n'a pas de paroles intégrées ni de fichier <code>.lrc</code> à côté de lui.

@@ -57,7 +57,7 @@ const active = ref<SectionId>("mentions");
           <h3>Données traitées</h3>
           <p>Le logiciel fonctionne en local : aucun compte, aucun cookie de suivi, aucun outil d’analyse. Vos fichiers audio ne quittent jamais votre ordinateur.</p>
           <h3>Base légale</h3>
-          <p>Seule exception, facultative et désactivée tant que vous ne l’avez pas autorisée : la recherche de paroles en ligne. Elle envoie au service LRCLIB (lrclib.net) le titre, l’artiste, l’album et la durée du morceau écouté, sans aucune donnée vous concernant. Vous pouvez la couper à tout moment dans Réglages → Paroles.</p>
+          <p>Seule exception, facultative et désactivée tant que vous ne l’avez pas autorisée : la recherche de paroles en ligne. Elle envoie au service LRCLIB (lrclib.net) le titre, l’artiste, l’album et la durée du morceau écouté, et, si LRCLIB ne trouve rien, le titre et l’artiste au service de secours lyrics.ovh — sans aucune donnée vous concernant. Vous pouvez la couper à tout moment dans Réglages → Paroles.</p>
           <h3>Conservation</h3>
           <p>Les pochettes et paroles trouvées sont conservées dans le dossier de l’application sur votre ordinateur ; les supprimer n’a aucune incidence sur votre musique.</p>
           <h3>Responsable de traitement</h3>

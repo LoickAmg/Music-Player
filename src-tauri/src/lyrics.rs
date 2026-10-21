@@ -862,7 +862,73 @@ pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
     if let Some(found) = loose_search(&mut lrclib, track) {
         return Ok(Some(fit_to_track(found, track)));
     }
-    lrclib.nothing()
+    // Source de secours : LRCLIB n'a rien (ou ne répond pas). lyrics.ovh ne donne que le
+    // texte, sans minutage, mais c'est mieux qu'« introuvable ».
+    let outcome = lrclib.nothing();
+    match lyrics_ovh(track) {
+        Some(found) => Ok(Some(found)),
+        None => outcome,
+    }
+}
+
+const LYRICS_OVH: &str = "https://api.lyrics.ovh/v1";
+
+/// Paroles en texte seul depuis lyrics.ovh (artiste et titre nécessaires).
+fn lyrics_ovh(track: &Track) -> Option<Lyrics> {
+    let (artist, title) = search_terms(track);
+    let artist = artist?;
+    if title.trim().is_empty() || artist.trim().is_empty() {
+        return None;
+    }
+    let url = format!("{LYRICS_OVH}/{}/{}", encode_segment(artist.trim()), encode_segment(title.trim()));
+    let mut response = agent().get(url).header("User-Agent", USER_AGENT).call().ok()?;
+    if response.status().as_u16() != 200 {
+        return None;
+    }
+    #[derive(Deserialize)]
+    struct Reply {
+        lyrics: Option<String>,
+    }
+    let text = response.body_mut().read_json::<Reply>().ok()?.lyrics?;
+    let text = clean_ovh(&text)?;
+    Some(Lyrics {
+        synced: None,
+        plain: Some(text),
+        instrumental: false,
+        source: "lyrics.ovh".into(),
+    })
+}
+
+/// Encodage d'un morceau de chemin d'URL (espaces, accents, « / »…).
+fn encode_segment(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// Texte de lyrics.ovh mis au propre : en-tête « Paroles de la chanson … » retiré, fins de
+/// ligne Windows, lignes vides en série réduites à une seule (séparation des couplets).
+fn clean_ovh(text: &str) -> Option<String> {
+    let text = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    if lines.first().is_some_and(|l| l.to_lowercase().starts_with("paroles de la chanson")) {
+        lines.remove(0);
+    }
+    let mut out: Vec<&str> = Vec::new();
+    for line in lines {
+        if line.trim().is_empty() && out.last().is_none_or(|l| l.trim().is_empty()) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.last().is_some_and(|l| l.trim().is_empty()) {
+        out.pop();
+    }
+    let joined = out.join("\n");
+    (joined.split_whitespace().count() >= 8).then_some(joined)
 }
 
 fn tagged_search(lrclib: &mut Lrclib, track: &Track) -> Option<LrclibRecord> {
@@ -1475,6 +1541,17 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn lyrics_ovh_text_is_cleaned() {
+        let raw = "Paroles de la chanson Papaoutai par Stromae\r\ndites-moi d'où il vient\r\n\r\n\r\n\r\nenfin je saurai où je vais\nmaman dit que lorsqu'on cherche bien\n\n";
+        assert_eq!(
+            clean_ovh(raw).unwrap(),
+            "dites-moi d'où il vient\n\nenfin je saurai où je vais\nmaman dit que lorsqu'on cherche bien"
+        );
+        assert!(clean_ovh("Instrumental").is_none());
+        assert_eq!(encode_segment("AC/DC é"), "AC%2FDC%20%C3%A9");
     }
 
     #[test]
