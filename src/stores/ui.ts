@@ -34,6 +34,14 @@ function top(): Entry | null {
   return (window.history.state as { mp?: Entry } | null)?.mp ?? null;
 }
 
+/**
+ * Champ de recherche vidé : on revient à la page d'avant par l'historique, ce qui prend un
+ * instant. Si l'on se remet à taper entre-temps, ce retour arrivait après coup et ramenait sur
+ * l'ancienne page, la nouvelle recherche restant dans le champ sans résultats (il fallait
+ * retaper). `leaving` : retour demandé ; `revived` : la recherche a repris, retour à ignorer.
+ */
+const searchExit = { leaving: false, revived: false };
+
 function push(kind: Entry, replace = false) {
   try {
     if (replace) window.history.replaceState({ mp: kind }, "");
@@ -95,6 +103,16 @@ export const useUiStore = defineStore("ui", {
     },
     /** Retour arrière (bouton retour d'Android, geste, souris). */
     onPopState() {
+      if (searchExit.leaving) {
+        searchExit.leaving = false;
+        if (searchExit.revived) {
+          // On s'est remis à taper avant la fin du retour : on reste sur les résultats, et
+          // l'entrée d'historique consommée est remise (le bouton retour garde son effet).
+          searchExit.revived = false;
+          push("route");
+          return;
+        }
+      }
       if (this.menu || this.playlistDialog || this.trackPicker || this.lyricsSearch) {
         // Un menu ou une fenêtre ouverte se ferme sans changer de page.
         this.menu = null;
@@ -116,9 +134,16 @@ export const useUiStore = defineStore("ui", {
     setSearch(query: string) {
       this.search = query;
       if (query.trim()) {
+        if (searchExit.leaving) searchExit.revived = true;
         if (this.route.name === "search") this.route = { name: "search", query };
         else this.go({ name: "search", query });
       } else if (this.route.name === "search") {
+        // Retour déjà en route (champ revidé avant qu'il arrive) : on ne le redemande pas.
+        if (searchExit.leaving) {
+          searchExit.revived = false;
+          return;
+        }
+        if (top() === "route") searchExit.leaving = true;
         this.back();
       }
     },
