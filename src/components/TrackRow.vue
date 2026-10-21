@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { formatDuration } from "@/lib/format";
 import type { Track } from "@/lib/types";
+import { useFavoritesStore } from "@/stores/favorites";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
 import Artwork from "./Artwork.vue";
@@ -21,11 +22,16 @@ const emit = defineEmits<{ (e: "play"): void }>();
 
 const player = usePlayerStore();
 const ui = useUiStore();
+const favorites = useFavoritesStore();
 
 const isCurrent = computed(() => player.currentTrack?.id === props.track.id);
+const liked = computed(() => favorites.isFavorite(props.track.id));
 
 function openMenu(event: MouseEvent) {
   ui.menu = { x: event.clientX, y: event.clientY, trackId: props.track.id, playlistId: props.playlistId };
+}
+async function toggleLike() {
+  await favorites.toggle(props.track.id);
 }
 </script>
 
@@ -71,6 +77,16 @@ function openMenu(event: MouseEvent) {
       {{ track.album === "Album inconnu" ? "—" : track.album }}
     </button>
     <span class="dur">{{ formatDuration(track.duration_secs) }}</span>
+    <button
+      type="button"
+      class="like"
+      :class="{ on: liked }"
+      :aria-label="liked ? 'Retirer des titres aimés' : 'Ajouter aux titres aimés'"
+      :aria-pressed="liked"
+      @click.stop="toggleLike"
+    >
+      <Icon name="heart" :size="15" :style="liked ? '--icon-fill: currentColor' : undefined" />
+    </button>
     <button class="more" type="button" aria-label="Plus d'options" @click.stop="openMenu">
       <Icon name="more" :size="18" />
     </button>
@@ -80,7 +96,7 @@ function openMenu(event: MouseEvent) {
 <style scoped>
 .track-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 56px 32px;
+  grid-template-columns: 44px minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 56px 28px 32px;
   align-items: center;
   gap: 12px;
   height: 100%;
@@ -90,7 +106,7 @@ function openMenu(event: MouseEvent) {
   outline: none;
 }
 .track-row.album {
-  grid-template-columns: 32px minmax(0, 1fr) 56px 32px;
+  grid-template-columns: 32px minmax(0, 1fr) 56px 28px 32px;
 }
 .track-row.striped {
   background: rgba(var(--fg-rgb), 0.025);
@@ -198,6 +214,25 @@ function openMenu(event: MouseEvent) {
 .more:focus-visible {
   opacity: 1;
 }
+.like {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  opacity: 0;
+}
+.track-row:hover .like,
+.like:focus-visible,
+.like.on {
+  opacity: 1;
+}
+.like.on {
+  color: #ff5a7a;
+}
 .bars {
   display: inline-flex;
   align-items: flex-end;
@@ -246,12 +281,12 @@ function openMenu(event: MouseEvent) {
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
   .track-row,
   .track-row.album {
-    grid-template-columns: 44px minmax(0, 1fr) 40px;
+    grid-template-columns: 44px minmax(0, 1fr) 36px 40px;
     gap: 10px;
     padding: 0 4px;
   }
   .track-row.album {
-    grid-template-columns: 28px minmax(0, 1fr) 40px;
+    grid-template-columns: 28px minmax(0, 1fr) 36px 40px;
   }
   .link.artist,
   .link.album,
@@ -262,7 +297,8 @@ function openMenu(event: MouseEvent) {
   .mobile-only {
     display: block;
   }
-  .more {
+  .more,
+  .like {
     opacity: 1 !important;
     width: 40px;
     height: 40px;

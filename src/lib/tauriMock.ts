@@ -9,7 +9,7 @@
 // statiquement faux en prod ⇒ tree-shaké par Rollup) pour ne jamais
 // atterrir dans le bundle livré à l'utilisateur.
 
-import type { InitialState, Lyrics, Playlist, PlaybackStatus, QueueView, RepeatMode, Track } from "./types";
+import type { InitialState, Lyrics, Playlist, PlaybackStatus, QueueView, RepeatMode, ShareImportResult, Track } from "./types";
 
 const DEMO_ALBUMS = [
   { album: "Nuit Blanche", artist: "Les Ondes", year: 2021, colors: ["#1b1f4a", "#6a3cff", "#ff4fa3"] },
@@ -108,6 +108,7 @@ export function installTauriMock() {
     { id: "pl-1", name: "Favoris", track_ids: [library[0].id, library[3].id, library[7].id], theme: "sunset" },
     { id: "pl-2", name: "Soirée d'été entre amis", track_ids: [library[1].id], theme: "midnight" },
   ];
+  const favorites = new Set<string>([library[0].id, library[4].id]);
 
   let ticker: ReturnType<typeof setInterval> | null = null;
   function ensureTicker() {
@@ -346,6 +347,27 @@ export function installTauriMock() {
     },
     get_eq_gains: () => eqGains,
 
+    toggle_favorite: ({ trackId }) => {
+      const now = !favorites.has(trackId);
+      if (now) favorites.add(trackId);
+      else favorites.delete(trackId);
+      return now;
+    },
+    list_favorites: () => [...favorites],
+    // Partage : pas de vrai fichier en mode démo (navigateur, hors webview Tauri).
+    export_track: ({ trackId }) => {
+      const t = library.find((x) => x.id === trackId);
+      return t ? `/demo/partages/${t.title}.mpshare` : null;
+    },
+    export_playlist: ({ playlistId }) => {
+      const pl = playlists.find((p) => p.id === playlistId);
+      return pl ? `/demo/partages/${pl.name}.mpshare` : null;
+    },
+    pick_share_file: () => null,
+    import_share_bundle: (): ShareImportResult => {
+      throw new Error("Import indisponible en mode démo.");
+    },
+
     get_initial_state: (): InitialState => ({
       library_root: "/musique/demo",
       library,
@@ -355,6 +377,7 @@ export function installTauriMock() {
       volume,
       eq_gains: eqGains,
       playlists,
+      favorites: [...favorites],
       scanning: false,
       appearance,
       custom_dir: "/custom",

@@ -9,6 +9,7 @@ import { SCROLLER } from "@/lib/virtual";
 import { useAmbienceStore } from "@/stores/ambience";
 import { useAppearanceStore } from "@/stores/appearance";
 import { useEqStore } from "@/stores/eq";
+import { useFavoritesStore } from "@/stores/favorites";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
@@ -30,6 +31,7 @@ import UpdateDialog from "@/components/UpdateDialog.vue";
 import AlbumDetail from "@/views/AlbumDetail.vue";
 import AlbumsView from "@/views/AlbumsView.vue";
 import ArtistsView from "@/views/ArtistsView.vue";
+import FavoritesView from "@/views/FavoritesView.vue";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
@@ -42,6 +44,7 @@ import StatsView from "@/views/StatsView.vue";
 const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
+const favorites = useFavoritesStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
 const ui = useUiStore();
@@ -166,8 +169,29 @@ function onKey(e: KeyboardEvent) {
 
 let unlisten: (() => void) | null = null;
 
-// Fichier ouvert depuis une autre appli : lu tout de suite, écran « À l'écoute » affiché.
+/** Résumé affiché après l'import d'une archive de partage. */
+function shareImportMessage(result: { name: string; kind: string; added_tracks: number; skipped_tracks: number }): string {
+  const what = result.kind === "playlist" ? `la playlist « ${result.name} »` : `« ${result.name} »`;
+  const base = `${what} importée (${result.added_tracks} morceau${result.added_tracks > 1 ? "x" : ""})`;
+  return result.skipped_tracks > 0 ? `${base}, ${result.skipped_tracks} piste(s) illisible(s) ignorée(s).` : `${base}.`;
+}
+
+// Fichier ouvert depuis une autre appli : une archive de partage (.mpshare) est importée,
+// un fichier audio est lu tout de suite (écran « À l'écoute » affiché).
 async function openFile(path: string) {
+  if (/\.mpshare$/i.test(path)) {
+    try {
+      // La bibliothèque (avec les morceaux importés) arrive par l'événement « library-updated »,
+      // déjà écouté plus bas : un nouveau scan du dossier de la bibliothèque passerait à côté
+      // des fichiers importés, qui vivent hors de ce dossier.
+      const result = await api.importShareBundle(path);
+      await playlists.fetchAll();
+      ui.notify(shareImportMessage(result));
+    } catch (e) {
+      ui.notify(String(e));
+    }
+    return;
+  }
   try {
     const track = await api.openAudioFile(path);
     await player.afterTrackChange(track);
@@ -198,6 +222,7 @@ onMounted(async () => {
   appearance.setFromInitialState(initial.appearance, initial.custom_dir);
   library.setFromInitialState(initial.library_root, initial.library, initial.scanning);
   playlists.setFromInitialState(initial.playlists);
+  favorites.setFromInitialState(initial.favorites);
   eq.setFromInitialState(initial.eq_gains);
   player.setFromInitialState({
     current_track: initial.current_track,
@@ -311,6 +336,7 @@ onBeforeUnmount(() => {
               <AlbumsView v-else-if="ui.route.name === 'albums'" />
               <ArtistsView v-else-if="ui.route.name === 'artists'" :artist="ui.route.artist" />
               <SongsView v-else-if="ui.route.name === 'songs'" />
+              <FavoritesView v-else-if="ui.route.name === 'favorites'" />
               <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
               <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />

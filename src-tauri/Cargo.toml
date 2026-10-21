@@ -36,6 +36,9 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 walkdir = "2"
 rayon = "1"
 ureq = { version = "3", features = ["json"] }
+# Archives de partage (.mpshare) : « stored » seulement (les fichiers audio sont déjà
+# compressés), pas de dépendance C (compilation croisée Android plus simple).
+zip = { version = "2", default-features = false, features = ["deflate"] }
 # Icône choisie appliquée aux raccourcis Windows : PNG → .ico multi-tailles.
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 

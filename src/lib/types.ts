@@ -115,6 +115,8 @@ export interface InitialState {
   volume: number;
   eq_gains: [number, number, number];
   playlists: Playlist[];
+  /** Identifiants des morceaux aimés. */
+  favorites: string[];
   scanning: boolean;
   /** Réglages d'apparence enregistrés (null : apparence d'origine). */
   appearance: unknown;
@@ -139,6 +141,15 @@ export interface Artist {
   name: string;
   albums: Album[];
   tracks: Track[];
+}
+
+/** Résultat de l'import d'une archive de partage (`.mpshare`). */
+export interface ShareImportResult {
+  name: string;
+  kind: "track" | "playlist";
+  added_tracks: number;
+  skipped_tracks: number;
+  playlist_id: string | null;
 }
 
 /** Nouvelle version proposée par la mise à jour automatique (ordinateur). */

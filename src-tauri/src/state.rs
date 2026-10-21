@@ -3,6 +3,7 @@
 
 use crate::audio::AudioHandle;
 use crate::eq::{new_eq_gains, EqGains};
+use crate::favorites::FavoritesStore;
 use crate::library::Track;
 use crate::playlists::PlaylistStore;
 use crate::queue::Queue;
@@ -18,6 +19,7 @@ pub struct AppState {
     /// Vrai pendant un scan (au démarrage ou demandé) : évite deux scans simultanés.
     pub scanning: AtomicBool,
     pub playlists: Mutex<PlaylistStore>,
+    pub favorites: Mutex<FavoritesStore>,
     pub eq_gains: EqGains,
     pub volume: Mutex<f32>,
     /// Position (s) où reprendre le morceau en cours quand aucun n'est encore chargé dans le
@@ -38,6 +40,7 @@ impl AppState {
             library_root: Mutex::new(None),
             scanning: AtomicBool::new(false),
             playlists: Mutex::new(PlaylistStore::default()),
+            favorites: Mutex::new(FavoritesStore::default()),
             eq_gains,
             volume: Mutex::new(1.0),
             resume_at: Mutex::new(0.0),
@@ -47,6 +50,10 @@ impl AppState {
 
     pub fn playlists_path(&self) -> PathBuf {
         self.data_dir.join("playlists.json")
+    }
+
+    pub fn favorites_path(&self) -> PathBuf {
+        self.data_dir.join("favorites.json")
     }
 
     pub fn session_path(&self) -> PathBuf {

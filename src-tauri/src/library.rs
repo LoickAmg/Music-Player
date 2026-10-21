@@ -70,7 +70,7 @@ fn read_tagged(path: &Path, read_tags: bool) -> Option<lofty::file::TaggedFile> 
     Probe::open(path).ok()?.options(options).read().ok()
 }
 
-fn modified_secs(path: &Path) -> u64 {
+pub fn modified_secs(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()

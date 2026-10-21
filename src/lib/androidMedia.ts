@@ -31,9 +31,16 @@ interface AndroidLookBridge {
   pinShortcut?(label: string, path: string): boolean;
 }
 
+/** Feuille de partage du système (WhatsApp, Bluetooth, e-mail, Drive…), sur un fichier déjà
+ *  exporté par l'appli (archive .mpshare dans le dossier « partages/ »). */
+interface AndroidShareBridge {
+  share(path: string): boolean;
+}
+
 declare global {
   interface Window {
     AndroidLook?: AndroidLookBridge;
+    AndroidShare?: AndroidShareBridge;
     __mpSystemDark?: (dark: boolean) => void;
     AndroidMedia?: AndroidMediaBridge;
     AndroidUpdate?: AndroidUpdateBridge;
@@ -79,6 +86,16 @@ export function installAndroidFiles(handlers: { open: (path: string) => void; li
   window.__mpOpenFile = take;
   window.__mpLibraryChanged = handlers.libraryChanged;
   take(); // fichier reçu au lancement de l'appli
+}
+
+/** Lance la feuille de partage d'Android sur un fichier déjà exporté par l'appli ; faux
+ *  (ou pas d'effet) ailleurs qu'Android, ou si Android a refusé (rare). */
+export function shareFile(path: string): boolean {
+  try {
+    return window.AndroidShare?.share(path) ?? false;
+  } catch {
+    return false;
+  }
 }
 
 /** Empêche (vrai) ou rend possible (faux) la mise en veille de l'écran du téléphone. */

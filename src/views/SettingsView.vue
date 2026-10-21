@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
+import { api } from "@/lib/api";
 import { formatCollection } from "@/lib/format";
 import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
+import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
@@ -16,7 +18,25 @@ const library = useLibraryStore();
 const eq = useEqStore();
 const lyrics = useLyricsStore();
 const updater = useUpdaterStore();
+const playlists = usePlaylistsStore();
 const ui = useUiStore();
+
+const importing = ref(false);
+async function importShare() {
+  importing.value = true;
+  try {
+    const path = await api.pickShareFile();
+    if (!path) return;
+    const result = await api.importShareBundle(path);
+    await playlists.fetchAll();
+    const what = result.kind === "playlist" ? `la playlist « ${result.name} »` : `« ${result.name} »`;
+    ui.notify(`${what} importée (${result.added_tracks} morceau${result.added_tracks > 1 ? "x" : ""}).`);
+  } catch (e) {
+    ui.notify(`Import impossible : ${e}`);
+  } finally {
+    importing.value = false;
+  }
+}
 const PERF_CHOICES: { value: PerfSetting; label: string }[] = [
   { value: "auto", label: "Automatique" },
   { value: "full", label: "Complet" },
@@ -94,6 +114,20 @@ const shortcuts = [
         </button>
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
+    </section>
+
+    <section class="card">
+      <h2><Icon name="share" :size="17" /> Partage</h2>
+      <p class="muted">
+        Un morceau ou une playlist se partage depuis son menu (« Partager »), sous forme d'une archive (.mpshare) qui contient les
+        fichiers audio : la personne qui la reçoit n'a pas besoin d'avoir déjà les morceaux.
+      </p>
+      <div v-if="!onAndroid" class="actions">
+        <button type="button" class="pill pill-ghost" :disabled="importing" @click="importShare">
+          <Icon name="import" :size="15" /> {{ importing ? "Import…" : "Importer une archive…" }}
+        </button>
+      </div>
+      <p v-else class="muted">Pour importer, ouvrez l'archive reçue (messagerie, fichiers…) avec « Ouvrir avec Music Player ».</p>
     </section>
 
     <DamagedFiles />

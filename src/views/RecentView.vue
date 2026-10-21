@@ -4,17 +4,15 @@ import { computed } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
-import AlbumCard from "@/components/AlbumCard.vue";
 import TrackRow from "@/components/TrackRow.vue";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
 const ui = useUiStore();
 
-const recentAlbums = computed(() =>
-  [...library.albums].filter((a) => a.tracks.length > 1).sort((a, b) => b.addedSecs - a.addedSecs).slice(0, 18),
-);
-const recentTracks = computed(() => [...library.tracks].sort((a, b) => b.added_secs - a.added_secs).slice(0, 40));
+// Les vrais ajouts récents, piste par piste : un album bucketé par sa piste la plus
+// récente montrait tout un album ancien dès qu'un seul morceau y était ajouté ou retouché.
+const recentTracks = computed(() => [...library.tracks].sort((a, b) => b.added_secs - a.added_secs).slice(0, 60));
 
 function play(index: number) {
   const ids = recentTracks.value.map((t) => t.id);
@@ -26,16 +24,6 @@ function play(index: number) {
   <div class="page">
     <h1 class="page-title">Ajouts récents</h1>
     <RecapBanner />
-
-    <section v-if="recentAlbums.length">
-      <div class="head">
-        <h2>Albums</h2>
-        <button type="button" class="more" @click="ui.go({ name: 'albums' })">Tout afficher</button>
-      </div>
-      <div class="grid">
-        <AlbumCard v-for="album in recentAlbums" :key="album.key" :album="album" />
-      </div>
-    </section>
 
     <section>
       <div class="head">
@@ -73,18 +61,7 @@ h2 {
   color: var(--accent);
   font-size: 13px;
 }
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 22px;
-}
 .row {
   height: 52px;
-}
-@media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
-  .grid {
-    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-    gap: 14px;
-  }
 }
 </style>

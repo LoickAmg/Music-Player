@@ -80,7 +80,11 @@ if (!manifest.includes(".MediaService")) {
 }
 if (!manifest.includes("audio/*")) {
   // « Ouvrir avec » : fichiers audio venant du gestionnaire de fichiers, des
-  // téléchargements, des messageries… (adresse content:// ou file://).
+  // téléchargements, des messageries… (adresse content:// ou file://). Les archives de
+  // partage (.mpshare, voir sharing.rs) sont des zip : pas de type MIME propre à elles, donc
+  // on y ajoute application/zip et application/octet-stream (le type le plus souvent transmis
+  // par les messageries pour une pièce jointe inconnue), filtrées par extension ensuite côté
+  // page (App.vue::openFile), qui refuse tout fichier qui n'est ni un son ni une archive.
   const filter = `
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -90,6 +94,8 @@ if (!manifest.includes("audio/*")) {
                 <data android:mimeType="audio/*" />
                 <data android:mimeType="application/ogg" />
                 <data android:mimeType="application/x-flac" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>`;
   manifest = manifest.replace(/<\/activity>/, filter);
@@ -106,6 +112,17 @@ if (!manifest.includes(".UpdateFileProvider")) {
     /<\/application>/,
     `    <provider android:name="${pkg}.UpdateFileProvider" android:authorities="\${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
+    </application>`,
+  );
+}
+if (!manifest.includes(".ShareFileProvider")) {
+  // Fournisseur dédié au partage (export .mpshare) : seul le dossier « partages/ » du
+  // stockage interne de l'appli est exposé, jamais un chemin arbitraire.
+  manifest = manifest.replace(
+    /<\/application>/,
+    `    <provider android:name="${pkg}.ShareFileProvider" android:authorities="\${applicationId}.shares" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/share_paths" />
         </provider>
     </application>`,
   );
@@ -273,6 +290,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     webView.addJavascriptInterface(MediaBridge(applicationContext), "AndroidMedia")
     updates = UpdateBridge(this).also { webView.addJavascriptInterface(it, "AndroidUpdate") }
     webView.addJavascriptInterface(LookBridge(applicationContext), "AndroidLook")
+    webView.addJavascriptInterface(ShareBridge(applicationContext), "AndroidShare")
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -1108,6 +1126,49 @@ object AudioFiles {
 `,
 );
 
+// 3 ter. Partage (export .mpshare) : feuille de partage du système (WhatsApp, Bluetooth,
+// e-mail, Drive…) sur un fichier déjà préparé par l'appli dans son dossier « partages/ ».
+fs.writeFileSync(
+  path.join(kotlinDir, "ShareBridge.kt"),
+  `package ${pkg}
+
+import android.content.Context
+import android.content.Intent
+import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
+import androidx.core.content.FileProvider
+import java.io.File
+
+class ShareFileProvider : FileProvider()
+
+/** Partage un fichier déjà exporté par l'appli (archive .mpshare) via la feuille de partage
+ *  du système. Appelé depuis la page (window.AndroidShare) juste après un export réussi. */
+class ShareBridge(private val context: Context) {
+  @JavascriptInterface
+  fun share(path: String): Boolean {
+    return try {
+      val file = File(path).canonicalFile
+      // Seul un fichier du dossier de partages de l'appli est accepté : jamais un chemin
+      // arbitraire transmis par la page.
+      val base = File(context.filesDir, "partages").canonicalFile
+      if (!file.isFile || !file.path.startsWith(base.path + File.separator)) return false
+      val uri = FileProvider.getUriForFile(context, context.packageName + ".shares", file)
+      val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension) ?: "application/octet-stream"
+      val send = Intent(Intent.ACTION_SEND).apply {
+        type = mime
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      true
+    } catch (e: Exception) {
+      false
+    }
+  }
+}
+`,
+);
+
 // 3 bis. Personnalisation : icône de l'écran d'accueil, raccourci avec photo, mode sombre.
 fs.writeFileSync(
   path.join(kotlinDir, "LookBridge.kt"),
@@ -1250,6 +1311,14 @@ fs.writeFileSync(
 <paths>
     <cache-path name="updates" path="updates/" />
     <external-files-path name="downloads" path="Download/" />
+</paths>
+`,
+);
+fs.writeFileSync(
+  path.join(res, "xml", "share_paths.xml"),
+  `<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="partages" path="partages/" />
 </paths>
 `,
 );

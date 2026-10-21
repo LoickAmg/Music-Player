@@ -2,6 +2,7 @@ pub mod appearance;
 pub mod audio;
 pub mod commands;
 pub mod eq;
+pub mod favorites;
 pub mod ffmpeg;
 pub mod library;
 pub mod listening;
@@ -9,6 +10,7 @@ pub mod lyrics;
 pub mod playlists;
 pub mod queue;
 pub mod session;
+pub mod sharing;
 pub mod shortcut_icon;
 pub mod state;
 pub mod updater;
@@ -141,6 +143,12 @@ pub fn run() {
             commands::get_eq_gains,
             commands::get_initial_state,
             commands::save_session,
+            commands::toggle_favorite,
+            commands::list_favorites,
+            commands::export_track,
+            commands::export_playlist,
+            commands::pick_share_file,
+            commands::import_share_bundle,
             updater::check_update,
             updater::install_update,
         ])

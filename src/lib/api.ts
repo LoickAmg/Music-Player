@@ -12,6 +12,7 @@ import type {
   QueueView,
   RepeatMode,
   ScanProgress,
+  ShareImportResult,
   Track,
   UpdateInfo,
 } from "./types";
@@ -92,6 +93,16 @@ export const api = {
 
   setEqGains: (gains: [number, number, number]) => invoke<void>("set_eq_gains", { gains }),
   getEqGains: () => invoke<[number, number, number]>("get_eq_gains"),
+
+  /** Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état. */
+  toggleFavorite: (trackId: string) => invoke<boolean>("toggle_favorite", { trackId }),
+  listFavorites: () => invoke<string[]>("list_favorites"),
+
+  /** Chemin créé, ou `null` si la boîte de dialogue a été annulée (ordinateur). */
+  exportTrack: (trackId: string) => invoke<string | null>("export_track", { trackId }),
+  exportPlaylist: (playlistId: string) => invoke<string | null>("export_playlist", { playlistId }),
+  pickShareFile: () => invoke<string | null>("pick_share_file"),
+  importShareBundle: (path: string) => invoke<ShareImportResult>("import_share_bundle", { path }),
 
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),

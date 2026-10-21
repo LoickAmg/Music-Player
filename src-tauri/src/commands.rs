@@ -7,6 +7,7 @@ use crate::lyrics::{self, Lyrics};
 use crate::playlists::Playlist;
 use crate::queue::RepeatMode;
 use crate::session::SessionState;
+use crate::sharing::{self, ImportResult};
 use crate::state::AppState;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -121,7 +122,9 @@ pub fn scan_library(app: AppHandle, root: String) -> Result<Vec<Track>, String> 
 }
 
 /// Ouvre un fichier audio donné par le système (« Ouvrir avec Music Player ») : lu tout de
-/// suite, et ajouté à la bibliothèque s'il n'y était pas encore.
+/// suite, et ajouté à la bibliothèque s'il n'y était pas encore. Les archives de partage
+/// (`.mpshare`) passent par `import_share_bundle` à la place (voir `App.vue::openFile`,
+/// qui distingue les deux selon l'extension avant d'appeler l'une ou l'autre).
 #[tauri::command(async)]
 pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, String> {
     let state = app.state::<AppState>();
@@ -655,6 +658,133 @@ pub fn move_track_in_playlist(
 }
 
 // ---------------------------------------------------------------------
+// Favoris
+// ---------------------------------------------------------------------
+
+/// Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état.
+#[tauri::command]
+pub fn toggle_favorite(state: State<AppState>, track_id: String) -> Result<bool, String> {
+    let mut store = state.favorites.lock().unwrap();
+    let now = store.toggle(&track_id);
+    store
+        .save(&state.favorites_path())
+        .map_err(|e| e.to_string())?;
+    Ok(now)
+}
+
+#[tauri::command]
+pub fn list_favorites(state: State<AppState>) -> Vec<String> {
+    state.favorites.lock().unwrap().track_ids.iter().cloned().collect()
+}
+
+// ---------------------------------------------------------------------
+// Partage (export / import d'archives .mpshare)
+// ---------------------------------------------------------------------
+
+/// Propose un emplacement (boîte de dialogue native, ordinateur seulement) puis écrit
+/// l'archive ; `None` si la boîte de dialogue a été annulée. Android : voir
+/// `sharing::EXTENSION` et le dossier `partages/`, exposés autrement (feuille de partage).
+#[cfg(not(target_os = "android"))]
+fn pick_save_path(app: &AppHandle, suggested_name: &str) -> Option<PathBuf> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    app.dialog()
+        .file()
+        .set_file_name(suggested_name)
+        .add_filter("Partage Music Player", &[sharing::EXTENSION])
+        .save_file(move |path| {
+            let _ = tx.send(path);
+        });
+    rx.recv().ok().flatten().and_then(|p| p.into_path().ok())
+}
+
+#[cfg(target_os = "android")]
+fn pick_save_path(app: &AppHandle, suggested_name: &str) -> Option<PathBuf> {
+    // Pas de boîte de dialogue « Enregistrer sous » exploitable ici : le fichier est
+    // préparé dans le dossier de partages de l'appli (le frontend lance ensuite la feuille
+    // de partage d'Android dessus).
+    let dir = app.state::<AppState>().data_dir.join("partages");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir.join(suggested_name))
+}
+
+fn bundle_filename(name: &str) -> String {
+    let safe: String = name
+        .chars()
+        .map(|c| if "\\/:*?\"<>|".contains(c) { '_' } else { c })
+        .collect();
+    format!("{}.{}", safe.trim().chars().take(80).collect::<String>(), sharing::EXTENSION)
+}
+
+/// Exporte un morceau dans une archive de partage ; renvoie le chemin créé, ou `None` si
+/// l'utilisateur a annulé (ordinateur).
+#[tauri::command(async)]
+pub fn export_track(app: AppHandle, track_id: String) -> Result<Option<String>, String> {
+    let state = app.state::<AppState>();
+    let track = state.find_track(&track_id).ok_or("Morceau introuvable.")?;
+    let Some(dest) = pick_save_path(&app, &bundle_filename(&track.title)) else {
+        return Ok(None);
+    };
+    sharing::export_track(&state, &dest, &track_id)?;
+    Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+/// Exporte une playlist entière dans une archive de partage.
+#[tauri::command(async)]
+pub fn export_playlist(app: AppHandle, playlist_id: String) -> Result<Option<String>, String> {
+    let state = app.state::<AppState>();
+    let name = state
+        .playlists
+        .lock()
+        .unwrap()
+        .get(&playlist_id)
+        .ok_or("Playlist introuvable.")?
+        .name
+        .clone();
+    let Some(dest) = pick_save_path(&app, &bundle_filename(&name)) else {
+        return Ok(None);
+    };
+    sharing::export_playlist(&state, &dest, &playlist_id)?;
+    Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+/// Propose de choisir une archive de partage à importer (boîte de dialogue, ordinateur
+/// seulement : sur Android, un chemin choisi ainsi serait une adresse `content://` que
+/// `import_share_bundle` ne sait pas lire — on y importe plutôt par « Ouvrir avec »).
+#[tauri::command(async)]
+pub fn pick_share_file(app: AppHandle) -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = app;
+        None
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.dialog()
+            .file()
+            .add_filter("Partage Music Player", &[sharing::EXTENSION])
+            .pick_file(move |file| {
+                let _ = tx.send(file);
+            });
+        rx.recv()
+            .ok()
+            .flatten()
+            .and_then(|p| p.into_path().ok())
+            .map(|p| p.to_string_lossy().to_string())
+    }
+}
+
+/// Importe une archive de partage reçue d'un autre appareil (choisie dans une boîte de
+/// dialogue, ou ouverte depuis le système — voir `App.vue::openFile`).
+#[tauri::command(async)]
+pub fn import_share_bundle(app: AppHandle, path: String) -> Result<ImportResult, String> {
+    let state = app.state::<AppState>();
+    let result = sharing::import_bundle(&state, Path::new(&path))?;
+    let _ = app.emit("library-updated", state.library.lock().unwrap().clone());
+    Ok(result)
+}
+
+// ---------------------------------------------------------------------
 // Égaliseur
 // ---------------------------------------------------------------------
 
@@ -684,6 +814,8 @@ pub struct InitialState {
     pub volume: f32,
     pub eq_gains: [f32; 3],
     pub playlists: Vec<Playlist>,
+    /// Identifiants des morceaux aimés.
+    pub favorites: Vec<String>,
     /// Un scan tourne en arrière-plan : la bibliothèque affichée vient du cache.
     pub scanning: bool,
     /// Réglages d'apparence enregistrés (`null` : apparence par défaut).
@@ -713,6 +845,7 @@ pub fn get_initial_state(state: State<AppState>) -> InitialState {
         volume: *state.volume.lock().unwrap(),
         eq_gains: *state.eq_gains.lock().unwrap(),
         playlists: state.playlists.lock().unwrap().playlists.clone(),
+        favorites: state.favorites.lock().unwrap().track_ids.iter().cloned().collect(),
         scanning: state.scanning.load(Ordering::SeqCst),
         appearance: crate::appearance::load(&state.data_dir),
         custom_dir: crate::appearance::custom_dir(&state.data_dir)
@@ -757,6 +890,10 @@ pub fn restore_state(state: &AppState, data_dir: &Path) -> Option<String> {
     let playlists =
         crate::playlists::PlaylistStore::load(&PathBuf::from(data_dir).join("playlists.json"));
     *state.playlists.lock().unwrap() = playlists;
+
+    let favorites =
+        crate::favorites::FavoritesStore::load(&PathBuf::from(data_dir).join("favorites.json"));
+    *state.favorites.lock().unwrap() = favorites;
 
     let session = SessionState::load(&PathBuf::from(data_dir).join("session.json"));
     *state.volume.lock().unwrap() = session.volume;

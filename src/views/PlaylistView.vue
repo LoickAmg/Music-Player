@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
+import { api } from "@/lib/api";
 import { formatCollection } from "@/lib/format";
+import { revealOrShare } from "@/lib/share";
 import type { Track } from "@/lib/types";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
@@ -57,6 +59,16 @@ async function playPlaylistNext() {
   const started = await player.playNext(ids.value);
   if (!started) ui.notify("La playlist sera lue juste après");
 }
+
+async function share() {
+  if (!playlist.value) return;
+  try {
+    const path = await api.exportPlaylist(playlist.value.id);
+    if (path) await revealOrShare(path);
+  } catch (e) {
+    ui.notify(`Partage impossible : ${e}`);
+  }
+}
 </script>
 
 <template>
@@ -86,6 +98,7 @@ async function playPlaylistNext() {
           </button>
           <button type="button" class="pill pill-ghost" @click="ui.trackPicker = playlist.id"><Icon name="plus" :size="15" /> Ajouter</button>
           <button type="button" class="icon-btn" title="Personnaliser (nom, jaquette)" aria-label="Personnaliser la playlist" @click="ui.playlistDialog = { mode: 'edit', id: playlist.id }"><Icon name="brush" :size="17" /></button>
+          <button type="button" class="icon-btn" title="Partager cette playlist" aria-label="Partager cette playlist" :disabled="!ids.length" @click="share"><Icon name="share" :size="17" /></button>
           <button type="button" class="icon-btn" title="Supprimer la playlist" aria-label="Supprimer la playlist" @click="remove"><Icon name="trash" :size="17" /></button>
         </div>
       </div>

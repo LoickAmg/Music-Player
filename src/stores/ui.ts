@@ -5,6 +5,7 @@ export type Route =
   | { name: "albums" }
   | { name: "artists"; artist?: string }
   | { name: "songs" }
+  | { name: "favorites" }
   | { name: "album"; key: string }
   | { name: "playlist"; id: string }
   | { name: "search"; query: string }

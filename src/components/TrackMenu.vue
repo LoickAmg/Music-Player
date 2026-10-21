@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { api } from "@/lib/api";
+import { revealOrShare } from "@/lib/share";
 import { albumKey, useLibraryStore } from "@/stores/library";
+import { useFavoritesStore } from "@/stores/favorites";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import { usePlayerStore } from "@/stores/player";
@@ -8,6 +11,7 @@ import { usePlayerStore } from "@/stores/player";
 const ui = useUiStore();
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
+const favorites = useFavoritesStore();
 const player = usePlayerStore();
 
 const box = ref<HTMLElement | null>(null);
@@ -74,6 +78,22 @@ async function removeFromPlaylist() {
   await playlists.removeTrack(ui.menu.playlistId, track.value.id);
   close();
 }
+async function toggleFavorite() {
+  if (!track.value) return;
+  const now = await favorites.toggle(track.value.id);
+  ui.notify(now ? `« ${track.value.title} » ajouté aux titres aimés` : `« ${track.value.title} » retiré des titres aimés`);
+}
+async function share() {
+  if (!track.value) return;
+  const { title } = track.value;
+  close();
+  try {
+    const path = await api.exportTrack(track.value.id);
+    if (path) await revealOrShare(path);
+  } catch (e) {
+    ui.notify(`Partage de « ${title} » impossible : ${e}`);
+  }
+}
 </script>
 
 <template>
@@ -83,6 +103,9 @@ async function removeFromPlaylist() {
       <button type="button" role="menuitem" @click="player.playTrackNow(track.id); close()">Lire maintenant</button>
       <button type="button" role="menuitem" @click="queue('next')">Lire ensuite</button>
       <button type="button" role="menuitem" @click="queue('end')">Ajouter à la file d'attente</button>
+      <button type="button" role="menuitem" @click="toggleFavorite">
+        {{ favorites.isFavorite(track.id) ? "Retirer des titres aimés" : "Ajouter aux titres aimés" }}
+      </button>
       <button type="button" role="menuitem" @click="showPlaylists = !showPlaylists">
         Ajouter à une playlist <span class="chev">›</span>
       </button>
@@ -113,6 +136,8 @@ async function removeFromPlaylist() {
       <button type="button" role="menuitem" @click="ui.go({ name: 'artists', artist: track.artist }); close()">
         Afficher l'artiste
       </button>
+      <hr />
+      <button type="button" role="menuitem" @click="share">Partager ce morceau</button>
       <template v-if="ui.menu.playlistId">
         <hr />
         <button type="button" role="menuitem" class="danger" @click="removeFromPlaylist">Retirer de la playlist</button>
