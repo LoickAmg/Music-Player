@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
 import { api, onScanEvents } from "@/lib/api";
 import { installAndroidFiles, installAndroidMedia, installInsets } from "@/lib/androidMedia";
@@ -45,6 +45,12 @@ const playlists = usePlaylistsStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
 const ui = useUiStore();
+// Clé de la transition de page : le nom de la route suffit, sauf pour un album ou une
+// playlist (sinon ouvrir un autre album ne jouerait pas la transition).
+const pageKey = computed(() => {
+  const r = ui.route;
+  return r.name === "album" ? `album:${r.key}` : r.name === "playlist" ? `playlist:${r.id}` : r.name;
+});
 const lyrics = useLyricsStore();
 const ambience = useAmbienceStore();
 const updater = useUpdaterStore();
@@ -299,19 +305,21 @@ onBeforeUnmount(() => {
             <h1>Analyse de votre musique…</h1>
             <p v-if="library.progress?.total">{{ library.progress.done.toLocaleString("fr-FR") }} / {{ library.progress.total.toLocaleString("fr-FR") }} fichiers</p>
           </div>
-          <template v-else>
-            <RecentView v-if="ui.route.name === 'recent'" />
-            <AlbumsView v-else-if="ui.route.name === 'albums'" />
-            <ArtistsView v-else-if="ui.route.name === 'artists'" :artist="ui.route.artist" />
-            <SongsView v-else-if="ui.route.name === 'songs'" />
-            <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
-            <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
-            <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
-            <SettingsView v-else-if="ui.route.name === 'settings'" />
-            <AppearanceView v-else-if="ui.route.name === 'appearance'" />
-            <StatsView v-else-if="ui.route.name === 'stats'" />
-            <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
-          </template>
+          <Transition name="page" mode="out-in">
+            <div :key="pageKey" class="page-slot">
+              <RecentView v-if="ui.route.name === 'recent'" />
+              <AlbumsView v-else-if="ui.route.name === 'albums'" />
+              <ArtistsView v-else-if="ui.route.name === 'artists'" :artist="ui.route.artist" />
+              <SongsView v-else-if="ui.route.name === 'songs'" />
+              <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
+              <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
+              <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
+              <SettingsView v-else-if="ui.route.name === 'settings'" />
+              <AppearanceView v-else-if="ui.route.name === 'appearance'" />
+              <StatsView v-else-if="ui.route.name === 'stats'" />
+              <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
+            </div>
+          </Transition>
           <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
             <Icon name="back" :size="18" />
           </button>
@@ -532,6 +540,26 @@ onBeforeUnmount(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+.page-slot {
+  min-height: 100%;
+}
+.page-enter-active {
+  transition: opacity 0.22s ease, transform 0.26s var(--ease);
+}
+.page-leave-active {
+  transition: opacity 0.12s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+:root[data-perf="lite"] .page-enter-active,
+:root[data-perf="lite"] .page-leave-active {
+  transition: none;
 }
 .np-leave-active {
   transition: opacity 0.3s, transform 0.3s var(--ease);

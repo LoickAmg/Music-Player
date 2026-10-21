@@ -46,6 +46,12 @@ export const BUILTIN_THEMES: Theme[] = [
   { id: "sakura", name: "Sakura (clair)", colors: { bg: "#fff5f8", surface: "#ffffff", text: "#3a1d2a", accent: "#e2507d", accent2: "#ffb3cb" }, radius: 14, glow: 0.5, fonts: { display: "zen-maru-gothic" }, builtin: true },
   { id: "papier", name: "Papier (clair)", colors: { bg: "#f4f1ea", surface: "#fffdf8", text: "#24211c", accent: "#2f6fdb", accent2: "#9fc0ff" }, radius: 8, glow: 0.3, fonts: { display: "lora", lyrics: "lora" }, builtin: true },
   { id: "croquis", name: "Croquis (clair)", colors: { bg: "#fbfaf6", surface: "#ffffff", text: "#2b2b2b", accent: "#d95800", accent2: "#3aa0ff" }, radius: 16, glow: 0.2, fonts: { display: "permanent-marker", lyrics: "caveat", ui: "patrick-hand" }, builtin: true },
+  { id: "automne", name: "Automne", colors: { bg: "#160d05", surface: "#2d1b0c", text: "#fbece0", accent: "#e8792f", accent2: "#c9a24a" }, radius: 10, glow: 0.7, fonts: { display: "literata", lyrics: "crimson-pro" }, builtin: true },
+  { id: "desert", name: "Désert", colors: { bg: "#1a1208", surface: "#36260f", text: "#fbf0dd", accent: "#e3a93d", accent2: "#b5592e" }, radius: 6, glow: 0.5, fonts: { display: "oswald", lyrics: "hind" }, builtin: true },
+  { id: "menthe", name: "Menthe", colors: { bg: "#031512", surface: "#0a2e27", text: "#e4fbf3", accent: "#2fd9a6", accent2: "#7cf0c4" }, radius: 14, glow: 0.8, fonts: { display: "outfit", lyrics: "familjen-grotesk" }, builtin: true },
+  { id: "royal", name: "Royal", colors: { bg: "#0e0a1c", surface: "#211539", text: "#f2ecff", accent: "#b68a3a", accent2: "#8a5cf6" }, radius: 8, glow: 0.9, fonts: { display: "cinzel-decorative", lyrics: "literata" }, builtin: true },
+  { id: "candy", name: "Candy (clair)", colors: { bg: "#fef6fb", surface: "#ffffff", text: "#3a2638", accent: "#d43e85", accent2: "#7dd6ff" }, radius: 18, glow: 0.4, fonts: { display: "dancing-script", lyrics: "quicksand" }, builtin: true },
+  { id: "mono", name: "Mono (clair)", colors: { bg: "#f7f7f5", surface: "#ffffff", text: "#1c1c1c", accent: "#1c1c1c", accent2: "#8a8a8a" }, radius: 4, glow: 0.15, fonts: { display: "archivo", lyrics: "work-sans", ui: "public-sans" }, builtin: true },
 ];
 
 // ------------------------------------------------------------------ couleurs

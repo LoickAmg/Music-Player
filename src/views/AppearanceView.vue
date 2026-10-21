@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { renderCrop, type Crop } from "@/lib/imageCrop";
 import { catalogFont, SYSTEM_FONT } from "@/lib/fonts";
+import { FONTS } from "@/lib/fontCatalog";
 import { BUILTIN_THEMES, cloneTheme, contrast, parseHex, parseThemeFile, themeFile, type FontRole, type Theme } from "@/lib/themes";
 import { useAppearanceStore, type ButtonShape, type ButtonStyle, type FieldShape, type FieldStyle, type IconStyle, type SchemeMode } from "@/stores/appearance";
 import { useUiStore } from "@/stores/ui";
@@ -481,7 +482,7 @@ const COLOR_FIELDS: { key: keyof Theme["colors"]; label: string }[] = [
       @cancel="closeCrop"
     />
 
-    <p class="muted foot">{{ BUILTIN_THEMES.length }} thèmes fournis, 73 polices libres de droits livrées avec l'application (hors ligne).</p>
+    <p class="muted foot">{{ BUILTIN_THEMES.length }} thèmes fournis, {{ FONTS.length }} polices libres de droits livrées avec l'application (hors ligne).</p>
   </div>
 </template>
 
