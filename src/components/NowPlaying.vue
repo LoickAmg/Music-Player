@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { coverUrl } from "@/lib/covers";
 import { useFrame, useNow } from "@/lib/clock";
 import { keepScreenOn } from "@/lib/androidMedia";
+import { useFavoritesStore } from "@/stores/favorites";
 import { useLyricsStore } from "@/stores/lyrics";
 import { formatDuration, hueFor } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
@@ -13,6 +14,7 @@ import LyricsView from "./LyricsView.vue";
 
 const player = usePlayerStore();
 const ui = useUiStore();
+const favorites = useFavoritesStore();
 // Écran étroit (téléphone, écran extérieur d'un pliable) : une colonne, pochette ou paroles.
 // À partir de 600 px (pliable ouvert, tablette) : pochette et paroles côte à côte.
 const narrowQuery = window.matchMedia("(max-width: 599px)");
@@ -110,6 +112,17 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
     <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.closeNowPlaying()">
       <Icon name="collapse" :size="18" />
+    </button>
+    <button
+      v-if="track"
+      type="button"
+      class="icon-btn like-now"
+      :class="{ on: favorites.isFavorite(track.id) }"
+      :aria-label="favorites.isFavorite(track.id) ? 'Retirer des titres aimés' : 'Ajouter aux titres aimés'"
+      :aria-pressed="favorites.isFavorite(track.id)"
+      @click="favorites.toggle(track.id)"
+    >
+      <Icon name="heart" :size="18" :style="favorites.isFavorite(track.id) ? '--icon-fill: currentColor' : undefined" />
     </button>
 
     <div v-if="track" class="layout" :class="{ 'm-lyrics': narrow && showLyrics }">
@@ -329,6 +342,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   z-index: 2;
   color: rgba(255, 255, 255, 0.8);
 }
+.like-now {
+  position: absolute;
+  top: calc(var(--safe-top) + 14px);
+  right: calc(var(--safe-right) + 14px);
+  z-index: 2;
+  color: rgba(255, 255, 255, 0.8);
+}
+.like-now.on {
+  color: #ff5a7a;
+}
 .layout {
   position: relative;
   z-index: 1;
@@ -547,7 +570,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   .m-lyrics .bar {
     margin-top: 4px;
   }
-  .collapse {
+  .collapse,
+  .like-now {
     top: calc(var(--safe-top) + 12px);
   }
   /* Fond allégé pour les téléphones modestes : un flou calculé une fois (plus d'image

@@ -85,10 +85,10 @@ async function toggleFavorite() {
 }
 async function share() {
   if (!track.value) return;
-  const { title } = track.value;
+  const { id, title } = track.value;
   close();
   try {
-    const path = await api.exportTrack(track.value.id);
+    const path = await api.exportTrack(id);
     if (path) await revealOrShare(path);
   } catch (e) {
     ui.notify(`Partage de « ${title} » impossible : ${e}`);
