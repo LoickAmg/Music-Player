@@ -113,24 +113,25 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.closeNowPlaying()">
       <Icon name="collapse" :size="18" />
     </button>
-    <button
-      v-if="track"
-      type="button"
-      class="icon-btn like-now"
-      :class="{ on: favorites.isFavorite(track.id) }"
-      :aria-label="favorites.isFavorite(track.id) ? 'Retirer des titres aimés' : 'Ajouter aux titres aimés'"
-      :aria-pressed="favorites.isFavorite(track.id)"
-      @click="favorites.toggle(track.id)"
-    >
-      <Icon name="heart" :size="18" :style="favorites.isFavorite(track.id) ? '--icon-fill: currentColor' : undefined" />
-    </button>
 
     <div v-if="track" class="layout" :class="{ 'm-lyrics': narrow && showLyrics }">
       <div class="left">
         <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
         <div class="meta">
-          <h2>{{ track.title }}</h2>
-          <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
+          <div class="meta-text">
+            <h2>{{ track.title }}</h2>
+            <p>{{ track.artist }}<template v-if="track.album !== 'Album inconnu'"> — {{ track.album }}</template></p>
+          </div>
+          <button
+            type="button"
+            class="icon-btn like-now"
+            :class="{ on: favorites.isFavorite(track.id) }"
+            :aria-label="favorites.isFavorite(track.id) ? 'Retirer des titres aimés' : 'Ajouter aux titres aimés'"
+            :aria-pressed="favorites.isFavorite(track.id)"
+            @click="favorites.toggle(track.id)"
+          >
+            <Icon name="heart" :size="19" :style="favorites.isFavorite(track.id) ? '--icon-fill: currentColor' : undefined" />
+          </button>
         </div>
         <div
           class="seek"
@@ -343,10 +344,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   color: rgba(255, 255, 255, 0.8);
 }
 .like-now {
-  position: absolute;
-  top: calc(var(--safe-top) + 14px);
-  right: calc(var(--safe-right) + 14px);
-  z-index: 2;
+  flex: none;
   color: rgba(255, 255, 255, 0.8);
 }
 .like-now.on {
@@ -378,7 +376,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   transform: scale(0.88);
 }
 .meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin: 26px 0 14px;
+}
+.meta-text {
+  min-width: 0;
 }
 .meta h2 {
   margin: 0;
@@ -570,8 +575,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   .m-lyrics .bar {
     margin-top: 4px;
   }
-  .collapse,
-  .like-now {
+  .collapse {
     top: calc(var(--safe-top) + 12px);
   }
   /* Fond allégé pour les téléphones modestes : un flou calculé une fois (plus d'image
@@ -646,7 +650,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     display: none;
   }
   .m-lyrics .meta {
-    display: block;
+    display: flex;
   }
 }
 </style>
