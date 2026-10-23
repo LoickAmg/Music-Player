@@ -976,14 +976,14 @@ fn relay_or_default(relay: Option<String>) -> Result<String, String> {
     relay
         .map(|r| r.trim().to_string())
         .filter(|r| !r.is_empty())
-        .or_else(|| crate::remote::DEFAULT_RELAY.map(str::to_string))
+        .or_else(|| crate::remote::default_relay().map(str::to_string))
         .ok_or_else(|| "Aucun relais de partage n'est réglé (Réglages → Partage).".to_string())
 }
 
 /// Adresse du relais choisie à la construction de l'application, s'il y en a une.
 #[tauri::command]
 pub fn default_relay() -> Option<String> {
-    crate::remote::DEFAULT_RELAY.map(str::to_string)
+    crate::remote::default_relay().map(str::to_string)
 }
 
 #[derive(Serialize)]

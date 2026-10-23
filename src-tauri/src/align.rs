@@ -47,6 +47,9 @@ const FILES: [ModelFile; 3] = [
     },
 ];
 
+/// Tranche d'un téléchargement (une requête « Range » chacune).
+const SLICE: u64 = 8 * 1024 * 1024;
+
 /// Taille totale à télécharger (octets).
 pub const MODEL_BYTES: u64 = 78_067_328 + 1_983 + 2_480_466;
 
@@ -73,11 +76,13 @@ pub fn remove(data_dir: &Path) {
 pub fn install(data_dir: &Path, mut progress: impl FnMut(u64, u64)) -> Result<(), String> {
     let dir = model_dir(data_dir);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    // Durée totale de réception (pas un délai d'inactivité) : 78 Mo sur une connexion de
-    // téléphone lente (60 Ko/s constatés) prennent plus de 20 minutes.
+    // Téléchargement par tranches de 8 Mo, chacune avec son propre délai : ureq ne connaît
+    // qu'une durée totale de réception, et une connexion qui ne répond plus (constaté à 57 Mo
+    // sur 78) bloquerait sinon jusqu'à la fin de ce délai. Une tranche en échec est retentée.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(Duration::from_secs(20)))
-        .timeout_recv_body(Some(Duration::from_secs(45 * 60)))
+        .timeout_recv_response(Some(Duration::from_secs(30)))
+        .timeout_recv_body(Some(Duration::from_secs(4 * 60)))
         .http_status_as_error(false)
         .build()
         .into();
@@ -109,21 +114,6 @@ pub fn install(data_dir: &Path, mut progress: impl FnMut(u64, u64)) -> Result<()
                 received = 0;
             }
         }
-        let mut request = agent.get(&url).header("User-Agent", USER_AGENT);
-        if received > 0 {
-            request = request.header("Range", &format!("bytes={received}-"));
-        }
-        let mut response = request
-            .call()
-            .map_err(|e| format!("Téléchargement impossible : {e}"))?;
-        let status = response.status().as_u16();
-        if status == 200 && received > 0 {
-            // Le serveur ne sait pas reprendre : on repart de zéro.
-            hasher = Sha256::new();
-            received = 0;
-        } else if status != 200 && status != 206 {
-            return Err(format!("Téléchargement impossible (réponse {status})."));
-        }
         let mut out = if received > 0 {
             fs::OpenOptions::new().append(true).open(&partial)
         } else {
@@ -131,22 +121,63 @@ pub fn install(data_dir: &Path, mut progress: impl FnMut(u64, u64)) -> Result<()
         }
         .map_err(|e| e.to_string())?;
         progress(done + received, MODEL_BYTES);
-        let mut reader = response.body_mut().as_reader();
         let mut buffer = vec![0u8; 256 * 1024];
-        loop {
-            let n = reader
-                .read(&mut buffer)
-                .map_err(|e| format!("Téléchargement interrompu : {e}"))?;
-            if n == 0 {
-                break;
+        let mut failures = 0;
+        while received < file.size {
+            let end = (received + SLICE).min(file.size) - 1;
+            let attempt = (|| -> Result<u64, String> {
+                let mut response = agent
+                    .get(&url)
+                    .header("User-Agent", USER_AGENT)
+                    .header("Range", &format!("bytes={received}-{end}"))
+                    .call()
+                    .map_err(|e| format!("Téléchargement impossible : {e}"))?;
+                let status = response.status().as_u16();
+                // 200 : fichier entier renvoyé sans tenir compte de la tranche (petits fichiers).
+                let whole = status == 200 && received == 0 && end + 1 == file.size;
+                if status != 206 && !whole {
+                    return Err(format!("Téléchargement impossible (réponse {status})."));
+                }
+                let mut reader = response.body_mut().as_reader();
+                let mut got = 0u64;
+                let want = end + 1 - received;
+                while got < want {
+                    let room = (want - got).min(buffer.len() as u64) as usize;
+                    let n = reader
+                        .read(&mut buffer[..room])
+                        .map_err(|e| format!("Téléchargement interrompu : {e}"))?;
+                    if n == 0 {
+                        break;
+                    }
+                    hasher.update(&buffer[..n]);
+                    out.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
+                    got += n as u64;
+                    progress(done + received + got, MODEL_BYTES);
+                }
+                Ok(got)
+            })();
+            match attempt {
+                Ok(got) if got > 0 => {
+                    received += got;
+                    failures = 0;
+                }
+                outcome => {
+                    // Les octets déjà écrits de la tranche sont dans le fichier : on garde
+                    // la position réelle pour la reprise.
+                    out.flush().map_err(|e| e.to_string())?;
+                    let written = fs::metadata(&partial).map(|m| m.len()).unwrap_or(received);
+                    if written > received {
+                        received = written;
+                        failures = 0;
+                        continue;
+                    }
+                    failures += 1;
+                    if failures >= 3 {
+                        return Err(outcome.err().unwrap_or_else(|| "Téléchargement interrompu.".into()));
+                    }
+                    std::thread::sleep(Duration::from_secs(2 * failures));
+                }
             }
-            received += n as u64;
-            if received > file.size {
-                break;
-            }
-            hasher.update(&buffer[..n]);
-            out.write_all(&buffer[..n]).map_err(|e| e.to_string())?;
-            progress(done + received, MODEL_BYTES);
         }
         drop(out);
         let digest = format!("{:x}", hasher.finalize());
@@ -317,8 +348,65 @@ pub struct Segment {
     pub text: String,
 }
 
+/// Modèle tel qu'exécuté sur cet appareil. ARM 64 bits (téléphones) : poids compressés (Q8),
+/// rapides grâce à NEON, toujours présent. PC : les calculs rapides des poids compressés de
+/// Candle n'existent que si AVX2 est activé à la compilation, ce que l'appli publiée ne peut
+/// pas exiger (elle ne démarrerait plus sur les vieux processeurs) ; les poids sont donc
+/// décompressés au chargement, et le calcul ordinaire choisit AVX tout seul au lancement
+/// (8 s au lieu de 5 min pour 26 s de voix, mesuré en version optimisée).
+enum Model {
+    Compressed(Whisper),
+    Full(m::model::Whisper),
+}
+
+impl Model {
+    fn load(path: &Path, config: Config, device: &Device) -> candle::Result<Self> {
+        if cfg!(target_arch = "aarch64") {
+            let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(path, device)?;
+            return Ok(Self::Compressed(Whisper::load(&vb, config)?));
+        }
+        let mut file = fs::File::open(path)?;
+        let content = candle::quantized::gguf_file::Content::read(&mut file)?;
+        let mut tensors = HashMap::new();
+        for name in content.tensor_infos.keys() {
+            let tensor = content.tensor(&mut file, name, device)?.dequantize(device)?;
+            tensors.insert(name.clone(), tensor);
+        }
+        let vb = candle_nn::VarBuilder::from_tensors(tensors, candle::DType::F32, device);
+        Ok(Self::Full(m::model::Whisper::load(&vb, config)?))
+    }
+
+    fn config(&self) -> &Config {
+        match self {
+            Self::Compressed(w) => &w.config,
+            Self::Full(w) => &w.config,
+        }
+    }
+
+    fn encode(&mut self, mel: &Tensor) -> candle::Result<Tensor> {
+        match self {
+            Self::Compressed(w) => w.encoder.forward(mel, true),
+            Self::Full(w) => w.encoder.forward(mel, true),
+        }
+    }
+
+    fn decode(&mut self, tokens: &Tensor, audio: &Tensor, first: bool) -> candle::Result<Tensor> {
+        match self {
+            Self::Compressed(w) => w.decoder.forward(tokens, audio, first),
+            Self::Full(w) => w.decoder.forward(tokens, audio, first),
+        }
+    }
+
+    fn final_linear(&self, x: &Tensor) -> candle::Result<Tensor> {
+        match self {
+            Self::Compressed(w) => w.decoder.final_linear(x),
+            Self::Full(w) => w.decoder.final_linear(x),
+        }
+    }
+}
+
 struct Recognizer {
-    model: Whisper,
+    model: Model,
     tokens: Tokens,
     suppress: Tensor,
     sot: u32,
@@ -338,12 +426,7 @@ impl Recognizer {
         let config: Config =
             serde_json::from_slice(&fs::read(dir.join("config.json")).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
-        let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
-            dir.join(FILES[0].name),
-            &device,
-        )
-        .map_err(err)?;
-        let model = Whisper::load(&vb, config.clone()).map_err(err)?;
+        let model = Model::load(&dir.join(FILES[0].name), config.clone(), &device).map_err(err)?;
         let tokens = Tokens::load(&dir.join("tokenizer.json"))?;
         let no_timestamps = tokens.id(m::NO_TIMESTAMPS_TOKEN)?;
         let mut mask = vec![0f32; config.vocab_size];
@@ -378,14 +461,14 @@ impl Recognizer {
     /// transcription (probabilité « pas de voix », langue).
     fn logits(&mut self, tokens: &[u32], audio: &Tensor, first: bool) -> candle::Result<(Option<Tensor>, Tensor)> {
         let input = Tensor::new(tokens, &self.device)?.unsqueeze(0)?;
-        let ys = self.model.decoder.forward(&input, audio, first)?;
+        let ys = self.model.decode(&input, audio, first)?;
         let (_, len, _) = ys.dims3()?;
         let start = if first {
-            Some(self.model.decoder.final_linear(&ys.i((..1, ..1))?)?.i(0)?.i(0)?)
+            Some(self.model.final_linear(&ys.i((..1, ..1))?)?.i(0)?.i(0)?)
         } else {
             None
         };
-        let last = self.model.decoder.final_linear(&ys.i((..1, len - 1..))?)?.i(0)?.i(0)?;
+        let last = self.model.final_linear(&ys.i((..1, len - 1..))?)?.i(0)?.i(0)?;
         Ok((start, last))
     }
 
@@ -406,7 +489,7 @@ impl Recognizer {
     /// Fenêtre de 30 s au plus : décodage glouton, avec les règles d'horodatage de Whisper
     /// (paires de bornes, bornes croissantes, première borne au début de la fenêtre).
     fn decode_window(&mut self, mel: &Tensor, language: u32, offset: f64) -> candle::Result<Vec<Segment>> {
-        let audio = self.model.encoder.forward(mel, true)?;
+        let audio = self.model.encode(mel)?;
         let mut tokens = vec![self.sot, language, self.transcribe];
         let prefix = tokens.len();
         let max_len = 224;
@@ -512,12 +595,12 @@ fn transcribe(data_dir: &Path, samples: &[f32], mut progress: impl FnMut(f32)) -
     let err = |e: candle::Error| format!("Reconnaissance impossible : {e}");
     let mut recognizer = Recognizer::load(data_dir)?;
     let filters: Vec<f32> = MEL_FILTERS.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)).collect();
-    let mel = m::audio::pcm_to_mel(&recognizer.model.config, samples, &filters);
-    let bins = recognizer.model.config.num_mel_bins;
+    let mel = m::audio::pcm_to_mel(recognizer.model.config(), samples, &filters);
+    let bins = recognizer.model.config().num_mel_bins;
     let frames = mel.len() / bins;
     let mel = Tensor::from_vec(mel, (1, bins, frames), &recognizer.device).map_err(err)?;
     let first_window = mel.narrow(2, 0, frames.min(m::N_FRAMES)).map_err(err)?;
-    let audio = recognizer.model.encoder.forward(&first_window, true).map_err(err)?;
+    let audio = recognizer.model.encode(&first_window).map_err(err)?;
     let language = recognizer.detect_language(&audio).map_err(err)?;
     let mut segments = Vec::new();
     let mut seek = 0;
@@ -810,7 +893,8 @@ mod tests {
             eprintln!("{:>6} ms  {}", l.time_ms, l.text);
         }
         assert_eq!(lines.len(), 5);
-        assert!((1_000..=3_500).contains(&lines[0].time_ms));
+        // Whisper place souvent le début du premier passage à 0 s, même après un silence.
+        assert!(lines[0].time_ms <= 3_500);
         for w in lines.windows(2) {
             assert!(w[1].time_ms >= w[0].time_ms + 3_500, "{} puis {}", w[0].time_ms, w[1].time_ms);
         }

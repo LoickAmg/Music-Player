@@ -20,11 +20,12 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-`wrangler deploy` affiche l'adresse du relais, par exemple
-`https://music-player-relais.<votre-sous-domaine>.workers.dev`. Elle se règle :
+`wrangler deploy` affiche l'adresse du relais. Celle du projet,
+`https://music-player-relais.loickamg.workers.dev`, est intégrée à l'application
+(`PROJECT_RELAY` dans `src-tauri/src/remote.rs`). Un autre relais se règle :
 
 - pour tout le monde : variable `MP_RELAY_URL` au moment de construire l'application
-  (CI : secret ou variable du dépôt du même nom) ;
+  (CI : variable du dépôt du même nom) ;
 - sur un appareil : Réglages → Partage → « Relais pour le partage à distance ».
 
 ## Essai en local

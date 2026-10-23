@@ -23,9 +23,18 @@ use tungstenite::{Message, WebSocket};
 
 use crate::transfer::{self, Offer, CHUNK, MAX_SIZE};
 
-/// Adresse du relais choisie à la construction de l'application (variable MP_RELAY_URL), si
-/// elle a été donnée ; sinon, à régler dans les Réglages.
-pub const DEFAULT_RELAY: Option<&str> = option_env!("MP_RELAY_URL");
+/// Relais du projet (relay/, mis en ligne sur Cloudflare).
+const PROJECT_RELAY: &str = "https://music-player-relais.loickamg.workers.dev";
+
+/// Relais utilisé sauf réglage contraire sur l'appareil : celui du projet, ou un autre donné à
+/// la construction de l'application (variable MP_RELAY_URL ; la CI la passe vide quand la
+/// variable du dépôt n'existe pas).
+pub fn default_relay() -> Option<&'static str> {
+    option_env!("MP_RELAY_URL")
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .or(Some(PROJECT_RELAY))
+}
 
 /// Mots des codes : courants, sans accents (faciles à dicter et à taper), tous différents.
 const WORDS: [&str; 256] = [
@@ -515,6 +524,25 @@ mod tests {
         sending.join().unwrap().unwrap();
         assert_eq!(received, offer(content.len() as u64));
         assert_eq!(last, content.len() as u64);
+        assert_eq!(std::fs::read(&dest).unwrap(), content);
+    }
+
+    /// Même échange, à travers le relais en ligne (TLS, Cloudflare) : réseau requis.
+    #[test]
+    #[ignore = "passe par le relais en ligne du projet"]
+    fn archive_crosses_the_live_relay() {
+        let relay = default_relay().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("envoi.mpshare");
+        let content: Vec<u8> = (0..1_500_000u32).map(|i| (i % 249) as u8).collect();
+        std::fs::write(&source, &content).unwrap();
+        let pending = open_send(relay).unwrap();
+        let code = pending.code.clone();
+        let size = content.len() as u64;
+        let sending = std::thread::spawn(move || pending.finish(&source, &offer(size), &AtomicBool::new(false), |_, _, _| {}));
+        let dest = dir.path().join("recu.mpshare");
+        receive(relay, &code, &dest, &AtomicBool::new(false), |_, _, _| {}).unwrap();
+        sending.join().unwrap().unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), content);
     }
 

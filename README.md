@@ -217,6 +217,30 @@ le début du morceau (et celles du suivant préparées en avance). Sources, dans
    correspondre : un titre courant (« Sans toi ») existe chez des dizaines d'artistes, et mieux
    vaut « paroles introuvables » que celles d'une autre chanson (bouton « Chercher à nouveau »).
    Les réponses sont mises en cache (`lyrics/` dans le dossier de l'application).
+4. en secours, [lyrics.ovh](https://lyrics.ovh) (texte seul, sans minutage).
+
+Quand seul un texte sans minutage a été trouvé, une version synchronisée est **recherchée de
+nouveau toute seule** pendant l'écoute (recherches plus larges, jusqu'à trois passes si LRCLIB
+est surchargé, puis une fois par semaine). Si aucune n'existe, la **synchronisation
+automatique** (à activer, Réglages → Paroles) cale le texte sur la voix : reconnaissance vocale
+faite sur l'appareil (Whisper « base » quantifié, exécuté par [Candle](https://github.com/huggingface/candle)
+en Rust pur ; modèle de 80 Mo téléchargé une fois, aucun son envoyé en ligne), puis
+alignement des lignes connues sur les mots reconnus (`src-tauri/src/align.rs`).
+
+## Partage
+
+Un morceau ou une playlist se partage depuis son menu (« Partager ») ; les fichiers audio
+voyagent avec, dans une archive `.mpshare` (la personne qui reçoit n'a pas besoin de les avoir) :
+
+- **À proximité** : les appareils avec Music Player ouvert sur le même Wi-Fi se trouvent
+  tout seuls (mDNS) et s'envoient l'archive directement, sans Internet. Rien n'est reçu sans
+  accord (`nearby.rs`).
+- **À distance, avec un code** (« 4821-soleil-guitare ») : un petit relais met les deux
+  appareils en relation ; la clé est convenue par SPAKE2 à partir des mots du code, que le
+  relais ne reçoit jamais, et le contenu est chiffré de bout en bout (ChaCha20-Poly1305). Le
+  relais ne garde rien (`remote.rs`, et `relay/` pour le mettre en ligne gratuitement).
+- **Autre application** : l'archive part par la feuille de partage d'Android (messagerie,
+  Bluetooth…) ou est enregistrée sur l'ordinateur, puis s'ouvre avec Music Player.
 
 ## Fonctionnalités
 
@@ -235,6 +259,7 @@ le début du morceau (et celles du suivant préparées en avance). Sources, dans
   une piste précise)
 - **Playlists** persistées : créer/renommer/supprimer, ajouter/retirer des
   pistes
+- **Titres aimés** : cœur sur chaque morceau et sur « À l'écoute », page dédiée
 - **Égaliseur 3 bandes** (basses/médiums/aigus, ±12 dB), réglable en direct
   pendant la lecture (filtres peaking biquad, sans librairie de DSP externe)
 - **Session persistée** : dossier de bibliothèque, file d'attente, piste et

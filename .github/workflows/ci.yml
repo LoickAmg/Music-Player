@@ -141,6 +141,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Relais du partage à distance (relay/README.md), intégré à l'appli s'il est réglé
+          # dans les variables du dépôt (Settings → Secrets and variables → Actions → Variables).
+          MP_RELAY_URL: ${{ vars.MP_RELAY_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Music Player ${{ github.ref_name }}"
@@ -213,6 +216,8 @@ jobs:
       # de processeur, environ deux fois plus léger, que l'appli télécharge pour se mettre à
       # jour. La compilation Rust est réutilisée d'un APK à l'autre.
       - name: Compilation des APK
+        env:
+          MP_RELAY_URL: ${{ vars.MP_RELAY_URL }}
         run: |
           set -o pipefail
           mkdir -p apk-out
