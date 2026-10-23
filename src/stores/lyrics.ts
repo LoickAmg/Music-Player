@@ -10,6 +10,9 @@ const ONLINE_KEY = "mp:lyrics-online-auto";
 const OFFSET_KEY = "mp:lyrics-offset:";
 /** Service de paroles surchargé : nouvelles tentatives automatiques, de plus en plus espacées. */
 const RETRY_DELAYS = [6000, 20000, 60000];
+/** Paroles sans minutage : recherche d'une version synchronisée tout de suite, puis (si LRCLIB
+ *  était surchargé) deux nouvelles passes pendant l'écoute. */
+const UPGRADE_DELAYS = [20000, 90000];
 
 function readOnlinePref(): boolean {
   try {
@@ -46,6 +49,12 @@ export function activeLineIndex(lines: LyricLine[], positionMs: number): number 
 }
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Paroles affichées sans minutage (texte seul) : à améliorer. */
+export function needsTiming(lyrics: Lyrics | null): boolean {
+  return !!lyrics && !lyrics.synced && !lyrics.instrumental && !!lyrics.plain?.trim();
+}
 
 export const useLyricsStore = defineStore("lyrics", {
   state: () => ({
@@ -57,6 +66,8 @@ export const useLyricsStore = defineStore("lyrics", {
     retries: 0,
     offsetMs: 0,
     allowOnline: readOnlinePref(),
+    /** Amélioration en cours en arrière-plan : recherche d'une version synchronisée. */
+    upgrading: false,
   }),
   actions: {
     setAllowOnline(on: boolean) {
@@ -79,14 +90,19 @@ export const useLyricsStore = defineStore("lyrics", {
         this.offsetMs = readOffset(trackId);
       }
       clearTimeout(retryTimer);
+      clearTimeout(upgradeTimer);
       this.trackId = trackId;
       this.lyrics = null;
       this.error = null;
+      this.upgrading = false;
       if (!trackId) return;
       this.loading = true;
       try {
         const lyrics = await api.getLyrics(trackId, this.allowOnline, refresh);
-        if (this.trackId === trackId) this.lyrics = lyrics;
+        if (this.trackId === trackId) {
+          this.lyrics = lyrics;
+          if (needsTiming(lyrics)) void this.upgrade(trackId, 0);
+        }
       } catch (e) {
         if (this.trackId === trackId) {
           this.error = String(e);
@@ -102,6 +118,29 @@ export const useLyricsStore = defineStore("lyrics", {
         }
       } finally {
         if (this.trackId === trackId) this.loading = false;
+      }
+    },
+    /** Passe automatique : version synchronisée cherchée en arrière-plan, sans action de
+     *  l'utilisateur ; le texte reste affiché pendant ce temps. `pass` : 0 à la première écoute,
+     *  puis nouvelles passes si LRCLIB était surchargé. */
+    async upgrade(trackId: string, pass: number) {
+      if (!this.allowOnline || this.trackId !== trackId) return;
+      this.upgrading = true;
+      try {
+        const result = await api.upgradeLyrics(trackId, pass > 0);
+        if (this.trackId !== trackId) return;
+        if (result.lyrics) {
+          this.lyrics = result.lyrics;
+          return;
+        }
+        const delay = result.retry ? UPGRADE_DELAYS[pass] : undefined;
+        if (delay !== undefined) {
+          upgradeTimer = setTimeout(() => void this.upgrade(trackId, pass + 1), delay);
+        }
+      } catch {
+        // réseau coupé : le texte reste affiché, une prochaine écoute réessaiera
+      } finally {
+        if (this.trackId === trackId) this.upgrading = false;
       }
     },
     /** Paroles choisies dans la recherche manuelle (retenues pour ce morceau). */

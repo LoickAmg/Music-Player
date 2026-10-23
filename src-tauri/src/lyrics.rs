@@ -706,9 +706,12 @@ impl Lrclib {
         }
         let mut last = String::new();
         let mut wait = Duration::from_millis(1200);
-        for attempt in 0..2 {
+        // LRCLIB répond très souvent « server busy » (plus d'une requête sur deux aux heures de
+        // pointe) : trois essais, de plus en plus espacés, avant de déclarer le service indisponible.
+        for attempt in 0..3 {
             if attempt > 0 {
                 std::thread::sleep(wait);
+                wait = wait.max(Duration::from_millis(2500));
             }
             let mut request = self
                 .agent
@@ -855,20 +858,99 @@ fn fit_to_track(record: LrclibRecord, track: &Track) -> Lyrics {
 /// Fichiers sans étiquettes fiables : le titre est découpé en morceaux (`title_pieces`) et
 /// cherché en texte libre, sans présumer de l'ordre artiste / titre.
 pub fn fetch_online(track: &Track) -> Result<Option<Lyrics>, String> {
+    fetch_online_detail(track).0
+}
+
+/// Comme `fetch_online`, et dit en plus si LRCLIB était injoignable ou surchargé : des paroles
+/// sans minutage trouvées dans ce cas méritent une nouvelle recherche dès la prochaine écoute.
+fn fetch_online_detail(track: &Track) -> (Result<Option<Lyrics>, String>, bool) {
     let mut lrclib = Lrclib::new();
     if let Some(found) = tagged_search(&mut lrclib, track) {
-        return Ok(Some(fit_to_track(found, track)));
+        return (Ok(Some(fit_to_track(found, track))), false);
     }
     if let Some(found) = loose_search(&mut lrclib, track) {
-        return Ok(Some(fit_to_track(found, track)));
+        return (Ok(Some(fit_to_track(found, track))), false);
     }
     // Source de secours : LRCLIB n'a rien (ou ne répond pas). lyrics.ovh ne donne que le
     // texte, sans minutage, mais c'est mieux qu'« introuvable ».
+    let down = lrclib.trouble.is_some() || !lrclib.answered;
     let outcome = lrclib.nothing();
     match lyrics_ovh(track) {
-        Some(found) => Ok(Some(found)),
-        None => outcome,
+        Some(found) => (Ok(Some(found)), down),
+        None => (outcome, down),
     }
+}
+
+/// Variantes d'un nom d'artiste pour la recherche libre : « (D)Juno » s'écrit aussi
+/// « D Juno » et « DJuno » sur LRCLIB.
+fn artist_variants(artist: &str) -> Vec<String> {
+    let mut out = vec![artist.trim().to_string()];
+    let spaced: String = artist.replace(['(', ')', '[', ']'], " ").split_whitespace().collect::<Vec<_>>().join(" ");
+    let glued: String = artist.replace(['(', ')', '[', ']'], "").split_whitespace().collect::<Vec<_>>().join(" ");
+    for v in [spaced, glued] {
+        if !v.is_empty() && !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// Recherche approfondie d'une version synchronisée, lancée en arrière-plan quand les paroles
+/// affichées n'ont pas de minutage : recherches habituelles, puis recherches libres (texte de la
+/// recherche manuelle, variantes de l'artiste, titre seul). Seul un résultat synchronisé et calé
+/// sur le morceau est retenu. `Err` si LRCLIB n'a pas pu répondre (à retenter).
+pub fn fetch_synced(track: &Track) -> Result<Option<Lyrics>, String> {
+    let mut lrclib = Lrclib::new();
+    let synced = |record: LrclibRecord| {
+        let lyrics = fit_to_track(record, track);
+        lyrics.synced.is_some().then_some(lyrics)
+    };
+    if let Some(found) = tagged_search(&mut lrclib, track).and_then(synced) {
+        return Ok(Some(found));
+    }
+    if let Some(found) = loose_search(&mut lrclib, track).and_then(synced) {
+        return Ok(Some(found));
+    }
+    let (artist, title) = search_terms(track);
+    let bare = bare_title(&title);
+    let duration = track.duration_secs;
+    let variant = speed_variant(&track.title);
+    let mut words: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for piece in title_pieces(&track.title).iter().chain(artist.iter()).chain(std::iter::once(&bare)) {
+        for v in artist_variants(piece) {
+            words.extend(normalize(&v).split(' ').filter(|w| !w.is_empty()).map(str::to_string));
+        }
+    }
+    let mut queries = vec![default_query(track)];
+    if let Some(a) = &artist {
+        for v in artist_variants(&main_artist(a)) {
+            queries.push(format!("{v} {bare}"));
+        }
+    }
+    queries.push(bare.clone());
+    let mut seen = std::collections::HashSet::new();
+    let mut best = Best::default();
+    for q in queries {
+        if q.trim().is_empty() || !seen.insert(normalize(&q)) {
+            continue;
+        }
+        let results: Vec<LrclibRecord> = lrclib
+            .search(&[("q", q)])
+            .into_iter()
+            .filter(|r| r.synced_lyrics.as_deref().is_some_and(|s| !s.trim().is_empty()))
+            .collect();
+        best.offer(results, |r| {
+            score(r, &title, artist.as_deref(), duration, variant)
+                .or_else(|| score_loose(r, &words, duration, variant))
+        });
+        if best.settled(duration, variant) {
+            break;
+        }
+    }
+    if let Some(found) = best.take().and_then(synced) {
+        return Ok(Some(found));
+    }
+    lrclib.nothing()
 }
 
 const LYRICS_OVH: &str = "https://api.lyrics.ovh/v1";
@@ -1280,7 +1362,15 @@ struct CachedLyrics {
     /// Choix de l'utilisateur (paroles choisies ou retirées) : jamais remplacé d'office.
     #[serde(default)]
     pinned: bool,
+    /// Paroles sans minutage : date (secondes Unix) à partir de laquelle rechercher à nouveau
+    /// une version synchronisée. 0 : dès la prochaine écoute.
+    #[serde(default)]
+    recheck_after: u64,
 }
+
+/// Délai avant de rechercher à nouveau une version synchronisée quand LRCLIB a bien répondu
+/// qu'il n'en avait pas (la base s'enrichit chaque jour).
+const RECHECK_SECS: u64 = 7 * 24 * 3600;
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
@@ -1319,14 +1409,70 @@ fn write_cache(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>) {
 }
 
 fn write_entry(cache_dir: &Path, track_id: &str, lyrics: &Option<Lyrics>, pinned: bool) {
+    write_entry_recheck(cache_dir, track_id, lyrics, pinned, now_secs() + RECHECK_SECS);
+}
+
+fn write_entry_recheck(
+    cache_dir: &Path,
+    track_id: &str,
+    lyrics: &Option<Lyrics>,
+    pinned: bool,
+    recheck_after: u64,
+) {
     if std::fs::create_dir_all(cache_dir).is_ok() {
         if let Ok(json) = serde_json::to_vec(&CachedLyrics {
             lyrics: lyrics.clone(),
             fetched_secs: now_secs(),
             version: CACHE_VERSION,
             pinned,
+            recheck_after,
         }) {
             let _ = std::fs::write(cache_path(cache_dir, track_id), json);
+        }
+    }
+}
+
+/// Résultat d'une passe d'amélioration des paroles.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Upgrade {
+    /// Paroles synchronisées trouvées, à afficher à la place des précédentes.
+    pub lyrics: Option<Lyrics>,
+    /// LRCLIB injoignable ou surchargé : une nouvelle passe un peu plus tard peut réussir.
+    pub retry: bool,
+}
+
+/// Paroles affichées sans minutage, ou introuvables : recherche approfondie d'une version
+/// synchronisée, lancée toute seule à l'écoute du morceau. Ne touche ni à un `.lrc`, ni à un
+/// choix de l'utilisateur, ni à des paroles déjà synchronisées. Sans `force`, ne recherche
+/// qu'une fois la date de nouvelle vérification passée (LRCLIB a déjà dit ne rien avoir).
+pub fn upgrade_to_synced(track: &Track, cache_dir: &Path, force: bool) -> Upgrade {
+    let nothing = Upgrade { lyrics: None, retry: false };
+    if local_lyrics(Path::new(&track.path)).is_some_and(|l| l.synced.is_some()) {
+        return nothing;
+    }
+    let entry = read_entry(cache_dir, &track.id);
+    if let Some(entry) = &entry {
+        let done = entry
+            .lyrics
+            .as_ref()
+            .is_some_and(|l| l.synced.is_some() || l.instrumental);
+        if entry.pinned || done || (!force && entry.recheck_after > now_secs()) {
+            return nothing;
+        }
+    }
+    let previous = entry.and_then(|e| e.lyrics);
+    match fetch_synced(track) {
+        Ok(Some(found)) => {
+            write_cache(cache_dir, &track.id, &Some(found.clone()));
+            Upgrade { lyrics: Some(found), retry: false }
+        }
+        Ok(None) => {
+            write_entry_recheck(cache_dir, &track.id, &previous, false, now_secs() + RECHECK_SECS);
+            nothing
+        }
+        Err(_) => {
+            write_entry_recheck(cache_dir, &track.id, &previous, false, 0);
+            Upgrade { lyrics: None, retry: true }
         }
     }
 }
@@ -1429,8 +1575,13 @@ fn online_lyrics(
     if !allow_online {
         return Ok(None);
     }
-    let found = fetch_online(track)?.filter(|l| !l.is_empty());
-    write_cache(cache_dir, &track.id, &found);
+    let (result, lrclib_down) = fetch_online_detail(track);
+    let found = result?.filter(|l| !l.is_empty());
+    // Texte sans minutage trouvé pendant une surcharge de LRCLIB : la version synchronisée
+    // sera recherchée dès la prochaine passe (upgrade_to_synced), pas dans une semaine.
+    let unsynced = found.as_ref().is_some_and(|l| l.synced.is_none() && !l.instrumental);
+    let recheck = if unsynced && lrclib_down { 0 } else { now_secs() + RECHECK_SECS };
+    write_entry_recheck(cache_dir, &track.id, &found, false, recheck);
     Ok(found)
 }
 
@@ -1977,6 +2128,37 @@ mod tests {
         let lyrics = local_lyrics(&audio).unwrap();
         assert_eq!(lyrics.source, "fichier .lrc");
         assert_eq!(lyrics.synced.unwrap()[0].text, "Bonjour");
+    }
+
+    #[test]
+    fn artist_variants_cover_parenthesised_names() {
+        assert_eq!(artist_variants("(D)Juno"), vec!["(D)Juno", "D Juno", "DJuno"]);
+        assert_eq!(artist_variants("Damso"), vec!["Damso"]);
+    }
+
+    #[test]
+    fn upgrade_leaves_synced_pinned_and_recently_checked_lyrics_alone() {
+        // Aucun de ces cas ne doit interroger le réseau.
+        let dir = tempfile::tempdir().unwrap();
+        let plain = Some(from_text("Juste du texte\nsans minutage", "lyrics.ovh"));
+        let synced = Some(from_text("[00:01.00]x", "LRCLIB"));
+        let nothing = Upgrade { lyrics: None, retry: false };
+
+        let a = track("A", "Artiste");
+        write_cache(dir.path(), &a.id, &synced);
+        assert_eq!(upgrade_to_synced(&a, dir.path(), true), nothing);
+
+        let mut b = track("B", "Artiste");
+        b.id = "b".into();
+        write_entry(dir.path(), &b.id, &plain, true);
+        assert_eq!(upgrade_to_synced(&b, dir.path(), true), nothing);
+
+        let mut c = track("C", "Artiste");
+        c.id = "c".into();
+        write_entry_recheck(dir.path(), &c.id, &plain, false, now_secs() + 3600);
+        assert_eq!(upgrade_to_synced(&c, dir.path(), false), nothing);
+        // La date de nouvelle vérification ne change rien à l'affichage du texte.
+        assert_eq!(read_cache(dir.path(), &c.id), Some(plain));
     }
 
     #[test]

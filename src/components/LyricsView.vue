@@ -208,7 +208,13 @@ onBeforeUnmount(() => {
               <span v-else class="txt"><span v-for="(word, k) in item.words" :key="k" class="w">{{ word.text }}</span></span>
             </p>
           </template>
-          <p v-else class="plain">{{ lyricsStore.lyrics.plain }}</p>
+          <template v-else>
+            <p class="timing" role="status">
+              <template v-if="lyricsStore.upgrading"><span class="dots"><i /><i /><i /></span> Recherche d'une version synchronisée…</template>
+              <template v-else>Paroles non synchronisées</template>
+            </p>
+            <p class="plain">{{ lyricsStore.lyrics.plain }}</p>
+          </template>
           <p class="source">Paroles : {{ lyricsStore.lyrics.source }}</p>
         </div>
       </div>
@@ -357,6 +363,18 @@ onBeforeUnmount(() => {
   margin-top: 32px;
   font-size: 11px;
   color: var(--text-3);
+}
+.timing {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.timing .dots {
+  transform: scale(0.7);
 }
 .resume {
   position: absolute;

@@ -6,6 +6,7 @@ import type {
   InitialState,
   Lyrics,
   LyricsCandidate,
+  LyricsUpgrade,
   Playlist,
   PlaylistStyle,
   PlaybackStatus,
@@ -38,6 +39,8 @@ export const api = {
   getCover: (path: string, trackId: string) => invoke<string | null>("get_cover", { path, trackId }),
   getLyrics: (trackId: string, allowOnline: boolean, refresh = false) =>
     invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline, refresh }),
+  /** Recherche en arrière-plan d'une version synchronisée (paroles affichées sans minutage). */
+  upgradeLyrics: (trackId: string, force = false) => invoke<LyricsUpgrade>("upgrade_lyrics", { trackId, force }),
   lyricsQuery: (trackId: string) => invoke<string>("lyrics_query", { trackId }),
   searchLyrics: (trackId: string, query: string) =>
     invoke<LyricsCandidate[]>("search_lyrics", { trackId, query }),

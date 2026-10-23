@@ -104,6 +104,7 @@ pub fn run() {
             commands::open_audio_file,
             commands::get_cover,
             commands::get_lyrics,
+            commands::upgrade_lyrics,
             commands::lyrics_query,
             commands::search_lyrics,
             commands::choose_lyrics,

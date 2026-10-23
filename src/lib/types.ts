@@ -89,6 +89,13 @@ export interface Lyrics {
   source: string;
 }
 
+/** Passe d'amélioration des paroles (version synchronisée cherchée en arrière-plan). */
+export interface LyricsUpgrade {
+  lyrics: Lyrics | null;
+  /** Service de paroles surchargé : une nouvelle passe plus tard peut réussir. */
+  retry: boolean;
+}
+
 /** Proposition de la recherche manuelle de paroles (LRCLIB). */
 export interface LyricsCandidate {
   id: number;

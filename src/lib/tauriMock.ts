@@ -101,6 +101,7 @@ export function installTauriMock() {
   let positionSecs = 0;
   let eqGains: [number, number, number] = [0, 0, 0];
   const dismissedLyrics = new Set<string>();
+  const upgraded = new Set<string>();
   // Personnalisation : réglages et fichiers importés (adresses blob) le temps de la session.
   let appearance: unknown = null;
   const assets = new Map<string, string>();
@@ -142,7 +143,20 @@ export function installTauriMock() {
     scan_library: () => library,
     get_library: () => library,
     get_cover: ({ trackId }) => demoCover(Number(String(trackId).replace("mock-", "")) || 0),
-    get_lyrics: ({ trackId }) => (dismissedLyrics.has(trackId) ? null : DEMO_LYRICS),
+    // « mock-1 » : texte seul (comme lyrics.ovh), qu'une passe d'amélioration remplace par une
+    // version synchronisée au bout de quelques secondes.
+    get_lyrics: ({ trackId }) =>
+      dismissedLyrics.has(trackId)
+        ? null
+        : trackId === "mock-1" && !upgraded.has(trackId)
+          ? { synced: null, plain: DEMO_LYRICS.synced!.map((l) => l.text).join("\n"), instrumental: false, source: "lyrics.ovh" }
+          : DEMO_LYRICS,
+    upgrade_lyrics: async ({ trackId }) => {
+      await new Promise((r) => setTimeout(r, 2500));
+      if (trackId !== "mock-1") return { lyrics: null, retry: false };
+      upgraded.add(trackId);
+      return { lyrics: { ...DEMO_LYRICS, source: "LRCLIB" }, retry: false };
+    },
     lyrics_query: ({ trackId }) => {
       const t = library.find((x) => x.id === trackId);
       return t ? `${t.artist} ${t.title}` : "";
@@ -394,7 +408,7 @@ export function installTauriMock() {
         console.warn(`[tauriMock] commande non simulée : ${cmd}`);
         return null;
       }
-      const result = handler(args, options);
+      const result = await handler(args, options);
       // Le vrai pont Tauri sérialise chaque retour en JSON (IPC) : le
       // frontend ne reçoit donc jamais la même référence d'objet deux fois
       // de suite. On reproduit ça ici pour éviter des bugs de réactivité

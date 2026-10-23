@@ -211,6 +211,24 @@ pub fn get_lyrics(
     )
 }
 
+/// Passe automatique d'amélioration : version synchronisée recherchée en arrière-plan quand
+/// les paroles affichées n'ont pas de minutage (voir `lyrics::upgrade_to_synced`).
+#[tauri::command(async)]
+pub fn upgrade_lyrics(
+    state: State<'_, AppState>,
+    track_id: String,
+    force: Option<bool>,
+) -> Result<lyrics::Upgrade, String> {
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
+    Ok(lyrics::upgrade_to_synced(
+        &track,
+        &state.lyrics_dir(),
+        force.unwrap_or(false),
+    ))
+}
+
 /// Texte proposé d'office dans la recherche manuelle de paroles.
 #[tauri::command]
 pub fn lyrics_query(state: State<'_, AppState>, track_id: String) -> Result<String, String> {
