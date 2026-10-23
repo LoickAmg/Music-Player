@@ -64,7 +64,8 @@ async function share() {
   if (!playlist.value) return;
   try {
     const path = await api.exportPlaylist(playlist.value.id);
-    if (path) await revealOrShare(path);
+    const problem = path ? await revealOrShare(path) : null;
+    if (problem) ui.notify(problem);
   } catch (e) {
     ui.notify(`Partage impossible : ${e}`);
   }

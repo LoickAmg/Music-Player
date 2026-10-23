@@ -699,12 +699,31 @@ fn pick_save_path(app: &AppHandle, suggested_name: &str) -> Option<PathBuf> {
 
 #[cfg(target_os = "android")]
 fn pick_save_path(app: &AppHandle, suggested_name: &str) -> Option<PathBuf> {
-    // Pas de boîte de dialogue « Enregistrer sous » exploitable ici : le fichier est
-    // préparé dans le dossier de partages de l'appli (le frontend lance ensuite la feuille
-    // de partage d'Android dessus).
-    let dir = app.state::<AppState>().data_dir.join("partages");
+    // Pas de boîte « Enregistrer sous » ici : l'archive est préparée dans le cache de l'appli,
+    // le seul dossier que le FileProvider de la feuille de partage expose (ShareBridge.kt).
+    Some(share_temp_dir(app)?.join(suggested_name))
+}
+
+/// Dossier des archives temporaires (partage Android, envoi à proximité ou par code), dans le
+/// cache de l'appli. Les archives de plus d'un jour y sont effacées à chaque appel.
+pub fn share_temp_dir(app: &AppHandle) -> Option<PathBuf> {
+    let dir = app.path().app_cache_dir().ok()?.join("partages");
     std::fs::create_dir_all(&dir).ok()?;
-    Some(dir.join(suggested_name))
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        let day = Duration::from_secs(24 * 60 * 60);
+        for entry in entries.flatten() {
+            let old = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > day);
+            if old {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    Some(dir)
 }
 
 fn bundle_filename(name: &str) -> String {

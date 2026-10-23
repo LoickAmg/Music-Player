@@ -117,8 +117,8 @@ if (!manifest.includes(".UpdateFileProvider")) {
   );
 }
 if (!manifest.includes(".ShareFileProvider")) {
-  // Fournisseur dédié au partage (export .mpshare) : seul le dossier « partages/ » du
-  // stockage interne de l'appli est exposé, jamais un chemin arbitraire.
+  // Fournisseur dédié au partage (export .mpshare) : seul le cache de l'appli est exposé, et
+  // ShareBridge n'y partage qu'un fichier préparé par l'appli.
   manifest = manifest.replace(
     /<\/application>/,
     `    <provider android:name="${pkg}.ShareFileProvider" android:authorities="\${applicationId}.shares" android:exported="false" android:grantUriPermissions="true">
@@ -1148,9 +1148,9 @@ class ShareBridge(private val context: Context) {
   fun share(path: String): Boolean {
     return try {
       val file = File(path).canonicalFile
-      // Seul un fichier du dossier de partages de l'appli est accepté : jamais un chemin
-      // arbitraire transmis par la page.
-      val base = File(context.filesDir, "partages").canonicalFile
+      // Seule une archive préparée par l'appli dans son cache est acceptée (commands.rs,
+      // share_temp_dir : cache de Tauri = cacheDir), jamais un chemin arbitraire de la page.
+      val base = context.cacheDir.canonicalFile
       if (!file.isFile || !file.path.startsWith(base.path + File.separator)) return false
       val uri = FileProvider.getUriForFile(context, context.packageName + ".shares", file)
       val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension) ?: "application/octet-stream"
@@ -1318,7 +1318,7 @@ fs.writeFileSync(
   path.join(res, "xml", "share_paths.xml"),
   `<?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <files-path name="partages" path="partages/" />
+    <cache-path name="partages" path="." />
 </paths>
 `,
 );

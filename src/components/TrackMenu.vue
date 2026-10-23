@@ -89,7 +89,8 @@ async function share() {
   close();
   try {
     const path = await api.exportTrack(id);
-    if (path) await revealOrShare(path);
+    const problem = path ? await revealOrShare(path) : null;
+    if (problem) ui.notify(problem);
   } catch (e) {
     ui.notify(`Partage de « ${title} » impossible : ${e}`);
   }
