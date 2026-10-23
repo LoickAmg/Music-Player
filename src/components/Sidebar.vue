@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useAppearanceStore } from "@/stores/appearance";
 import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
 import PlaylistCover from "./PlaylistCover.vue";
@@ -11,6 +12,7 @@ const ui = useUiStore();
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
 const appearance = useAppearanceStore();
+const share = useShareStore();
 const searchInput = ref<HTMLInputElement | null>(null);
 
 defineExpose({ focusSearch: () => searchInput.value?.focus() });
@@ -68,9 +70,14 @@ function newPlaylist() {
     <nav class="section playlists" aria-label="Playlists">
       <p class="section-title">
         Playlists
-        <button type="button" class="add" title="Nouvelle playlist" aria-label="Nouvelle playlist" @click="newPlaylist">
-          <Icon name="plus" :size="15" />
-        </button>
+        <span class="title-actions">
+          <button type="button" class="add" title="Recevoir un partage (code)" aria-label="Recevoir un partage avec un code" @click="share.receiving = true">
+            <Icon name="import" :size="14" />
+          </button>
+          <button type="button" class="add" title="Nouvelle playlist" aria-label="Nouvelle playlist" @click="newPlaylist">
+            <Icon name="plus" :size="15" />
+          </button>
+        </span>
       </p>
       <button
         v-for="p in playlists.items"
@@ -172,6 +179,10 @@ function newPlaylist() {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-3);
+}
+.title-actions {
+  display: flex;
+  gap: 2px;
 }
 .add {
   display: grid;

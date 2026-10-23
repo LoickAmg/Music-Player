@@ -18,6 +18,12 @@ export function formatCollection(count: number, totalSeconds: number): string {
 /** Tri alphabétique « à la française » (accents, casse, nombres naturels). */
 export const collator = new Intl.Collator("fr", { sensitivity: "base", numeric: true });
 
+/** Taille lisible : « 840 Ko », « 12,4 Mo ». */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1000)).toLocaleString("fr-FR")} Ko`;
+  return `${(bytes / 1_000_000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Mo`;
+}
+
 /** Couleur de repli stable pour un nom (pochettes absentes). */
 export function hueFor(text: string): number {
   let h = 0;

@@ -441,7 +441,7 @@ fn agent() -> ureq::Agent {
 }
 
 /// Forme comparable d'un texte : minuscules, sans accents usuels ni ponctuation.
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     text.to_lowercase()
         .chars()
         .map(|c| match c {
@@ -1430,6 +1430,24 @@ fn write_entry_recheck(
             let _ = std::fs::write(cache_path(cache_dir, track_id), json);
         }
     }
+}
+
+/// Paroles affichées sans minutage pour ce morceau (texte seul), s'il y en a.
+pub fn unsynced_text(track: &Track, cache_dir: &Path) -> Option<Lyrics> {
+    lyrics_for(track, cache_dir, false, false, Vec::new)
+        .ok()
+        .flatten()
+        .filter(|l| l.synced.is_none() && !l.instrumental && l.plain.as_deref().is_some_and(|p| !p.trim().is_empty()))
+}
+
+/// Retient la version synchronisée automatiquement (align.rs) à la place du texte seul, en
+/// gardant un éventuel choix de l'utilisateur (paroles choisies à la main restent épinglées).
+pub fn store_aligned(track: &Track, cache_dir: &Path, mut lyrics: Lyrics, lines: Vec<LyricLine>) -> Lyrics {
+    let pinned = read_entry(cache_dir, &track.id).is_some_and(|e| e.pinned);
+    lyrics.synced = Some(lines);
+    lyrics.source = format!("{} · synchronisées automatiquement", lyrics.source);
+    write_entry(cache_dir, &track.id, &Some(lyrics.clone()), pinned);
+    lyrics
 }
 
 /// Résultat d'une passe d'amélioration des paroles.

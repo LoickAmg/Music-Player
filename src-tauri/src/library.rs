@@ -156,6 +156,48 @@ fn read_track_with_folder_cover(path: &Path, folder_has_cover: bool) -> Option<T
     })
 }
 
+/// Ouvre le flux audio d'un fichier avec symphonia (lecteur de conteneur prêt à donner ses
+/// paquets), en sautant une étiquette ID3 placée avant un FLAC. `None` si le format n'est pas lu.
+pub(crate) fn open_format(path: &Path) -> Option<Box<dyn symphonia::core::formats::FormatReader>> {
+    use std::io::{Read, Seek, SeekFrom};
+    use symphonia::core::formats::FormatOptions;
+    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
+    use symphonia::core::meta::MetadataOptions;
+    use symphonia::core::probe::Hint;
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut header = [0u8; 10];
+    let offset = if file.read_exact(&mut header).is_ok() {
+        crate::audio::leading_id3_len(&header).min(len)
+    } else {
+        0
+    };
+    // L'étiquette ID3 en tête ne gêne que le FLAC ; les autres lecteurs la sautent seuls.
+    let offset = if ffmpeg::extension_of(path) == "flac" {
+        offset
+    } else {
+        0
+    };
+    file.seek(SeekFrom::Start(offset)).ok()?;
+    let source = SkipHeader { file, offset, len };
+    let stream = MediaSourceStream::new(Box::new(source), MediaSourceStreamOptions::default());
+    let mut hint = Hint::new();
+    hint.with_extension(&ffmpeg::extension_of(path));
+
+    let probed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        symphonia::default::get_probe().format(
+            &hint,
+            stream,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+    }))
+    .ok()?
+    .ok()?;
+    Some(probed.format)
+}
+
 /// Fichier dont le début est une étiquette ID3 avant le flux (FLAC « tagués » par certains
 /// outils) : le décodeur ne voit que ce qui suit.
 struct SkipHeader {
@@ -195,44 +237,9 @@ impl symphonia::core::io::MediaSource for SkipHeader {
 /// sait le lire (au moins un paquet décodé), `None` sinon. La durée vient de l'en-tête du
 /// flux, sinon de la somme des paquets (MP4 fragmenté, AAC brut), sans rien décoder de plus.
 pub fn stream_duration(path: &Path) -> Option<f64> {
-    use std::io::{Read, Seek, SeekFrom};
     use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
-    use symphonia::core::formats::FormatOptions;
-    use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
-    use symphonia::core::meta::MetadataOptions;
-    use symphonia::core::probe::Hint;
 
-    let mut file = std::fs::File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    let mut header = [0u8; 10];
-    let offset = if file.read_exact(&mut header).is_ok() {
-        crate::audio::leading_id3_len(&header).min(len)
-    } else {
-        0
-    };
-    // L'étiquette ID3 en tête ne gêne que le FLAC ; les autres lecteurs la sautent seuls.
-    let offset = if ffmpeg::extension_of(path) == "flac" {
-        offset
-    } else {
-        0
-    };
-    file.seek(SeekFrom::Start(offset)).ok()?;
-    let source = SkipHeader { file, offset, len };
-    let stream = MediaSourceStream::new(Box::new(source), MediaSourceStreamOptions::default());
-    let mut hint = Hint::new();
-    hint.with_extension(&ffmpeg::extension_of(path));
-
-    let probed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        symphonia::default::get_probe().format(
-            &hint,
-            stream,
-            &FormatOptions::default(),
-            &MetadataOptions::default(),
-        )
-    }))
-    .ok()?
-    .ok()?;
-    let mut format = probed.format;
+    let mut format = open_format(path)?;
     let track = format
         .tracks()
         .iter()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { api } from "@/lib/api";
 import { formatCollection } from "@/lib/format";
@@ -7,6 +7,7 @@ import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
@@ -19,7 +20,15 @@ const eq = useEqStore();
 const lyrics = useLyricsStore();
 const updater = useUpdaterStore();
 const playlists = usePlaylistsStore();
+const share = useShareStore();
 const ui = useUiStore();
+
+const modelMo = computed(() => Math.round((lyrics.model?.bytes ?? 80_500_000) / 1_000_000));
+onMounted(() => void lyrics.refreshModel());
+async function toggleAlign(on: boolean) {
+  if (on) await lyrics.enableAlign();
+  else lyrics.disableAlign();
+}
 
 const importing = ref(false);
 async function importShare() {
@@ -119,15 +128,43 @@ const shortcuts = [
     <section class="card">
       <h2><Icon name="share" :size="17" /> Partage</h2>
       <p class="muted">
-        Un morceau ou une playlist se partage depuis son menu (« Partager »), sous forme d'une archive (.mpshare) qui contient les
-        fichiers audio : la personne qui la reçoit n'a pas besoin d'avoir déjà les morceaux.
+        Un morceau ou une playlist se partage depuis son menu (« Partager ») : à un appareil voisin sur le même Wi-Fi, à distance
+        avec un code, ou par une autre application. Les fichiers audio voyagent avec : la personne qui reçoit n'a pas besoin de
+        les avoir.
       </p>
-      <div v-if="!onAndroid" class="actions">
-        <button type="button" class="pill pill-ghost" :disabled="importing" @click="importShare">
-          <Icon name="import" :size="15" /> {{ importing ? "Import…" : "Importer une archive…" }}
+      <div class="actions">
+        <button type="button" class="pill pill-accent" @click="share.receiving = true">
+          <Icon name="import" :size="15" /> Recevoir avec un code
+        </button>
+        <button v-if="!onAndroid" type="button" class="pill pill-ghost" :disabled="importing" @click="importShare">
+          {{ importing ? "Import…" : "Importer un fichier .mpshare…" }}
         </button>
       </div>
-      <p v-else class="muted">Pour importer, ouvrez l'archive reçue (messagerie, fichiers…) avec « Ouvrir avec Music Player ».</p>
+      <p v-if="onAndroid" class="muted small">Un fichier .mpshare reçu par messagerie s'ouvre avec « Ouvrir avec Music Player ».</p>
+      <label class="toggle">
+        <input type="checkbox" :checked="share.visible" @change="share.setVisible(($event.target as HTMLInputElement).checked)" />
+        <span>Visible des appareils à proximité (même Wi-Fi), sous le nom « {{ share.deviceName }} »</span>
+      </label>
+      <p class="muted small">
+        Le nom vient de votre profil (Personnalisation). Rien n'est reçu sans votre accord.
+        <template v-if="onAndroid">Sur téléphone, l'appareil n'est visible que pendant que Music Player est à l'écran.</template>
+      </p>
+      <label class="field-label" for="relay">Relais pour le partage à distance</label>
+      <input
+        id="relay"
+        class="relay fieldbox"
+        type="url"
+        :value="share.relay"
+        :placeholder="share.defaultRelay ?? 'https://…workers.dev'"
+        spellcheck="false"
+        autocomplete="off"
+        @change="share.setRelay(($event.target as HTMLInputElement).value)"
+      />
+      <p class="muted small">
+        Il ne fait que mettre les deux appareils en relation : le contenu est chiffré de bout en bout avec les mots du code, qu'il ne
+        reçoit jamais. <template v-if="share.defaultRelay">Laissez vide pour utiliser celui de l'application.</template>
+        <template v-else>Aucun relais n'est fourni avec cette version : voir relay/README.md dans le dépôt pour en mettre un en ligne gratuitement.</template>
+      </p>
     </section>
 
     <DamagedFiles />
@@ -210,7 +247,22 @@ const shortcuts = [
       <p class="muted small">
         Utilisé seulement si le morceau n'a pas de paroles intégrées ni de fichier <code>.lrc</code> à côté de lui.
         Seuls le titre, l'artiste, l'album et la durée sont envoyés ; les résultats sont gardés en cache sur cet appareil.
+        Si seule une version sans minutage existe, une version synchronisée est recherchée de nouveau toute seule pendant l'écoute.
       </p>
+      <label class="toggle">
+        <input type="checkbox" :checked="lyrics.alignEnabled" :disabled="lyrics.installing !== null" @change="toggleAlign(($event.target as HTMLInputElement).checked)" />
+        <span>Synchroniser automatiquement les paroles sans minutage</span>
+      </label>
+      <p class="muted small">
+        Reconnaissance vocale faite sur cet appareil (aucun son n'est envoyé) avec un modèle à télécharger une fois
+        ({{ modelMo }} Mo). Le calcul prend de quelques secondes à quelques minutes par morceau.
+        <template v-if="lyrics.installing !== null"><br />Téléchargement… {{ Math.round(lyrics.installing * 100) }} %</template>
+        <template v-else-if="lyrics.model?.installed">
+          <br />Modèle installé.
+          <button type="button" class="link-btn" @click="lyrics.removeModel()">Supprimer le modèle</button>
+        </template>
+      </p>
+      <p v-if="lyrics.installError" class="error">{{ lyrics.installError }}</p>
     </section>
 
     <section class="card">
@@ -355,6 +407,22 @@ kbd {
   background: var(--bg-active);
   font-family: inherit;
   font-size: 12px;
+}
+.field-label {
+  display: block;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.relay {
+  width: 100%;
+  height: 36px;
+  margin-top: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(var(--fg-rgb), 0.07);
+  font-size: 13px;
 }
 .link-btn {
   margin-left: 6px;

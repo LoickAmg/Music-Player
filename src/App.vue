@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { listen } from "@tauri-apps/api/event";
-import { api, onScanEvents } from "@/lib/api";
+import { api, onAlignEvents, onScanEvents, onShareEvents } from "@/lib/api";
 import { installAndroidFiles, installAndroidMedia, installInsets } from "@/lib/androidMedia";
 import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
@@ -14,6 +14,7 @@ import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import { useUpdaterStore } from "@/stores/updater";
 import Icon from "@/components/Icon.vue";
@@ -23,6 +24,8 @@ import NowPlaying from "@/components/NowPlaying.vue";
 import LyricsSearch from "@/components/LyricsSearch.vue";
 import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
+import ShareActivity from "@/components/ShareActivity.vue";
+import ShareDialog from "@/components/ShareDialog.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import TrackMenu from "@/components/TrackMenu.vue";
@@ -45,6 +48,7 @@ const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
+const share = useShareStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
 const ui = useUiStore();
@@ -205,10 +209,19 @@ async function openFile(path: string) {
 // une fois par minute.
 let lastRefresh = performance.now();
 function onReturn() {
+  // Android : visible des voisins seulement à l'écran (le verrou mDNS suit l'activité).
+  if (onAndroid && share.visible) {
+    if (document.hidden) void api.nearbyStop().catch(() => {});
+    else void share.startVisible();
+  }
   if (document.hidden || performance.now() - lastRefresh < 60_000) return;
   lastRefresh = performance.now();
   void library.refresh();
 }
+
+/** Nom présenté aux appareils voisins : celui du profil, sinon le type d'appareil. */
+const deviceName = computed(() => appearance.settings.profile.name.trim() || (onAndroid ? "Téléphone Android" : "Ordinateur"));
+watch(deviceName, (name) => void share.setDeviceName(name));
 const offPlayback: (() => void)[] = [];
 const onPopState = () => ui.onPopState();
 let saveInterval: ReturnType<typeof setInterval> | null = null;
@@ -218,6 +231,12 @@ onMounted(async () => {
     progress: (p) => library.applyProgress(p),
     updated: (tracks) => library.applyScanResult(tracks),
   });
+  offPlayback.push(
+    await onAlignEvents({
+      progress: (trackId, fraction) => lyrics.onAlignProgress(trackId, fraction),
+      model: (done, total) => lyrics.onModelProgress(done, total),
+    }),
+  );
   const initial = await api.getInitialState();
   appearance.setFromInitialState(initial.appearance, initial.custom_dir);
   library.setFromInitialState(initial.library_root, initial.library, initial.scanning);
@@ -232,6 +251,14 @@ onMounted(async () => {
   });
   ready.value = true;
   player.startPolling();
+  offPlayback.push(
+    await onShareEvents({
+      progress: (p) => share.onProgress(p),
+      offer: (id, offer) => share.onOffer(id, offer),
+      received: (result) => share.onReceived(result),
+    }),
+  );
+  void share.init(deviceName.value);
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.
   try {
     offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));
@@ -359,6 +386,8 @@ onBeforeUnmount(() => {
     </Transition>
     <MobileBar v-if="ui.isMobile" />
     <UpdateDialog />
+    <ShareDialog />
+    <ShareActivity />
     <TrackMenu />
     <TrackPicker />
     <LyricsSearch />

@@ -14,11 +14,22 @@ const RETRY_DELAYS = [6000, 20000, 60000];
  *  était surchargé) deux nouvelles passes pendant l'écoute. */
 const UPGRADE_DELAYS = [20000, 90000];
 
+/** Synchronisation automatique par reconnaissance vocale : à activer (téléchargement du modèle). */
+const ALIGN_KEY = "mp:lyrics-align";
+
 function readOnlinePref(): boolean {
   try {
     return localStorage.getItem(ONLINE_KEY) !== "0";
   } catch {
     return true;
+  }
+}
+
+function readAlignPref(): boolean {
+  try {
+    return localStorage.getItem(ALIGN_KEY) === "1";
+  } catch {
+    return false;
   }
 }
 
@@ -68,8 +79,93 @@ export const useLyricsStore = defineStore("lyrics", {
     allowOnline: readOnlinePref(),
     /** Amélioration en cours en arrière-plan : recherche d'une version synchronisée. */
     upgrading: false,
+    /** Synchronisation automatique par reconnaissance vocale activée. */
+    alignEnabled: readAlignPref(),
+    /** Modèle de reconnaissance : installé ? taille du téléchargement (null : pas encore lu). */
+    model: null as { installed: boolean; bytes: number } | null,
+    /** Téléchargement du modèle en cours (0 à 1), ou null. */
+    installing: null as number | null,
+    installError: null as string | null,
+    /** Synchronisation automatique en cours : morceau et avancement (0 à 1). */
+    aligning: null as { trackId: string; fraction: number } | null,
+    /** Échec de la synchronisation automatique pour le morceau affiché. */
+    alignError: null as string | null,
   }),
   actions: {
+    async refreshModel() {
+      try {
+        this.model = await api.alignmentModelStatus();
+      } catch {
+        this.model = null;
+      }
+    },
+    /** Active la synchronisation automatique : télécharge le modèle s'il le faut, puis
+     *  synchronise les paroles affichées. */
+    async enableAlign() {
+      this.alignEnabled = true;
+      try {
+        localStorage.setItem(ALIGN_KEY, "1");
+      } catch {
+        // choix valable pour la session
+      }
+      await this.refreshModel();
+      if (!this.model?.installed && !(await this.installModel())) return;
+      if (this.trackId && needsTiming(this.lyrics)) void this.align(this.trackId);
+    },
+    disableAlign() {
+      this.alignEnabled = false;
+      try {
+        localStorage.setItem(ALIGN_KEY, "0");
+      } catch {
+        // choix valable pour la session
+      }
+    },
+    async installModel(): Promise<boolean> {
+      if (this.installing !== null) return false;
+      this.installing = 0;
+      this.installError = null;
+      try {
+        await api.installAlignmentModel();
+        await this.refreshModel();
+        return !!this.model?.installed;
+      } catch (e) {
+        this.installError = String(e);
+        return false;
+      } finally {
+        this.installing = null;
+      }
+    },
+    async removeModel() {
+      await api.removeAlignmentModel();
+      await this.refreshModel();
+    },
+    onModelProgress(done: number, total: number) {
+      if (this.installing !== null && total > 0) this.installing = done / total;
+    },
+    onAlignProgress(trackId: string, fraction: number) {
+      this.aligning = { trackId, fraction };
+    },
+    /** Synchronisation automatique des paroles affichées sans minutage (calcul local). */
+    async align(trackId: string) {
+      if (this.aligning) return;
+      this.aligning = { trackId, fraction: 0 };
+      this.alignError = null;
+      try {
+        const synced = await api.alignLyrics(trackId);
+        if (synced && this.trackId === trackId) this.lyrics = synced;
+      } catch (e) {
+        if (this.trackId === trackId) this.alignError = String(e);
+      } finally {
+        this.aligning = null;
+      }
+    },
+    /** Dernier recours pour des paroles sans minutage : la synchronisation automatique, si
+     *  elle est activée et que le modèle est là. */
+    async alignIfWanted(trackId: string) {
+      if (!this.alignEnabled || this.trackId !== trackId || !needsTiming(this.lyrics)) return;
+      if (!this.model) await this.refreshModel();
+      if (this.model?.installed) void this.align(trackId);
+    },
     setAllowOnline(on: boolean) {
       this.allowOnline = on;
       try {
@@ -95,6 +191,7 @@ export const useLyricsStore = defineStore("lyrics", {
       this.lyrics = null;
       this.error = null;
       this.upgrading = false;
+      this.alignError = null;
       if (!trackId) return;
       this.loading = true;
       try {
@@ -124,8 +221,13 @@ export const useLyricsStore = defineStore("lyrics", {
      *  l'utilisateur ; le texte reste affiché pendant ce temps. `pass` : 0 à la première écoute,
      *  puis nouvelles passes si LRCLIB était surchargé. */
     async upgrade(trackId: string, pass: number) {
-      if (!this.allowOnline || this.trackId !== trackId) return;
+      if (this.trackId !== trackId) return;
+      if (!this.allowOnline) {
+        void this.alignIfWanted(trackId);
+        return;
+      }
       this.upgrading = true;
+      let more = false;
       try {
         const result = await api.upgradeLyrics(trackId, pass > 0);
         if (this.trackId !== trackId) return;
@@ -135,6 +237,7 @@ export const useLyricsStore = defineStore("lyrics", {
         }
         const delay = result.retry ? UPGRADE_DELAYS[pass] : undefined;
         if (delay !== undefined) {
+          more = true;
           upgradeTimer = setTimeout(() => void this.upgrade(trackId, pass + 1), delay);
         }
       } catch {
@@ -142,6 +245,9 @@ export const useLyricsStore = defineStore("lyrics", {
       } finally {
         if (this.trackId === trackId) this.upgrading = false;
       }
+      // Aucune version synchronisée en ligne (et plus de passe prévue) : synchronisation
+      // automatique sur l'audio, si elle est activée.
+      if (!more) void this.alignIfWanted(trackId);
     },
     /** Paroles choisies dans la recherche manuelle (retenues pour ce morceau). */
     async choose(lyricsId: number) {

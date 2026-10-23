@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AlignModelStatus,
   InitialState,
   Lyrics,
   LyricsCandidate,
@@ -12,8 +13,12 @@ import type {
   PlaybackStatus,
   QueueView,
   RepeatMode,
+  NearbyPeer,
   ScanProgress,
   ShareImportResult,
+  ShareItem,
+  ShareOffer,
+  TransferProgress,
   Track,
   UpdateInfo,
 } from "./types";
@@ -41,6 +46,11 @@ export const api = {
     invoke<Lyrics | null>("get_lyrics", { trackId, allowOnline, refresh }),
   /** Recherche en arrière-plan d'une version synchronisée (paroles affichées sans minutage). */
   upgradeLyrics: (trackId: string, force = false) => invoke<LyricsUpgrade>("upgrade_lyrics", { trackId, force }),
+  alignmentModelStatus: () => invoke<AlignModelStatus>("alignment_model_status"),
+  installAlignmentModel: () => invoke<void>("install_alignment_model"),
+  removeAlignmentModel: () => invoke<void>("remove_alignment_model"),
+  /** Synchronisation automatique (reconnaissance vocale locale) des paroles sans minutage. */
+  alignLyrics: (trackId: string) => invoke<Lyrics | null>("align_lyrics", { trackId }),
   lyricsQuery: (trackId: string) => invoke<string>("lyrics_query", { trackId }),
   searchLyrics: (trackId: string, query: string) =>
     invoke<LyricsCandidate[]>("search_lyrics", { trackId, query }),
@@ -107,12 +117,66 @@ export const api = {
   pickShareFile: () => invoke<string | null>("pick_share_file"),
   importShareBundle: (path: string) => invoke<ShareImportResult>("import_share_bundle", { path }),
 
+  /** Visible des appareils voisins (même réseau) sous ce nom, prêt à recevoir. */
+  nearbyStart: (name: string) => invoke<void>("nearby_start", { name }),
+  nearbyStop: () => invoke<void>("nearby_stop"),
+  nearbyScan: () => invoke<NearbyPeer[]>("nearby_scan"),
+  nearbyAnswer: (id: string, accept: boolean) => invoke<void>("nearby_answer", { id, accept }),
+  nearbySend: (peer: NearbyPeer, item: ShareItem, from: string, transferId: string) =>
+    invoke<void>("nearby_send", { peer, item, from, transferId }),
+  defaultRelay: () => invoke<string | null>("default_relay"),
+  /** Réserve une salle sur le relais ; renvoie le code à transmettre au destinataire. */
+  remoteSendStart: (item: ShareItem, from: string, relay: string | null, transferId: string) =>
+    invoke<{ code: string }>("remote_send_start", { item, from, relay, transferId }),
+  remoteReceive: (code: string, relay: string | null, transferId: string) =>
+    invoke<ShareImportResult>("remote_receive", { code, relay, transferId }),
+  transferCancel: (id: string) => invoke<void>("transfer_cancel", { id }),
+
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),
 
   checkUpdate: () => invoke<UpdateInfo | null>("check_update"),
   installUpdate: () => invoke<void>("install_update"),
 };
+
+/** Partage : avancement des transferts, envois proposés par un voisin, archives importées. */
+export async function onShareEvents(handlers: {
+  progress: (p: TransferProgress) => void;
+  offer: (id: string, offer: ShareOffer) => void;
+  received: (result: ShareImportResult) => void;
+}): Promise<UnlistenFn> {
+  try {
+    const offs = await Promise.all([
+      listen<TransferProgress>("share-progress", (e) => handlers.progress(e.payload)),
+      listen<{ id: string; offer: ShareOffer }>("nearby-offer", (e) => handlers.offer(e.payload.id, e.payload.offer)),
+      listen<ShareImportResult>("share-received", (e) => handlers.received(e.payload)),
+    ]);
+    return () => offs.forEach((off) => off());
+  } catch {
+    return () => {};
+  }
+}
+
+/** Avancement de la synchronisation automatique et du téléchargement de son modèle. */
+export async function onAlignEvents(handlers: {
+  progress: (trackId: string, fraction: number) => void;
+  model: (done: number, total: number) => void;
+}): Promise<UnlistenFn> {
+  try {
+    const off1 = await listen<{ track_id: string; fraction: number }>("align-progress", (e) =>
+      handlers.progress(e.payload.track_id, e.payload.fraction),
+    );
+    const off2 = await listen<{ done: number; total: number }>("align-model-progress", (e) =>
+      handlers.model(e.payload.done, e.payload.total),
+    );
+    return () => {
+      off1();
+      off2();
+    };
+  } catch {
+    return () => {};
+  }
+}
 
 /** Abonnements aux événements du scan (sans effet dans le mode démo du navigateur). */
 export async function onScanEvents(handlers: {

@@ -25,6 +25,20 @@ let resumeTimer: ReturnType<typeof setTimeout> | undefined;
 let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
+const aligningHere = computed(() => !!lyricsStore.aligning && lyricsStore.aligning.trackId === player.currentTrack?.id);
+
+/** Proposition de synchronisation automatique (téléchargement du modèle, une fois). */
+async function offerAlign() {
+  if (!lyricsStore.model) await lyricsStore.refreshModel();
+  if (!lyricsStore.model?.installed) {
+    const mo = Math.round((lyricsStore.model?.bytes ?? 80_500_000) / 1_000_000);
+    const ok = window.confirm(
+      `Synchroniser automatiquement les paroles sans minutage ?\n\nMusic Player télécharge une fois un modèle de reconnaissance vocale (${mo} Mo), puis calcule le minutage sur cet appareil : aucun son n'est envoyé en ligne. Le calcul prend de quelques secondes à quelques minutes par morceau selon l'appareil.`,
+    );
+    if (!ok) return;
+  }
+  await lyricsStore.enableAlign();
+}
 /** Lignes découpées en mots minutés, et pauses pour les passages sans voix. */
 const items = computed(() => (synced.value ? buildItems(synced.value, (player.currentTrack?.duration_secs ?? 0) * 1000) : []));
 // Légère avance : la ligne s'allume au moment où elle commence à être chantée. Plus le
@@ -210,8 +224,15 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <p class="timing" role="status">
-              <template v-if="lyricsStore.upgrading"><span class="dots"><i /><i /><i /></span> Recherche d'une version synchronisée…</template>
-              <template v-else>Paroles non synchronisées</template>
+              <template v-if="aligningHere"><span class="dots"><i /><i /><i /></span> Synchronisation automatique… {{ Math.round(lyricsStore.aligning!.fraction * 100) }} %</template>
+              <template v-else-if="lyricsStore.upgrading"><span class="dots"><i /><i /><i /></span> Recherche d'une version synchronisée…</template>
+              <template v-else-if="lyricsStore.installing !== null"><span class="dots"><i /><i /><i /></span> Téléchargement du modèle de synchronisation… {{ Math.round(lyricsStore.installing * 100) }} %</template>
+              <template v-else>
+                Paroles non synchronisées
+                <span v-if="lyricsStore.alignError || lyricsStore.installError" class="why">· {{ lyricsStore.alignError || lyricsStore.installError }}</span>
+                <button v-if="!lyricsStore.alignEnabled" type="button" class="link" @click="offerAlign">Les synchroniser automatiquement</button>
+                <button v-else-if="lyricsStore.alignError && player.currentTrack" type="button" class="link" @click="lyricsStore.align(player.currentTrack.id)">Réessayer</button>
+              </template>
             </p>
             <p class="plain">{{ lyricsStore.lyrics.plain }}</p>
           </template>
@@ -375,6 +396,18 @@ onBeforeUnmount(() => {
 }
 .timing .dots {
   transform: scale(0.7);
+}
+.timing .why {
+  color: var(--text-3);
+}
+.timing .link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .resume {
   position: absolute;

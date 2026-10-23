@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 import PlaylistCover from "@/components/PlaylistCover.vue";
 
 // Liste des playlists (onglet « Playlists » sur téléphone).
 const playlists = usePlaylistsStore();
+const share = useShareStore();
 const ui = useUiStore();
 </script>
 
@@ -13,7 +15,10 @@ const ui = useUiStore();
   <div class="page">
     <div class="head">
       <h1 class="page-title">Playlists</h1>
-      <button type="button" class="pill pill-accent" @click="ui.playlistDialog = { mode: 'create' }"><Icon name="plus" :size="15" /> Nouvelle</button>
+      <div class="head-actions">
+        <button type="button" class="pill pill-ghost" @click="share.receiving = true"><Icon name="import" :size="15" /> Recevoir</button>
+        <button type="button" class="pill pill-accent" @click="ui.playlistDialog = { mode: 'create' }"><Icon name="plus" :size="15" /> Nouvelle</button>
+      </div>
     </div>
     <div v-if="playlists.items.length" class="grid">
       <button v-for="p in playlists.items" :key="p.id" type="button" class="card" @click="ui.go({ name: 'playlist', id: p.id })">
@@ -35,6 +40,10 @@ const ui = useUiStore();
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+.head-actions {
+  display: flex;
+  gap: 8px;
 }
 .grid {
   display: grid;

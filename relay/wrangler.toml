@@ -1,0 +1,13 @@
+# Relais de partage de Music Player (voir README.md).
+name = "music-player-relais"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[[durable_objects.bindings]]
+name = "SALLES"
+class_name = "Salle"
+
+# Durable Objects « SQLite » : disponibles avec l'offre gratuite de Cloudflare Workers.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Salle"]

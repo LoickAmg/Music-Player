@@ -229,6 +229,103 @@ pub fn upgrade_lyrics(
     ))
 }
 
+/// Une seule synchronisation automatique ou installation du modèle à la fois : c'est un calcul
+/// lourd (tous les cœurs du processeur), inutile d'en lancer deux.
+static ALIGN_BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct AlignGuard;
+impl AlignGuard {
+    fn take() -> Result<Self, String> {
+        if ALIGN_BUSY.swap(true, Ordering::SeqCst) {
+            return Err("Une synchronisation est déjà en cours.".into());
+        }
+        Ok(Self)
+    }
+}
+impl Drop for AlignGuard {
+    fn drop(&mut self) {
+        ALIGN_BUSY.store(false, Ordering::SeqCst);
+    }
+}
+
+#[derive(Serialize)]
+pub struct AlignModelStatus {
+    pub installed: bool,
+    /// Taille du téléchargement (octets).
+    pub bytes: u64,
+}
+
+#[tauri::command]
+pub fn alignment_model_status(state: State<'_, AppState>) -> AlignModelStatus {
+    AlignModelStatus {
+        installed: crate::align::installed(&state.data_dir),
+        bytes: crate::align::MODEL_BYTES,
+    }
+}
+
+#[derive(Clone, Serialize)]
+struct Progress {
+    done: u64,
+    total: u64,
+}
+
+/// Télécharge le modèle de synchronisation (une fois), avec l'avancement en événements
+/// « align-model-progress ».
+#[tauri::command(async)]
+pub fn install_alignment_model(app: AppHandle) -> Result<(), String> {
+    let _busy = AlignGuard::take()?;
+    let data_dir = app.state::<AppState>().data_dir.clone();
+    let mut last = 0u64;
+    crate::align::install(&data_dir, |done, total| {
+        // Un événement par Mo environ : pas de quoi saturer l'interface.
+        if done - last >= 1_000_000 || done == total {
+            last = done;
+            let _ = app.emit("align-model-progress", Progress { done, total });
+        }
+    })
+}
+
+#[tauri::command]
+pub fn remove_alignment_model(state: State<'_, AppState>) {
+    crate::align::remove(&state.data_dir);
+}
+
+#[derive(Clone, Serialize)]
+struct AlignProgress {
+    track_id: String,
+    fraction: f32,
+}
+
+/// Synchronise automatiquement les paroles sans minutage du morceau (reconnaissance vocale
+/// locale) ; renvoie les paroles synchronisées, ou `None` s'il n'y a rien à synchroniser.
+/// Avancement en événements « align-progress ».
+#[tauri::command(async)]
+pub fn align_lyrics(app: AppHandle, track_id: String) -> Result<Option<Lyrics>, String> {
+    let state = app.state::<AppState>();
+    let track = state
+        .find_track(&track_id)
+        .ok_or("Piste introuvable dans la bibliothèque.")?;
+    let Some(text) = lyrics::unsynced_text(&track, &state.lyrics_dir()) else {
+        return Ok(None);
+    };
+    let _busy = AlignGuard::take()?;
+    let plain = text.plain.clone().unwrap_or_default();
+    let mut last = -1.0f32;
+    let lines = crate::align::synchronize(
+        &state.data_dir,
+        Path::new(&track.path),
+        track.duration_secs,
+        &plain,
+        |fraction| {
+            if fraction - last >= 0.02 || fraction >= 1.0 {
+                last = fraction;
+                let _ = app.emit("align-progress", AlignProgress { track_id: track_id.clone(), fraction });
+            }
+        },
+    )?;
+    Ok(Some(lyrics::store_aligned(&track, &state.lyrics_dir(), text, lines)))
+}
+
 /// Texte proposé d'office dans la recherche manuelle de paroles.
 #[tauri::command]
 pub fn lyrics_query(state: State<'_, AppState>, track_id: String) -> Result<String, String> {
@@ -809,6 +906,145 @@ pub fn pick_share_file(app: AppHandle) -> Option<String> {
             .and_then(|p| p.into_path().ok())
             .map(|p| p.to_string_lossy().to_string())
     }
+}
+
+// ---------------------------------------------------------------------
+// Partage à proximité (même réseau) et à distance (par code)
+// ---------------------------------------------------------------------
+
+/// Rend l'appareil visible des voisins sous ce nom (relancé si le nom change).
+#[tauri::command(async)]
+pub fn nearby_start(app: AppHandle, name: String) -> Result<(), String> {
+    crate::nearby::start(&app, &name)
+}
+
+#[tauri::command(async)]
+pub fn nearby_stop() {
+    crate::nearby::stop();
+}
+
+/// Appareils avec Music Player ouvert sur le même réseau.
+#[tauri::command(async)]
+pub fn nearby_scan(app: AppHandle) -> Result<Vec<crate::nearby::Peer>, String> {
+    crate::nearby::scan(&app, Duration::from_millis(2500))
+}
+
+/// Réponse à un envoi reçu d'un voisin (événement « nearby-offer »).
+#[tauri::command]
+pub fn nearby_answer(id: String, accept: bool) {
+    crate::nearby::answer(&id, accept);
+}
+
+fn report(app: &AppHandle, id: &str) -> impl FnMut(&'static str, u64, u64) + Send + 'static {
+    let app = app.clone();
+    let id = id.to_string();
+    move |stage, done, total| {
+        crate::transfer::emit(&app, crate::transfer::Progress::new(&id, stage, done, total))
+    }
+}
+
+fn finish_report(app: &AppHandle, id: &str, result: &Result<(), String>) {
+    let mut p = crate::transfer::Progress::new(id, "fini", 0, 0);
+    if let Err(e) = result {
+        p.stage = if e.contains("refusé") { "refuse" } else { "erreur" };
+        p.message = Some(e.clone());
+    }
+    crate::transfer::emit(app, p);
+    crate::transfer::forget(id);
+}
+
+/// Envoie un morceau ou une playlist à un appareil voisin ; avancement en « share-progress ».
+#[tauri::command(async)]
+pub fn nearby_send(
+    app: AppHandle,
+    peer: crate::nearby::Peer,
+    item: crate::transfer::Item,
+    from: String,
+    transfer_id: String,
+) -> Result<(), String> {
+    let cancel = crate::transfer::cancel_flag(&transfer_id);
+    let result = crate::transfer::prepare(&app, &item, &from).and_then(|(path, offer)| {
+        let sent = crate::nearby::send_to(&peer.addresses, &path, &offer, &cancel, report(&app, &transfer_id));
+        let _ = std::fs::remove_file(&path);
+        sent
+    });
+    finish_report(&app, &transfer_id, &result);
+    result
+}
+
+fn relay_or_default(relay: Option<String>) -> Result<String, String> {
+    relay
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty())
+        .or_else(|| crate::remote::DEFAULT_RELAY.map(str::to_string))
+        .ok_or_else(|| "Aucun relais de partage n'est réglé (Réglages → Partage).".to_string())
+}
+
+/// Adresse du relais choisie à la construction de l'application, s'il y en a une.
+#[tauri::command]
+pub fn default_relay() -> Option<String> {
+    crate::remote::DEFAULT_RELAY.map(str::to_string)
+}
+
+#[derive(Serialize)]
+pub struct RemoteStart {
+    pub code: String,
+}
+
+/// Prépare l'archive et réserve une salle sur le relais ; renvoie le code à donner au
+/// destinataire. L'envoi continue en arrière-plan (« share-progress ») jusqu'à ce qu'il le
+/// saisisse (15 minutes au plus).
+#[tauri::command(async)]
+pub fn remote_send_start(
+    app: AppHandle,
+    item: crate::transfer::Item,
+    from: String,
+    relay: Option<String>,
+    transfer_id: String,
+) -> Result<RemoteStart, String> {
+    let relay = relay_or_default(relay)?;
+    let (path, offer) = crate::transfer::prepare(&app, &item, &from)?;
+    let pending = match crate::remote::open_send(&relay) {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+    };
+    let code = pending.code.text();
+    let cancel = crate::transfer::cancel_flag(&transfer_id);
+    std::thread::spawn(move || {
+        let result = pending.finish(&path, &offer, &cancel, report(&app, &transfer_id));
+        let _ = std::fs::remove_file(&path);
+        finish_report(&app, &transfer_id, &result);
+    });
+    Ok(RemoteStart { code })
+}
+
+/// Reçoit ce qui est envoyé avec ce code, puis l'importe dans la bibliothèque.
+#[tauri::command(async)]
+pub fn remote_receive(
+    app: AppHandle,
+    code: String,
+    relay: Option<String>,
+    transfer_id: String,
+) -> Result<ImportResult, String> {
+    let relay = relay_or_default(relay)?;
+    let code = crate::remote::parse_code(&code)?;
+    let dir = share_temp_dir(&app).ok_or("Dossier temporaire indisponible.")?;
+    let dest = dir.join(format!("{transfer_id}.{}", sharing::EXTENSION));
+    let cancel = crate::transfer::cancel_flag(&transfer_id);
+    let result = crate::remote::receive(&relay, &code, &dest, &cancel, report(&app, &transfer_id))
+        .and_then(|_| crate::transfer::import_received(&app, &dest));
+    let _ = std::fs::remove_file(&dest);
+    finish_report(&app, &transfer_id, &result.as_ref().map(|_| ()).map_err(Clone::clone));
+    result
+}
+
+/// Annule un envoi ou une réception en cours.
+#[tauri::command]
+pub fn transfer_cancel(id: String) {
+    crate::transfer::cancel(&id);
 }
 
 /// Importe une archive de partage reçue d'un autre appareil (choisie dans une boîte de

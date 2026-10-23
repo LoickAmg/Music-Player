@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from "vue";
-import { api } from "@/lib/api";
 import { formatCollection } from "@/lib/format";
-import { revealOrShare } from "@/lib/share";
 import type { Track } from "@/lib/types";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useAppearanceStore } from "@/stores/appearance";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 import PlaylistCover from "@/components/PlaylistCover.vue";
@@ -19,6 +18,7 @@ const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const ui = useUiStore();
 const appearance = useAppearanceStore();
+const shareStore = useShareStore();
 
 const playlist = computed(() => playlists.byId(props.id));
 const tracks = computed(
@@ -60,15 +60,8 @@ async function playPlaylistNext() {
   if (!started) ui.notify("La playlist sera lue juste après");
 }
 
-async function share() {
-  if (!playlist.value) return;
-  try {
-    const path = await api.exportPlaylist(playlist.value.id);
-    const problem = path ? await revealOrShare(path) : null;
-    if (problem) ui.notify(problem);
-  } catch (e) {
-    ui.notify(`Partage impossible : ${e}`);
-  }
+function share() {
+  if (playlist.value) shareStore.open({ kind: "playlist", id: playlist.value.id }, playlist.value.name);
 }
 </script>
 

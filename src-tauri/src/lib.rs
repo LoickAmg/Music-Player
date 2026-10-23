@@ -1,3 +1,4 @@
+pub mod align;
 pub mod appearance;
 pub mod audio;
 pub mod commands;
@@ -7,10 +8,13 @@ pub mod ffmpeg;
 pub mod library;
 pub mod listening;
 pub mod lyrics;
+pub mod nearby;
 pub mod playlists;
 pub mod queue;
+pub mod remote;
 pub mod session;
 pub mod sharing;
+pub mod transfer;
 pub mod shortcut_icon;
 pub mod state;
 pub mod updater;
@@ -105,6 +109,10 @@ pub fn run() {
             commands::get_cover,
             commands::get_lyrics,
             commands::upgrade_lyrics,
+            commands::alignment_model_status,
+            commands::install_alignment_model,
+            commands::remove_alignment_model,
+            commands::align_lyrics,
             commands::lyrics_query,
             commands::search_lyrics,
             commands::choose_lyrics,
@@ -150,6 +158,15 @@ pub fn run() {
             commands::export_playlist,
             commands::pick_share_file,
             commands::import_share_bundle,
+            commands::nearby_start,
+            commands::nearby_stop,
+            commands::nearby_scan,
+            commands::nearby_answer,
+            commands::nearby_send,
+            commands::default_relay,
+            commands::remote_send_start,
+            commands::remote_receive,
+            commands::transfer_cancel,
             updater::check_update,
             updater::install_update,
         ])

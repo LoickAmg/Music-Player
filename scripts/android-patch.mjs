@@ -63,6 +63,9 @@ const permissions = [
   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
   '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
   '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
+  // Partage à proximité : sans ce verrou, la plupart des téléphones ignorent les annonces
+  // mDNS des appareils voisins (nearby.rs).
+  '<uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />',
 ];
 for (const p of permissions) {
   const name = p.match(/android:name="([^"]+)"/)[1];
@@ -182,6 +185,7 @@ import android.content.pm.PackageManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.database.ContentObserver
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -198,6 +202,8 @@ import androidx.core.content.ContextCompat
 class MainActivity : TauriActivity() {
   private var updates: UpdateBridge? = null
   private val main = Handler(Looper.getMainLooper())
+  // Partage à proximité : annonces mDNS reçues tant que l'appli est à l'écran.
+  private var multicast: WifiManager.MulticastLock? = null
 
   // Musique du téléphone modifiée (téléchargement, copie, suppression) : la page met la
   // bibliothèque à jour, quelques secondes après la dernière modification.
@@ -305,6 +311,22 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     pushSystemDark()
     // Retour des réglages « installer des applis inconnues » : l'installation reprend.
     updates?.resumePending()
+    try {
+      val lock = multicast ?: (applicationContext.getSystemService(WIFI_SERVICE) as WifiManager)
+        .createMulticastLock("music-player-partage")
+        .also {
+          it.setReferenceCounted(false)
+          multicast = it
+        }
+      lock.acquire()
+    } catch (e: Exception) {
+      // pas de Wi-Fi : le partage à proximité attendra
+    }
+  }
+
+  override fun onPause() {
+    multicast?.let { if (it.isHeld) it.release() }
+    super.onPause()
   }
 
   override fun onDestroy() {
@@ -1158,6 +1180,21 @@ class ShareBridge(private val context: Context) {
         type = mime
         putExtra(Intent.EXTRA_STREAM, uri)
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      true
+    } catch (e: Exception) {
+      false
+    }
+  }
+
+  /** Texte à partager (code de partage à distance, à envoyer par messagerie). */
+  @JavascriptInterface
+  fun shareText(text: String): Boolean {
+    return try {
+      val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text.take(2000))
       }
       context.startActivity(Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
       true

@@ -29,6 +29,13 @@ export default tseslint.config(
     },
   },
   {
+    // Relais de partage : code Cloudflare Workers (globales propres à ce moteur).
+    files: ["relay/**/*.js"],
+    languageOptions: {
+      globals: { ...globals.serviceworker, WebSocketPair: "readonly" },
+    },
+  },
+  {
     files: ["tests/**/*.ts"],
     languageOptions: {
       globals: { ...globals.browser, ...globals.node, ...globals.vitest },

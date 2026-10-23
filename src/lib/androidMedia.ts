@@ -35,6 +35,7 @@ interface AndroidLookBridge {
  *  exporté par l'appli (archive .mpshare dans le dossier « partages/ »). */
 interface AndroidShareBridge {
   share(path: string): boolean;
+  shareText?(text: string): boolean;
 }
 
 declare global {
@@ -93,6 +94,16 @@ export function installAndroidFiles(handlers: { open: (path: string) => void; li
 export function shareFile(path: string): boolean {
   try {
     return window.AndroidShare?.share(path) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+/** Feuille de partage d'Android pour un texte (code de partage à envoyer par messagerie) ;
+ *  faux ailleurs qu'Android. */
+export function shareText(text: string): boolean {
+  try {
+    return window.AndroidShare?.shareText?.(text) ?? false;
   } catch {
     return false;
   }

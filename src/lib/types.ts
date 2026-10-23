@@ -96,6 +96,13 @@ export interface LyricsUpgrade {
   retry: boolean;
 }
 
+/** Modèle de reconnaissance vocale de la synchronisation automatique des paroles. */
+export interface AlignModelStatus {
+  installed: boolean;
+  /** Taille du téléchargement (octets). */
+  bytes: number;
+}
+
 /** Proposition de la recherche manuelle de paroles (LRCLIB). */
 export interface LyricsCandidate {
   id: number;
@@ -148,6 +155,37 @@ export interface Artist {
   name: string;
   albums: Album[];
   tracks: Track[];
+}
+
+/** Ce que l'on partage avec un autre appareil. */
+export interface ShareItem {
+  kind: "track" | "playlist";
+  id: string;
+}
+
+/** Offre d'envoi : montrée à la personne qui reçoit avant qu'elle accepte. */
+export interface ShareOffer {
+  from: string;
+  kind: "track" | "playlist";
+  name: string;
+  tracks: number;
+  size: number;
+}
+
+/** Appareil avec Music Player ouvert sur le même réseau. */
+export interface NearbyPeer {
+  id: string;
+  name: string;
+  addresses: string[];
+}
+
+/** Avancement d'un envoi ou d'une réception. */
+export interface TransferProgress {
+  id: string;
+  stage: "attente" | "envoi" | "reception" | "fini" | "refuse" | "erreur";
+  done: number;
+  total: number;
+  message: string | null;
 }
 
 /** Résultat de l'import d'une archive de partage (`.mpshare`). */

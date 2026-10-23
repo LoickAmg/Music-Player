@@ -102,6 +102,7 @@ export function installTauriMock() {
   let eqGains: [number, number, number] = [0, 0, 0];
   const dismissedLyrics = new Set<string>();
   const upgraded = new Set<string>();
+  let alignModel = false;
   // Personnalisation : réglages et fichiers importés (adresses blob) le temps de la session.
   let appearance: unknown = null;
   const assets = new Map<string, string>();
@@ -144,13 +145,27 @@ export function installTauriMock() {
     get_library: () => library,
     get_cover: ({ trackId }) => demoCover(Number(String(trackId).replace("mock-", "")) || 0),
     // « mock-1 » : texte seul (comme lyrics.ovh), qu'une passe d'amélioration remplace par une
-    // version synchronisée au bout de quelques secondes.
+    // version synchronisée au bout de quelques secondes. « mock-2 » : texte seul introuvable en
+    // version synchronisée, pour essayer la synchronisation automatique.
     get_lyrics: ({ trackId }) =>
       dismissedLyrics.has(trackId)
         ? null
-        : trackId === "mock-1" && !upgraded.has(trackId)
+        : (trackId === "mock-1" || trackId === "mock-2") && !upgraded.has(trackId)
           ? { synced: null, plain: DEMO_LYRICS.synced!.map((l) => l.text).join("\n"), instrumental: false, source: "lyrics.ovh" }
           : DEMO_LYRICS,
+    alignment_model_status: () => ({ installed: alignModel, bytes: 80_549_777 }),
+    install_alignment_model: async () => {
+      await new Promise((r) => setTimeout(r, 1500));
+      alignModel = true;
+    },
+    remove_alignment_model: () => {
+      alignModel = false;
+    },
+    align_lyrics: async ({ trackId }) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      upgraded.add(trackId);
+      return { ...DEMO_LYRICS, source: "lyrics.ovh · synchronisées automatiquement" };
+    },
     upgrade_lyrics: async ({ trackId }) => {
       await new Promise((r) => setTimeout(r, 2500));
       if (trackId !== "mock-1") return { lyrics: null, retry: false };
@@ -378,6 +393,27 @@ export function installTauriMock() {
       return pl ? `/demo/partages/${pl.name}.mpshare` : null;
     },
     pick_share_file: () => null,
+    // Partage à proximité et à distance : appareils et code fictifs.
+    nearby_start: () => undefined,
+    nearby_stop: () => undefined,
+    nearby_scan: async () => {
+      await new Promise((r) => setTimeout(r, 1200));
+      return [
+        { id: "a1", name: "Téléphone de Lou", addresses: ["192.168.1.20:52000"] },
+        { id: "b2", name: "PC du salon", addresses: ["192.168.1.31:52001"] },
+      ];
+    },
+    nearby_answer: () => undefined,
+    nearby_send: async () => {
+      await new Promise((r) => setTimeout(r, 2000));
+    },
+    default_relay: () => "https://music-player-relais.exemple.workers.dev",
+    remote_send_start: () => ({ code: "4821-soleil-guitare" }),
+    remote_receive: async () => {
+      await new Promise((r) => setTimeout(r, 2000));
+      return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2" };
+    },
+    transfer_cancel: () => undefined,
     import_share_bundle: (): ShareImportResult => {
       throw new Error("Import indisponible en mode démo.");
     },

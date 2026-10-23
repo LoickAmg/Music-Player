@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { api } from "@/lib/api";
-import { revealOrShare } from "@/lib/share";
 import { albumKey, useLibraryStore } from "@/stores/library";
 import { useFavoritesStore } from "@/stores/favorites";
 import { usePlaylistsStore } from "@/stores/playlists";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import { usePlayerStore } from "@/stores/player";
 
@@ -13,6 +12,7 @@ const library = useLibraryStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
 const player = usePlayerStore();
+const shareStore = useShareStore();
 
 const box = ref<HTMLElement | null>(null);
 const pos = ref({ x: 0, y: 0 });
@@ -83,17 +83,11 @@ async function toggleFavorite() {
   const now = await favorites.toggle(track.value.id);
   ui.notify(now ? `« ${track.value.title} » ajouté aux titres aimés` : `« ${track.value.title} » retiré des titres aimés`);
 }
-async function share() {
+function share() {
   if (!track.value) return;
   const { id, title } = track.value;
   close();
-  try {
-    const path = await api.exportTrack(id);
-    const problem = path ? await revealOrShare(path) : null;
-    if (problem) ui.notify(problem);
-  } catch (e) {
-    ui.notify(`Partage de « ${title} » impossible : ${e}`);
-  }
+  shareStore.open({ kind: "track", id }, title);
 }
 </script>
 

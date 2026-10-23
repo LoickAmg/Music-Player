@@ -39,6 +39,21 @@ ureq = { version = "3", features = ["json"] }
 # Archives de partage (.mpshare) : « stored » seulement (les fichiers audio sont déjà
 # compressés), pas de dépendance C (compilation croisée Android plus simple).
 zip = { version = "2", default-features = false, features = ["deflate"] }
+# Synchronisation automatique des paroles (align.rs) : Whisper quantifié exécuté en local par
+# Candle, en Rust pur (aucun outil C++ à installer, Android compris). MIT ou Apache-2.0.
+candle = { package = "candle-core", version = "0.11" }
+candle-nn = "0.11"
+candle-transformers = "0.11"
+# Vérification des fichiers du modèle téléchargé.
+sha2 = "0.10"
+# Partage à proximité : appareils du même réseau trouvés par mDNS (Rust pur).
+mdns-sd = "0.21"
+# Partage à distance par code : relais WebSocket (TLS rustls, déjà utilisé par ureq, sans
+# aws-lc), clé convenue par SPAKE2 à partir des mots du code, contenu chiffré ChaCha20-Poly1305.
+tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
+spake2 = "0.4"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
 # Icône choisie appliquée aux raccourcis Windows : PNG → .ico multi-tailles.
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
 
