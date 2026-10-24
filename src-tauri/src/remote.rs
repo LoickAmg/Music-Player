@@ -80,6 +80,17 @@ const ANSWER: u8 = 2;
 const DATA: u8 = 3;
 const END: u8 = 4;
 const DONE: u8 = 5;
+/// Accusé de réception : octets reçus jusqu'ici (u64, petit-boutiste).
+const ACK: u8 = 6;
+/// Le destinataire accuse réception tous les `ACK_EVERY` octets ; l'expéditeur n'a jamais
+/// plus de `WINDOW` octets d'avance. Sans cela, le relais garde en mémoire tout ce que le
+/// destinataire n'a pas encore téléchargé : l'expéditeur affichait 100 % bien avant la fin et
+/// abandonnait en attendant la confirmation (connexion lente en face).
+/// (Plus petits en test, pour mesurer l'effet sans tampons de plusieurs Mo.)
+const ACK_EVERY: u64 = if cfg!(test) { 256 * 1024 } else { 1024 * 1024 };
+const WINDOW: u64 = if cfg!(test) { 1024 * 1024 } else { 4 * 1024 * 1024 };
+/// Délai sans aucune nouvelle du correspondant avant d'abandonner l'essai.
+const SILENCE: Duration = Duration::from_secs(120);
 
 type Socket = WebSocket<MaybeTlsStream<TcpStream>>;
 
@@ -163,10 +174,15 @@ fn would_block(e: &tungstenite::Error) -> bool {
 
 /// Message suivant du correspondant (ou du relais), en attendant au plus jusqu'à `deadline`.
 fn next(ws: &mut Socket, cancel: &AtomicBool, deadline: Instant) -> Result<Message, String> {
+    next_until(ws, cancel, deadline)?.ok_or_else(|| "Le correspondant ne répond pas.".into())
+}
+
+/// Comme `next`, mais `None` si rien n'est arrivé à temps.
+fn next_until(ws: &mut Socket, cancel: &AtomicBool, deadline: Instant) -> Result<Option<Message>, String> {
     loop {
         transfer::cancelled(cancel)?;
         if Instant::now() > deadline {
-            return Err("Le correspondant ne répond pas.".into());
+            return Ok(None);
         }
         match ws.read() {
             Ok(Message::Close(frame)) => {
@@ -176,7 +192,7 @@ fn next(ws: &mut Socket, cancel: &AtomicBool, deadline: Instant) -> Result<Messa
                     .unwrap_or_else(|| "Le correspondant s'est déconnecté.".into()))
             }
             Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_)) => continue,
-            Ok(message) => return Ok(message),
+            Ok(message) => return Ok(Some(message)),
             Err(e) if would_block(&e) => std::thread::sleep(Duration::from_millis(15)),
             Err(tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed) => {
                 return Err("Le correspondant s'est déconnecté.".into())
@@ -276,9 +292,15 @@ impl Channel<'_> {
     }
 
     fn recv(&mut self, wait: Duration) -> Result<(u8, Vec<u8>), String> {
+        self.try_recv(wait)?.ok_or_else(|| "Le correspondant ne répond pas.".into())
+    }
+
+    /// Message suivant, ou `None` si rien n'est arrivé avant `wait`.
+    fn try_recv(&mut self, wait: Duration) -> Result<Option<(u8, Vec<u8>)>, String> {
         let deadline = Instant::now() + wait;
         loop {
-            if let Message::Binary(bytes) = next(&mut self.ws, self.cancel, deadline)? {
+            let Some(message) = next_until(&mut self.ws, self.cancel, deadline)? else { return Ok(None) };
+            if let Message::Binary(bytes) = message {
                 let plain = self
                     .open
                     .decrypt(Nonce::from_slice(&nonce(self.received)), bytes.as_ref())
@@ -291,7 +313,7 @@ impl Channel<'_> {
                     })?;
                 self.received += 1;
                 let (kind, body) = plain.split_first().ok_or("Message vide reçu.")?;
-                return Ok((*kind, body.to_vec()));
+                return Ok(Some((*kind, body.to_vec())));
             }
         }
     }
@@ -335,6 +357,10 @@ fn classify(e: String) -> Failure {
     } else {
         Failure::Retry(e)
     }
+}
+
+fn ack_value(body: &[u8]) -> Option<u64> {
+    Some(u64::from_le_bytes(body.try_into().ok()?))
 }
 
 /// Position annoncée par le destinataire (« oui:123456 » : déjà reçu), ou `None` s'il refuse.
@@ -386,21 +412,55 @@ impl PendingSend {
                 };
                 let mut file = File::open(path).map_err(|e| Failure::Final(e.to_string()))?;
                 std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from)).map_err(|e| Failure::Final(e.to_string()))?;
+                // Destinataire récent : il accuse réception tout de suite (position de départ).
+                // Sinon (0.5.7), l'envoi part sans régulation, comme avant.
+                let mut acked = from;
+                let mut acks = false;
+                if offer.acks {
+                    if let Some((ACK, body)) = channel.try_recv(Duration::from_secs(5)).map_err(classify)? {
+                        acks = true;
+                        acked = ack_value(&body).unwrap_or(from);
+                    }
+                }
                 let mut buffer = vec![0u8; CHUNK];
                 let mut sent = from;
-                progress("envoi", sent, offer.size);
+                progress("envoi", acked, offer.size);
                 loop {
                     transfer::cancelled(cancel).map_err(Failure::Final)?;
+                    // Trop d'avance sur le destinataire : on attend son accusé.
+                    while acks && sent - acked >= WINDOW {
+                        let (kind, body) = channel.recv(SILENCE).map_err(classify)?;
+                        if kind != ACK {
+                            return Err(Failure::Retry("Échange inattendu avec le destinataire.".into()));
+                        }
+                        acked = ack_value(&body).unwrap_or(acked).max(acked);
+                        progress("envoi", acked, offer.size);
+                    }
                     let n = file.read(&mut buffer).map_err(|e| Failure::Final(e.to_string()))?;
                     if n == 0 {
                         break;
                     }
                     channel.send(DATA, &buffer[..n]).map_err(classify)?;
                     sent += n as u64;
-                    progress("envoi", sent, offer.size);
+                    if !acks {
+                        progress("envoi", sent, offer.size);
+                    }
                 }
                 channel.send(END, &[]).map_err(classify)?;
-                let (kind, body) = channel.recv(Duration::from_secs(120)).map_err(classify)?;
+                // Fin : les accusés continuent d'arriver tant que le destinataire télécharge ;
+                // on n'abandonne qu'après `SILENCE` sans aucune nouvelle.
+                // Destinataire sans accusés : aucune nouvelle avant la toute fin, il peut encore
+                // être en train de télécharger ce que le relais a gardé pour lui.
+                let silence = if acks { SILENCE } else { WAIT_RECEIVER };
+                let (kind, body) = loop {
+                    let (kind, body) = channel.recv(silence).map_err(classify)?;
+                    if kind == ACK {
+                        acked = ack_value(&body).unwrap_or(acked).max(acked);
+                        progress("envoi", acked, offer.size);
+                        continue;
+                    }
+                    break (kind, body);
+                };
                 channel.close();
                 if kind != DONE || body != b"ok" {
                     return Err(Failure::Retry("Le destinataire n'a pas tout reçu.".into()));
@@ -476,6 +536,10 @@ pub fn receive(
             std::io::Seek::seek(&mut out, std::io::SeekFrom::Start(received)).map_err(|e| Failure::Final(e.to_string()))?;
             known = Some(offer.clone());
             channel.send(ANSWER, format!("oui:{received}").as_bytes()).map_err(classify)?;
+            if offer.acks {
+                channel.send(ACK, &received.to_le_bytes()).map_err(classify)?;
+            }
+            let mut last_ack = received;
             progress("reception", received, offer.size);
             loop {
                 let (kind, body) = channel.recv(Duration::from_secs(120)).map_err(classify)?;
@@ -487,6 +551,10 @@ pub fn receive(
                         }
                         out.write_all(&body).map_err(|e| Failure::Final(e.to_string()))?;
                         progress("reception", received, offer.size);
+                        if offer.acks && received - last_ack >= ACK_EVERY {
+                            channel.send(ACK, &received.to_le_bytes()).map_err(classify)?;
+                            last_ack = received;
+                        }
                     }
                     END => break,
                     _ => return Err(Failure::Retry("Échange inattendu avec l'expéditeur.".into())),
@@ -583,16 +651,16 @@ mod tests {
                             if cut.is_some_and(|c| forwarded > c) {
                                 return false;
                             }
-                            let mut r = to.send(m);
-                            while matches!(&r, Err(e) if would_block(e)) {
-                                std::thread::sleep(Duration::from_millis(1));
-                                r = to.flush();
+                            // Comme le vrai relais : tout est accepté de l'expéditeur et gardé
+                            // en mémoire tant que le destinataire ne l'a pas lu.
+                            if matches!(to.write(m), Err(e) if !would_block(&e)) {
+                                return false;
                             }
-                            r.is_ok()
+                            !matches!(to.flush(), Err(e) if !would_block(&e))
                         }
                         Err(e) if would_block(&e) => {
                             std::thread::sleep(Duration::from_millis(1));
-                            true
+                            !matches!(to.flush(), Err(e) if !would_block(&e))
                         }
                         Err(_) => false,
                     }
@@ -605,7 +673,7 @@ mod tests {
     }
 
     fn offer(size: u64) -> Offer {
-        Offer { id: "envoi-1".into(), from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size }
+        Offer { id: "envoi-1".into(), from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size, acks: true }
     }
 
     #[test]
@@ -647,6 +715,58 @@ mod tests {
         assert!(retries >= 1, "la coupure doit provoquer une reprise");
         assert!(resumed_from.iter().any(|&from| from >= CHUNK as u64), "reprise sans repartir de zéro : {resumed_from:?}");
         assert_eq!(std::fs::read(&dest).unwrap(), content);
+    }
+
+    /// Envoi de `size` octets à un destinataire lent (`delay` par tranche) ; renvoie la plus
+    /// grande avance de la barre de l'expéditeur sur ce que le destinataire avait vraiment reçu.
+    fn slow_transfer(size: usize, acks: bool, delay: Duration) -> u64 {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        let relay = local_relay(None);
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("envoi.mpshare");
+        let content: Vec<u8> = (0..size as u32).map(|i| (i % 239) as u8).collect();
+        std::fs::write(&source, &content).unwrap();
+        let pending = open_send(&relay).unwrap();
+        let code = pending.code.clone();
+        let received = Arc::new(AtomicU64::new(0));
+        let lead = Arc::new(AtomicU64::new(0));
+        let sending = {
+            let relay = relay.clone();
+            let (received, lead) = (received.clone(), lead.clone());
+            let offer = Offer { acks, ..offer(size as u64) };
+            std::thread::spawn(move || {
+                pending.finish(&relay, &source, &offer, &AtomicBool::new(false), |stage, done, _| {
+                    if stage == "envoi" {
+                        lead.fetch_max(done.saturating_sub(received.load(Ordering::SeqCst)), Ordering::SeqCst);
+                    }
+                })
+            })
+        };
+        let dest = dir.path().join("recu.mpshare");
+        receive(&relay, &code, &dest, &AtomicBool::new(false), |stage, done, _| {
+            if stage == "reception" {
+                received.store(done, Ordering::SeqCst);
+                std::thread::sleep(delay);
+            }
+        })
+        .unwrap();
+        sending.join().unwrap().unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), content);
+        lead.load(Ordering::SeqCst)
+    }
+
+    #[test]
+    fn the_sender_never_runs_far_ahead_of_a_slow_receiver() {
+        // 12 Mo, destinataire lent : la barre de l'expéditeur suit la vraie réception.
+        let lead = slow_transfer(12 * 1024 * 1024, true, Duration::from_millis(20));
+        assert!(lead <= WINDOW + ACK_EVERY + CHUNK as u64, "avance de {lead} octets");
+    }
+
+    #[test]
+    fn a_receiver_without_acks_still_gets_everything() {
+        // Destinataire en 0.5.7 (offre sans « acks ») : envoi sans régulation, comme avant.
+        slow_transfer(3 * 1024 * 1024, false, Duration::ZERO);
     }
 
     #[test]

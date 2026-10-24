@@ -37,6 +37,10 @@ pub struct Offer {
     pub tracks: usize,
     /// Taille de l'archive (octets).
     pub size: u64,
+    /// L'expéditeur sait régler son débit sur les accusés de réception du destinataire
+    /// (partage à distance). Absent chez les versions 0.5.7 et antérieures.
+    #[serde(default)]
+    pub acks: bool,
 }
 
 /// Archive acceptée à la réception : 4 Go au plus.
@@ -99,6 +103,7 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
             name,
             tracks,
             size,
+            acks: true,
         },
     ))
 }

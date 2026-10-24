@@ -450,7 +450,7 @@ mod tests {
     use super::*;
 
     fn offer(size: u64) -> Offer {
-        Offer { id: "envoi-1".into(), from: "Téléphone de Lou".into(), kind: "track".into(), name: "Essai".into(), tracks: 1, size }
+        Offer { id: "envoi-1".into(), from: "Téléphone de Lou".into(), kind: "track".into(), name: "Essai".into(), tracks: 1, size, acks: true }
     }
 
     #[test]
