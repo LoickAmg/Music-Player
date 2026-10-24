@@ -60,6 +60,8 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 # Mise à jour automatique depuis les versions GitHub (ordinateur seulement).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater = "2"
+# Doublons supprimés : mis à la corbeille, récupérables (duplicates.rs).
+trash = "5"
 
 # Rafraîchir les icônes de l'Explorateur après avoir changé celle des raccourcis.
 [target.'cfg(windows)'.dependencies]

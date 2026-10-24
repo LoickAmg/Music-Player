@@ -93,6 +93,14 @@ export function installTauriMock() {
         damage: "Début du fichier vide : téléchargement inachevé ?",
       }),
     ),
+    // Doublons (page « Doublons ») : deux copies d'un morceau déjà présent.
+    ...[".flac", " (1).mp3"].map((suffix, i) => ({
+      ...makeTrack(0),
+      id: `mock-copie-${i}`,
+      path: `/musique/demo/Copies/${makeTrack(0).title}${suffix}`,
+      has_cover: i === 0,
+      duration_secs: makeTrack(0).duration_secs + i,
+    })),
     // Notes vocales et enregistrements, rangés à part (page « Vocaux »).
     ...[
       ["WhatsApp/Media/WhatsApp Voice Notes/202643/PTT-20261021-WA0007.opus", 42],
@@ -431,6 +439,12 @@ export function installTauriMock() {
       return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2" };
     },
     transfer_cancel: () => undefined,
+    remove_duplicates: ({ groups }: { groups: { keep: string; remove: string[] }[] }) => {
+      const gone = new Set(groups.flatMap((g) => g.remove.filter((id) => id !== g.keep)));
+      for (let i = library.length - 1; i >= 0; i--) if (gone.has(library[i].id)) library.splice(i, 1);
+      for (const p of playlists) p.track_ids = p.track_ids.filter((id) => !gone.has(id));
+      return { removed: gone.size, failed: [] };
+    },
     import_share_bundle: (): ShareImportResult => {
       throw new Error("Import indisponible en mode démo.");
     },

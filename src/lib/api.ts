@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
   AlignModelStatus,
+  DuplicateOutcome,
   InitialState,
   Lyrics,
   LyricsCandidate,
@@ -110,6 +111,9 @@ export const api = {
   /** Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état. */
   toggleFavorite: (trackId: string) => invoke<boolean>("toggle_favorite", { trackId }),
   listFavorites: () => invoke<string[]>("list_favorites"),
+  /** Retire les doublons choisis (corbeille sur ordinateur) ; playlists et favoris suivent la copie gardée. */
+  removeDuplicates: (groups: { keep: string; remove: string[] }[]) =>
+    invoke<DuplicateOutcome>("remove_duplicates", { groups }),
 
   /** Chemin créé, ou `null` si la boîte de dialogue a été annulée (ordinateur). */
   exportTrack: (trackId: string) => invoke<string | null>("export_track", { trackId }),

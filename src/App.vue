@@ -36,6 +36,7 @@ import AlbumsView from "@/views/AlbumsView.vue";
 import ArtistsView from "@/views/ArtistsView.vue";
 import FavoritesView from "@/views/FavoritesView.vue";
 import VoicesView from "@/views/VoicesView.vue";
+import DuplicatesView from "@/views/DuplicatesView.vue";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
@@ -366,6 +367,7 @@ onBeforeUnmount(() => {
               <SongsView v-else-if="ui.route.name === 'songs'" />
               <FavoritesView v-else-if="ui.route.name === 'favorites'" />
               <VoicesView v-else-if="ui.route.name === 'voices'" />
+              <DuplicatesView v-else-if="ui.route.name === 'duplicates'" />
               <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
               <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />

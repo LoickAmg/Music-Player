@@ -787,6 +787,40 @@ pub fn toggle_favorite(state: State<AppState>, track_id: String) -> Result<bool,
     Ok(now)
 }
 
+/// Retire les doublons choisis (corbeille sur ordinateur) ; playlists et titres aimés
+/// suivent la copie gardée. Renvoie aussi les fichiers que l'appli n'a pas pu effacer.
+#[tauri::command(async)]
+pub fn remove_duplicates(
+    app: AppHandle,
+    state: State<AppState>,
+    groups: Vec<crate::duplicates::Removal>,
+) -> Result<crate::duplicates::Outcome, String> {
+    let (outcome, tracks) = {
+        let mut library = state.library.lock().unwrap();
+        let mut playlists = state.playlists.lock().unwrap();
+        let mut favorites = state.favorites.lock().unwrap();
+        let outcome = crate::duplicates::apply(
+            &mut library,
+            &mut playlists,
+            &mut favorites,
+            &groups,
+            crate::duplicates::discard,
+        );
+        if outcome.removed > 0 {
+            playlists.save(&state.playlists_path()).map_err(|e| e.to_string())?;
+            favorites.save(&state.favorites_path()).map_err(|e| e.to_string())?;
+        }
+        (outcome, library.clone())
+    };
+    if outcome.removed > 0 {
+        if let Some(root) = state.library_root.lock().unwrap().clone() {
+            let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
+        }
+        let _ = app.emit("library-updated", &tracks);
+    }
+    Ok(outcome)
+}
+
 #[tauri::command]
 pub fn list_favorites(state: State<AppState>) -> Vec<String> {
     state.favorites.lock().unwrap().track_ids.iter().cloned().collect()

@@ -189,6 +189,12 @@ export interface TransferProgress {
   message: string | null;
 }
 
+/** Doublons retirés, et fichiers que l'appli n'a pas pu effacer elle-même (chemins). */
+export interface DuplicateOutcome {
+  removed: number;
+  failed: string[];
+}
+
 /** Résultat de l'import d'une archive de partage (`.mpshare`). */
 export interface ShareImportResult {
   name: string;

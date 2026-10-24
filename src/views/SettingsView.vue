@@ -121,6 +121,9 @@ const shortcuts = [
         <button type="button" class="pill pill-ghost" :disabled="!library.root || library.scanning" @click="library.root && library.scan(library.root)">
           <Icon name="refresh" :size="15" /> {{ library.scanning ? "Analyse en cours…" : "Rescanner" }}
         </button>
+        <button type="button" class="pill pill-ghost" :disabled="!library.tracks.length" @click="ui.go({ name: 'duplicates' })">
+          <Icon name="songs" :size="15" /> Doublons…
+        </button>
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
       <label class="toggle">

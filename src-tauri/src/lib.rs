@@ -2,6 +2,7 @@ pub mod align;
 pub mod appearance;
 pub mod audio;
 pub mod commands;
+pub mod duplicates;
 pub mod eq;
 pub mod favorites;
 pub mod ffmpeg;
@@ -153,6 +154,7 @@ pub fn run() {
             commands::get_initial_state,
             commands::save_session,
             commands::toggle_favorite,
+            commands::remove_duplicates,
             commands::list_favorites,
             commands::export_track,
             commands::export_playlist,

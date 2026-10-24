@@ -57,6 +57,8 @@ let manifest = fs.readFileSync(manifestPath, "utf8");
 const permissions = [
   '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
   '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+  // Suppression des doublons sur Android 9 et avant (ensuite : accord du système, MediaStore).
+  '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
@@ -306,6 +308,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     updates = UpdateBridge(this).also { webView.addJavascriptInterface(it, "AndroidUpdate") }
     webView.addJavascriptInterface(LookBridge(applicationContext), "AndroidLook")
     webView.addJavascriptInterface(ShareBridge(applicationContext), "AndroidShare")
+    webView.addJavascriptInterface(DeleteBridge(this), "AndroidFiles")
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -331,6 +334,13 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     } catch (e: Exception) {
       // pas de Wi-Fi : le partage à proximité attendra
     }
+  }
+
+  @Deprecated("Accord du système pour supprimer des fichiers (DeleteBridge)")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    @Suppress("DEPRECATION")
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode == DeleteBridge.REQUEST) DeleteBridge.done(resultCode == RESULT_OK)
   }
 
   override fun onPause() {
@@ -1340,6 +1350,108 @@ class ShareBridge(private val context: Context) {
     } catch (e: Exception) {
       false
     }
+  }
+}
+`,
+);
+
+// 3 quater. Suppression de fichiers audio (doublons) : Android ne laisse pas une appli
+// effacer la musique d'une autre sans l'accord de la personne, demandé par le système.
+fs.writeFileSync(
+  path.join(kotlinDir, "DeleteBridge.kt"),
+  `package ${pkg}
+
+import android.Manifest
+import android.app.Activity
+import android.app.RecoverableSecurityException
+import android.content.ContentUris
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import android.webkit.JavascriptInterface
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import java.io.File
+
+/** window.AndroidFiles.deleteFiles(chemins JSON) : vrai si une demande est en cours, dont la
+ *  réponse revient par window.__mpDeleted(accord). Seuls des fichiers audio connus de
+ *  MediaStore (la musique du téléphone) peuvent être visés. */
+class DeleteBridge(private val activity: Activity) {
+  companion object {
+    const val REQUEST = 4207
+
+    fun done(ok: Boolean) {
+      MediaCommands.webView?.post {
+        MediaCommands.webView?.evaluateJavascript("window.__mpDeleted && window.__mpDeleted(" + ok + ")", null)
+      }
+    }
+  }
+
+  @JavascriptInterface
+  fun deleteFiles(json: String): Boolean {
+    return try {
+      val paths = JSONArray(json).let { a -> (0 until a.length()).map { a.getString(it) } }
+      val targets = paths.mapNotNull { p -> uriFor(p)?.let { p to it } }
+      val uris = targets.map { it.second }
+      if (uris.isEmpty()) return false
+      when {
+        Build.VERSION.SDK_INT >= 30 -> {
+          val request = MediaStore.createDeleteRequest(activity.contentResolver, uris)
+          activity.runOnUiThread {
+            activity.startIntentSenderForResult(request.intentSender, REQUEST, null, 0, 0, 0)
+          }
+          true
+        }
+        Build.VERSION.SDK_INT == 29 -> {
+          // Android 10 : accord demandé fichier par fichier ; la page relance pour la suite.
+          for (uri in uris) {
+            try {
+              activity.contentResolver.delete(uri, null, null)
+            } catch (e: RecoverableSecurityException) {
+              activity.runOnUiThread {
+                activity.startIntentSenderForResult(e.userAction.actionIntent.intentSender, REQUEST, null, 0, 0, 0)
+              }
+              return true
+            }
+          }
+          done(true)
+          true
+        }
+        else -> {
+          val permission = Manifest.permission.WRITE_EXTERNAL_STORAGE
+          if (ContextCompat.checkSelfPermission(activity, permission) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(activity, arrayOf(permission), 2)
+            return false
+          }
+          var ok = true
+          for ((path, uri) in targets) {
+            val file = File(path)
+            if (!(file.exists() && file.delete()) && activity.contentResolver.delete(uri, null, null) == 0) ok = false
+          }
+          done(ok)
+          true
+        }
+      }
+    } catch (e: Exception) {
+      false
+    }
+  }
+
+  private fun uriFor(path: String): Uri? {
+    val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+    @Suppress("DEPRECATION")
+    activity.contentResolver.query(
+      collection,
+      arrayOf(MediaStore.Audio.Media._ID),
+      MediaStore.Audio.Media.DATA + "=?",
+      arrayOf(path),
+      null,
+    )?.use { cursor ->
+      if (cursor.moveToFirst()) return ContentUris.withAppendedId(collection, cursor.getLong(0))
+    }
+    return null
   }
 }
 `,

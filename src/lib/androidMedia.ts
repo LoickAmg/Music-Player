@@ -41,10 +41,17 @@ interface AndroidShareBridge {
   transferDone?(): void;
 }
 
+/** Suppression de musique du téléphone, avec l'accord demandé par le système. */
+interface AndroidFilesBridge {
+  deleteFiles(json: string): boolean;
+}
+
 declare global {
   interface Window {
     AndroidLook?: AndroidLookBridge;
     AndroidShare?: AndroidShareBridge;
+    AndroidFiles?: AndroidFilesBridge;
+    __mpDeleted?: (ok: boolean) => void;
     __mpSystemDark?: (dark: boolean) => void;
     AndroidMedia?: AndroidMediaBridge;
     AndroidUpdate?: AndroidUpdateBridge;
@@ -220,5 +227,28 @@ export function installAndroidMedia(player: Player) {
   // Position de la barre de progression de l'écran verrouillé après un saut.
   player.$onAction(({ name, after }) => {
     if (name === "seek") after(() => void publish());
+  });
+}
+
+/** Android : demande au système d'effacer ces fichiers audio (fenêtre d'accord). Vrai si la
+ *  personne a accepté ; null hors Android ou si la demande n'a pas pu être faite. */
+export function deleteAudioFiles(paths: string[]): Promise<boolean | null> {
+  const bridge = window.AndroidFiles;
+  if (!bridge) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    window.__mpDeleted = (ok) => {
+      window.__mpDeleted = undefined;
+      resolve(ok);
+    };
+    let started: boolean;
+    try {
+      started = bridge.deleteFiles(JSON.stringify(paths));
+    } catch {
+      started = false;
+    }
+    if (!started) {
+      window.__mpDeleted = undefined;
+      resolve(null);
+    }
   });
 }
