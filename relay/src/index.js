@@ -53,7 +53,9 @@ async function sha256(text) {
 }
 
 function clean(text, max) {
-  return typeof text === "string" ? text.replace(/[\u0000-\u001f]/g, "").trim().slice(0, max) : "";
+  if (typeof text !== "string") return "";
+  // Sans caractères de contrôle (sauts de ligne, tabulations…).
+  return [...text].filter((c) => c.charCodeAt(0) >= 0x20).join("").trim().slice(0, max);
 }
 
 /** Petite photo de profil (data URL JPEG/PNG/WebP, 24 Ko au plus). */
@@ -157,7 +159,7 @@ export default {
         }
       }
       return json({ erreur: "Introuvable" }, 404);
-    } catch (e) {
+    } catch {
       return json({ erreur: "Requête invalide" }, 400);
     }
   },
