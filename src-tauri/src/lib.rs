@@ -2,6 +2,7 @@ pub mod align;
 pub mod appearance;
 pub mod audio;
 pub mod commands;
+pub mod default_app;
 pub mod duplicates;
 pub mod eq;
 pub mod favorites;
@@ -25,7 +26,19 @@ use tauri::{Emitter, Manager};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Une seule fenêtre : un fichier ouvert depuis l'Explorateur arrive dans celle qui tourne.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+        if let Some(path) = default_app::file_from_args(&argv) {
+            let _ = app.emit("open-file", path);
+        }
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    }));
+    let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init());
     #[cfg(desktop)]
@@ -37,6 +50,8 @@ pub fn run() {
                 .app_data_dir()
                 .unwrap_or_else(|_| std::env::temp_dir().join("music-player"));
             std::fs::create_dir_all(&data_dir).ok();
+            #[cfg(desktop)]
+            default_app::set_pending(default_app::file_from_args(&std::env::args().collect::<Vec<_>>()));
 
             let state = AppState::new(data_dir.clone());
             let library_root = commands::restore_state(&state, &data_dir);
@@ -155,6 +170,8 @@ pub fn run() {
             commands::save_session,
             commands::toggle_favorite,
             commands::remove_duplicates,
+            commands::take_opened_file,
+            commands::make_default_player,
             commands::list_favorites,
             commands::export_track,
             commands::export_playlist,

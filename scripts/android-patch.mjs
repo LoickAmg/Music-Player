@@ -114,6 +114,19 @@ if (!manifest.includes("audio/*")) {
         </activity>`;
   manifest = manifest.replace(/<\/activity>/, filter);
 }
+// Appli de musique du téléphone : proposée quand le système ou une autre appli demande
+// « l'appli musique » (bouton du casque, assistant, raccourcis).
+if (!manifest.includes("android.intent.category.APP_MUSIC")) {
+  manifest = manifest.replace(
+    /<\/activity>/,
+    `    <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.APP_MUSIC" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>`,
+  );
+}
 // Une seule instance de l'appli : un fichier ouvert depuis une autre appli arrive dans
 // celle qui tourne déjà (onNewIntent) au lieu d'en lancer une deuxième.
 if (!/android:launchMode=/.test(manifest)) {
@@ -1437,6 +1450,24 @@ class DeleteBridge(private val activity: Activity) {
     } catch (e: Exception) {
       false
     }
+  }
+
+  /** Réglages « Applis par défaut » du téléphone (sinon la fiche de l'appli). */
+  @JavascriptInterface
+  fun openDefaultApps(): Boolean {
+    for (action in listOf(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS, android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)) {
+      try {
+        val intent = android.content.Intent(action).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (action == android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS) {
+          intent.data = Uri.fromParts("package", activity.packageName, null)
+        }
+        activity.startActivity(intent)
+        return true
+      } catch (e: Exception) {
+        // réglage absent sur ce téléphone : suivant
+      }
+    }
+    return false
   }
 
   private fun uriFor(path: String): Uri? {

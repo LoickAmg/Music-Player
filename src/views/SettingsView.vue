@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { getVersion } from "@tauri-apps/api/app";
 import { api } from "@/lib/api";
+import { openDefaultApps } from "@/lib/androidMedia";
 import { formatCollection } from "@/lib/format";
 import { BAND_LABELS, EQ_PRESETS, useEqStore } from "@/stores/eq";
 import { useLibraryStore } from "@/stores/library";
@@ -56,6 +57,20 @@ function showDamaged() {
   document.getElementById("fichiers-illisibles")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 const onAndroid = /Android/i.test(navigator.userAgent);
+const onWindows = /Windows/i.test(navigator.userAgent);
+
+async function makeDefault() {
+  if (onAndroid) {
+    if (!openDefaultApps()) ui.notify("Réglages introuvables : ouvrez Paramètres → Applications → Applis par défaut.");
+    return;
+  }
+  try {
+    await api.makeDefaultPlayer();
+    ui.notify("Dans la fenêtre de Windows, choisissez Music Player pour les formats audio.");
+  } catch (e) {
+    ui.notify(String(e));
+  }
+}
 
 // Android : l'économiseur de batterie (très strict sur Huawei, Xiaomi…) peut retarder la
 // vérification des mises à jour en arrière-plan. Relu au retour des réglages d'Android.
@@ -134,6 +149,24 @@ const shortcuts = [
         </span>
       </label>
       <p class="muted small">Notes vocales WhatsApp, Telegram, dictaphone, appels enregistrés. Un fichier mal rangé se corrige depuis son menu (« ⋯ »).</p>
+    </section>
+
+    <section v-if="onAndroid || onWindows" class="card">
+      <h2><Icon name="play" :size="17" /> Lecteur par défaut</h2>
+      <p v-if="onWindows" class="muted">
+        Ouvrez vos fichiers audio avec Music Player d'un double-clic. Windows vous laisse choisir l'application par
+        défaut : le bouton ouvre la bonne page des Paramètres, il ne reste qu'à confirmer.
+      </p>
+      <p v-else class="muted">
+        Music Player apparaît quand une autre appli ouvre un fichier audio (gestionnaire de fichiers, WhatsApp,
+        téléchargements) : choisissez-le puis « Toujours ». Pour changer ce choix plus tard, ouvrez les applis par
+        défaut du téléphone.
+      </p>
+      <div class="actions">
+        <button type="button" class="pill pill-accent" @click="makeDefault">
+          {{ onWindows ? "Définir comme lecteur par défaut…" : "Ouvrir les applis par défaut" }}
+        </button>
+      </div>
     </section>
 
     <section class="card">

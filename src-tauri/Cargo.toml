@@ -62,10 +62,14 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 tauri-plugin-updater = "2"
 # Doublons supprimés : mis à la corbeille, récupérables (duplicates.rs).
 trash = "5"
+# Fichier ouvert depuis l'Explorateur : transmis à la fenêtre déjà ouverte (default_app.rs).
+tauri-plugin-single-instance = "2"
 
 # Rafraîchir les icônes de l'Explorateur après avoir changé celle des raccourcis.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+# Inscription comme lecteur par défaut (Paramètres → Applications par défaut).
+winreg = "0.55"
 
 [dev-dependencies]
 tempfile = "3"

@@ -787,6 +787,18 @@ pub fn toggle_favorite(state: State<AppState>, track_id: String) -> Result<bool,
     Ok(now)
 }
 
+/// Fichier audio reçu au lancement (« Ouvrir avec Music Player ») ; une seule fois.
+#[tauri::command]
+pub fn take_opened_file() -> Option<String> {
+    crate::default_app::take_pending()
+}
+
+/// Windows : inscrit l'appli comme lecteur possible et ouvre « Applications par défaut ».
+#[tauri::command]
+pub fn make_default_player() -> Result<(), String> {
+    crate::default_app::register_and_open_settings()
+}
+
 /// Retire les doublons choisis (corbeille sur ordinateur) ; playlists et titres aimés
 /// suivent la copie gardée. Renvoie aussi les fichiers que l'appli n'a pas pu effacer.
 #[tauri::command(async)]

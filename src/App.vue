@@ -265,6 +265,8 @@ onMounted(async () => {
   try {
     offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));
     offPlayback.push(await listen<string>("playback-error", (e) => (player.error = e.payload)));
+    // Ordinateur : fichier ouvert depuis l'Explorateur pendant que l'appli tourne déjà.
+    offPlayback.push(await listen<string>("open-file", (e) => void openFile(e.payload)));
   } catch {
     // mode démo du navigateur
   }
@@ -276,6 +278,11 @@ onMounted(async () => {
     open: (path) => void openFile(path),
     libraryChanged: () => void library.refresh(),
   });
+  // Ordinateur : appli lancée par un double-clic sur un fichier audio.
+  if (!onAndroid) {
+    const opened = await api.takeOpenedFile().catch(() => null);
+    if (opened) void openFile(opened);
+  }
   document.addEventListener("visibilitychange", onReturn);
   // Nouvelle version publiée ? (vérifiée une fois l'interface affichée)
   if (!demoMode) setTimeout(() => void updater.check(), 4000);

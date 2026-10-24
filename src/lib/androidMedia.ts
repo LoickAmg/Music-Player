@@ -44,6 +44,7 @@ interface AndroidShareBridge {
 /** Suppression de musique du téléphone, avec l'accord demandé par le système. */
 interface AndroidFilesBridge {
   deleteFiles(json: string): boolean;
+  openDefaultApps?(): boolean;
 }
 
 declare global {
@@ -251,4 +252,13 @@ export function deleteAudioFiles(paths: string[]): Promise<boolean | null> {
       resolve(null);
     }
   });
+}
+
+/** Android : ouvre les réglages « Applis par défaut » du téléphone ; faux ailleurs. */
+export function openDefaultApps(): boolean {
+  try {
+    return window.AndroidFiles?.openDefaultApps?.() ?? false;
+  } catch {
+    return false;
+  }
 }

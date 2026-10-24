@@ -111,6 +111,10 @@ export const api = {
   /** Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état. */
   toggleFavorite: (trackId: string) => invoke<boolean>("toggle_favorite", { trackId }),
   listFavorites: () => invoke<string[]>("list_favorites"),
+  /** Fichier audio reçu au lancement (« Ouvrir avec »), une seule fois. */
+  takeOpenedFile: () => invoke<string | null>("take_opened_file"),
+  /** Windows : inscrit l'appli comme lecteur possible et ouvre « Applications par défaut ». */
+  makeDefaultPlayer: () => invoke<void>("make_default_player"),
   /** Retire les doublons choisis (corbeille sur ordinateur) ; playlists et favoris suivent la copie gardée. */
   removeDuplicates: (groups: { keep: string; remove: string[] }[]) =>
     invoke<DuplicateOutcome>("remove_duplicates", { groups }),
