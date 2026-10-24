@@ -60,6 +60,8 @@ const permissions = [
   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
+  // Partage en cours écran éteint ou appli en arrière-plan (TransferService).
+  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />',
   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
   '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
   '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
@@ -79,6 +81,13 @@ if (!manifest.includes(".MediaService")) {
   manifest = manifest.replace(
     /<\/application>/,
     `    <service android:name="${pkg}.MediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>`,
+  );
+}
+if (!manifest.includes(".TransferService")) {
+  manifest = manifest.replace(
+    /<\/application>/,
+    `    <service android:name="${pkg}.TransferService" android:exported="false" android:foregroundServiceType="dataSync" />
+    </application>`,
   );
 }
 if (!manifest.includes("audio/*")) {
@@ -1154,14 +1163,133 @@ fs.writeFileSync(
   path.join(kotlinDir, "ShareBridge.kt"),
   `package ${pkg}
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.net.wifi.WifiManager
+import android.os.Build
+import android.os.IBinder
+import android.os.PowerManager
 import android.webkit.JavascriptInterface
 import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import java.io.File
 
 class ShareFileProvider : FileProvider()
+
+/** Service de premier plan pendant un partage (envoi ou réception) : notification avec
+ *  l'avancement, processeur et Wi-Fi gardés éveillés. Sans lui, Android suspend l'appli peu
+ *  après le passage en arrière-plan et le transfert (threads Rust) s'arrête. */
+class TransferService : Service() {
+  companion object {
+    private const val CHANNEL = "partages"
+    private const val NOTIFICATION_ID = 7302
+    @Volatile var instance: TransferService? = null
+
+    fun show(context: Context, text: String, percent: Int) {
+      val running = instance
+      if (running != null) {
+        running.update(text, percent)
+        return
+      }
+      val intent = Intent(context, TransferService::class.java)
+        .putExtra("text", text)
+        .putExtra("percent", percent)
+      try {
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+      } catch (e: Exception) {
+        // Démarrage refusé (appli déjà en arrière-plan) : le transfert continue tant
+        // qu'Android laisse l'appli en vie.
+      }
+    }
+
+    fun hide() {
+      instance?.finish()
+    }
+  }
+
+  private var wakeLock: PowerManager.WakeLock? = null
+  private var wifiLock: WifiManager.WifiLock? = null
+
+  override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    instance = this
+    val notification = build(intent?.getStringExtra("text") ?: "Partage en cours", intent?.getIntExtra("percent", -1) ?: -1)
+    try {
+      if (Build.VERSION.SDK_INT >= 29) {
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (e: Exception) {
+      getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+    }
+    hold()
+    return START_NOT_STICKY
+  }
+
+  fun update(text: String, percent: Int) {
+    getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, build(text, percent))
+  }
+
+  private fun build(text: String, percent: Int): Notification {
+    val manager = getSystemService(NotificationManager::class.java)
+    if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(CHANNEL) == null) {
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Partages", NotificationManager.IMPORTANCE_LOW))
+    }
+    val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
+      PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
+    return builder
+      .setSmallIcon(android.R.drawable.stat_sys_upload)
+      .setContentTitle("Partage en cours")
+      .setContentText(text.take(200))
+      .setContentIntent(open)
+      .setOngoing(true)
+      .setOnlyAlertOnce(true)
+      .setShowWhen(false)
+      .setProgress(100, percent.coerceIn(0, 100), percent < 0)
+      .build()
+  }
+
+  private fun hold() {
+    if (wakeLock == null) {
+      wakeLock = (getSystemService(Context.POWER_SERVICE) as PowerManager)
+        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MusicPlayer:partage")
+        .also { it.setReferenceCounted(false); it.acquire(6 * 60 * 60 * 1000L) }
+    }
+    if (wifiLock == null) {
+      @Suppress("DEPRECATION")
+      wifiLock = (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager)
+        .createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "MusicPlayer:partage")
+        .also { it.setReferenceCounted(false); it.acquire() }
+    }
+  }
+
+  fun finish() {
+    wakeLock?.let { if (it.isHeld) it.release() }
+    wifiLock?.let { if (it.isHeld) it.release() }
+    wakeLock = null
+    wifiLock = null
+    instance = null
+    stopForeground(STOP_FOREGROUND_REMOVE)
+    stopSelf()
+  }
+
+  override fun onDestroy() {
+    if (instance === this) instance = null
+    wakeLock?.let { if (it.isHeld) it.release() }
+    wifiLock?.let { if (it.isHeld) it.release() }
+    super.onDestroy()
+  }
+}
 
 /** Partage un fichier déjà exporté par l'appli (archive .mpshare) via la feuille de partage
  *  du système. Appelé depuis la page (window.AndroidShare) juste après un export réussi. */
@@ -1186,6 +1314,17 @@ class ShareBridge(private val context: Context) {
     } catch (e: Exception) {
       false
     }
+  }
+
+  /** Notification « partage en cours » (percent : 0 à 100, -1 si inconnu). */
+  @JavascriptInterface
+  fun transferNotice(text: String, percent: Int) {
+    TransferService.show(context, text, percent)
+  }
+
+  @JavascriptInterface
+  fun transferDone() {
+    TransferService.hide()
   }
 
   /** Texte à partager (code de partage à distance, à envoyer par messagerie). */

@@ -36,6 +36,9 @@ interface AndroidLookBridge {
 interface AndroidShareBridge {
   share(path: string): boolean;
   shareText?(text: string): boolean;
+  /** Service de premier plan (notification) pendant un partage : Android ne coupe pas l'appli. */
+  transferNotice?(text: string, percent: number): void;
+  transferDone?(): void;
 }
 
 declare global {
@@ -106,6 +109,35 @@ export function shareText(text: string): boolean {
     return window.AndroidShare?.shareText?.(text) ?? false;
   } catch {
     return false;
+  }
+}
+
+let noticeShown = false;
+let lastNotice = "";
+
+/** Android : notification « partage en cours » (percent : 0 à 100, ou -1 si inconnu), qui
+ *  garde l'appli en vie écran éteint ou en arrière-plan. Sans effet ailleurs. */
+export function transferNotice(text: string, percent: number) {
+  // Une mise à jour par changement visible (Android limite le rythme des notifications).
+  const key = `${percent}|${text}`;
+  if (noticeShown && key === lastNotice) return;
+  lastNotice = key;
+  try {
+    window.AndroidShare?.transferNotice?.(text, percent);
+    noticeShown = true;
+  } catch {
+    // ancienne activité Android
+  }
+}
+
+export function transferNoticeDone() {
+  if (!noticeShown) return;
+  noticeShown = false;
+  lastNotice = "";
+  try {
+    window.AndroidShare?.transferDone?.();
+  } catch {
+    // ancienne activité Android
   }
 }
 
@@ -180,7 +212,11 @@ export function installAndroidMedia(player: Player) {
     );
   }
 
-  watch(() => [player.currentTrack?.id, player.isPaused], () => void publish(), { immediate: true });
+  watch(
+    () => [player.currentTrack?.id, player.isPaused],
+    () => void publish(),
+    { immediate: true },
+  );
   // Position de la barre de progression de l'écran verrouillé après un saut.
   player.$onAction(({ name, after }) => {
     if (name === "seek") after(() => void publish());

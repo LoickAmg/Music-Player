@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
+import { transferNotice, transferNoticeDone } from "@/lib/androidMedia";
 import type { NearbyPeer, ShareImportResult, ShareItem, ShareOffer, TransferProgress } from "@/lib/types";
 
 // Réglages du partage (par appareil).
@@ -40,6 +41,16 @@ export interface Transfer {
   code: string | null;
   progress: TransferProgress;
   result: ShareImportResult | null;
+  /** Débit mesuré (octets/s, lissé), ou null tant qu'il n'est pas connu. */
+  rate: number | null;
+  /** Dernière mesure : instant (ms) et octets transférés. */
+  sampleAt: number;
+  sampleDone: number;
+}
+
+/** Transfert encore en cours (pas fini, refusé ni en échec). */
+export function isRunning(t: Transfer): boolean {
+  return ["attente", "envoi", "reception", "reprise"].includes(t.progress.stage);
 }
 
 export const useShareStore = defineStore("share", {
@@ -118,11 +129,20 @@ export const useShareStore = defineStore("share", {
       }
     },
 
-    track(t: Omit<Transfer, "progress" | "result">): Transfer {
+    track(t: Omit<Transfer, "progress" | "result" | "rate" | "sampleAt" | "sampleDone">): Transfer {
       const transfer: Transfer = {
         ...t,
-        progress: { id: t.id, stage: "attente", done: 0, total: 0, message: null },
+        progress: {
+          id: t.id,
+          stage: "attente",
+          done: 0,
+          total: 0,
+          message: null,
+        },
         result: null,
+        rate: null,
+        sampleAt: 0,
+        sampleDone: 0,
       };
       this.transfers.unshift(transfer);
       // L'objet suivi par Vue (et non l'objet d'origine) : ses changements s'affichent.
@@ -130,11 +150,43 @@ export const useShareStore = defineStore("share", {
     },
     onProgress(p: TransferProgress) {
       const t = this.byId(p.id);
-      if (t) t.progress = { ...p, message: p.message ?? t.progress.message };
+      if (!t) return;
+      const moving = p.stage === "envoi" || p.stage === "reception";
+      const now = performance.now();
+      if (!moving) {
+        // Attente ou reprise : la mesure repart au prochain octet transféré.
+        t.sampleAt = 0;
+      } else if (t.sampleAt === 0 || p.done < t.sampleDone) {
+        t.sampleAt = now;
+        t.sampleDone = p.done;
+      } else if (now - t.sampleAt >= 700) {
+        const instant = ((p.done - t.sampleDone) * 1000) / (now - t.sampleAt);
+        t.rate = t.rate === null ? instant : t.rate * 0.75 + instant * 0.25;
+        t.sampleAt = now;
+        t.sampleDone = p.done;
+      }
+      t.progress = { ...p, message: p.message ?? null };
+      this.syncBackground();
     },
     finish(id: string, stage: TransferProgress["stage"], message: string | null) {
       const t = this.byId(id);
       if (t) t.progress = { ...t.progress, stage, message };
+      this.syncBackground();
+    },
+    /** Android : notification du partage en cours (garde l'appli en vie en arrière-plan). */
+    syncBackground() {
+      const running = this.transfers.filter(isRunning);
+      if (!running.length) {
+        transferNoticeDone();
+        return;
+      }
+      const t = running[0];
+      const p = t.progress;
+      const percent =
+        p.total > 0 && (p.stage === "envoi" || p.stage === "reception") ? Math.round((p.done / p.total) * 100) : -1;
+      const what = `${t.direction === "envoi" ? "Envoi" : "Réception"} de « ${t.label || "partage"} »`;
+      const text = p.stage === "reprise" ? `${what} : reprise après une coupure…` : what;
+      transferNotice(text, percent);
     },
     dismiss(id: string) {
       this.transfers = this.transfers.filter((t) => t.id !== id);
@@ -147,7 +199,13 @@ export const useShareStore = defineStore("share", {
     async sendNearby(peer: NearbyPeer) {
       if (!this.sharing) return;
       const item: ShareItem = { kind: this.sharing.kind, id: this.sharing.id };
-      const t = this.track({ id: newId(), direction: "envoi", label: this.sharing.name, peer: peer.name, code: null });
+      const t = this.track({
+        id: newId(),
+        direction: "envoi",
+        label: this.sharing.name,
+        peer: peer.name,
+        code: null,
+      });
       try {
         await api.nearbySend(peer, item, this.deviceName, t.id);
         this.finish(t.id, "fini", null);
@@ -160,7 +218,13 @@ export const useShareStore = defineStore("share", {
     async sendRemote(): Promise<string | null> {
       if (!this.sharing) return null;
       const item: ShareItem = { kind: this.sharing.kind, id: this.sharing.id };
-      const t = this.track({ id: newId(), direction: "envoi", label: this.sharing.name, peer: null, code: null });
+      const t = this.track({
+        id: newId(),
+        direction: "envoi",
+        label: this.sharing.name,
+        peer: null,
+        code: null,
+      });
       try {
         const { code } = await api.remoteSendStart(item, this.deviceName, this.relay.trim() || null, t.id);
         t.code = code;
@@ -172,7 +236,13 @@ export const useShareStore = defineStore("share", {
     },
     /** Réception avec un code saisi. */
     async receiveRemote(code: string): Promise<Transfer> {
-      const t = this.track({ id: newId(), direction: "reception", label: "", peer: null, code: code.trim() });
+      const t = this.track({
+        id: newId(),
+        direction: "reception",
+        label: "",
+        peer: null,
+        code: code.trim(),
+      });
       try {
         t.result = await api.remoteReceive(code, this.relay.trim() || null, t.id);
         t.label = t.result.name;
@@ -192,7 +262,13 @@ export const useShareStore = defineStore("share", {
       this.offers = this.offers.filter((o) => o.id !== id);
       await api.nearbyAnswer(id, accept).catch(() => {});
       if (accept && pending) {
-        this.track({ id, direction: "reception", label: pending.offer.name, peer: pending.offer.from, code: null });
+        this.track({
+          id,
+          direction: "reception",
+          label: pending.offer.name,
+          peer: pending.offer.from,
+          code: null,
+        });
       }
     },
     onReceived(result: ShareImportResult) {

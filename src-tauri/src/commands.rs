@@ -1014,7 +1014,7 @@ pub fn remote_send_start(
     let code = pending.code.text();
     let cancel = crate::transfer::cancel_flag(&transfer_id);
     std::thread::spawn(move || {
-        let result = pending.finish(&path, &offer, &cancel, report(&app, &transfer_id));
+        let result = pending.finish(&relay, &path, &offer, &cancel, report(&app, &transfer_id));
         let _ = std::fs::remove_file(&path);
         finish_report(&app, &transfer_id, &result);
     });

@@ -25,6 +25,10 @@ pub enum Item {
 /// Description d'un envoi, montrée à la personne qui reçoit avant qu'elle accepte.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Offer {
+    /// Identifiant de l'envoi : après une coupure, le destinataire reconnaît l'envoi repris et
+    /// indique où il en était (le transfert ne repart pas de zéro).
+    #[serde(default)]
+    pub id: String,
     /// Nom de profil de l'expéditeur (Réglages → Personnalisation).
     pub from: String,
     /// « track » ou « playlist ».
@@ -44,7 +48,8 @@ pub const CHUNK: usize = 256 * 1024;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Progress {
     pub id: String,
-    /// « attente » (du correspondant ou de son accord), « envoi », « reception », « fini »,
+    /// « attente » (du correspondant ou de son accord), « envoi », « reception », « reprise »
+    /// (liaison coupée, nouvel essai : done = essai, total = essais permis), « fini »,
     /// « refuse », « erreur ».
     pub stage: &'static str,
     pub done: u64,
@@ -87,7 +92,14 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
     let from = if from.trim().is_empty() { "Music Player" } else { from.trim() };
     Ok((
         path,
-        Offer { from: from.chars().take(40).collect(), kind: kind.into(), name, tracks, size },
+        Offer {
+            id: uuid::Uuid::new_v4().simple().to_string(),
+            from: from.chars().take(40).collect(),
+            kind: kind.into(),
+            name,
+            tracks,
+            size,
+        },
     ))
 }
 
@@ -109,6 +121,16 @@ pub fn cancel_flag(id: &str) -> Arc<AtomicBool> {
     CANCEL.lock().unwrap().entry(id.to_string()).or_default().clone()
 }
 
+/// Associe un drapeau d'annulation existant à l'identifiant montré à l'interface (déjà
+/// demandé : le transfert s'arrête aussitôt).
+pub fn link_cancel(id: &str, flag: Arc<AtomicBool>) {
+    let mut map = CANCEL.lock().unwrap();
+    if map.get(id).is_some_and(|f| f.load(Ordering::SeqCst)) {
+        flag.store(true, Ordering::SeqCst);
+    }
+    map.insert(id.to_string(), flag);
+}
+
 pub fn cancel(id: &str) {
     if let Some(flag) = CANCEL.lock().unwrap().get(id) {
         flag.store(true, Ordering::SeqCst);
@@ -124,6 +146,39 @@ pub fn cancelled(flag: &AtomicBool) -> Result<(), String> {
         Err("Partage annulé.".into())
     } else {
         Ok(())
+    }
+}
+
+/// Nouvel essai après une coupure : de plus en plus espacés (3 s, 6 s, 12 s… 60 s au plus),
+/// 10 essais en tout.
+pub const RETRIES: u32 = 10;
+
+pub fn retry_delay(attempt: u32) -> std::time::Duration {
+    std::time::Duration::from_secs((3u64 << attempt.min(5)).min(60))
+}
+
+/// Attend `delay` en restant interruptible.
+pub fn pause(delay: std::time::Duration, cancel: &AtomicBool) -> Result<(), String> {
+    let end = std::time::Instant::now() + delay;
+    while std::time::Instant::now() < end {
+        cancelled(cancel)?;
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+    Ok(())
+}
+
+/// Échec d'un essai de transfert : définitif (refus, annulation, mauvais code), ou dû à la
+/// liaison (coupure, délai dépassé), qu'on peut reprendre.
+pub enum Failure {
+    Final(String),
+    Retry(String),
+}
+
+impl Failure {
+    pub fn message(self) -> String {
+        match self {
+            Failure::Final(m) | Failure::Retry(m) => m,
+        }
     }
 }
 

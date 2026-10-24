@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
-use crate::transfer::{self, Offer, Progress, MAX_SIZE};
+use crate::transfer::{self, Failure, Offer, Progress, MAX_SIZE};
 
 const SERVICE: &str = "_mpshare._tcp.local.";
 /// Temps laissé à la personne qui reçoit pour accepter ou refuser.
@@ -41,6 +41,16 @@ struct Hello {
 #[derive(Serialize, Deserialize)]
 struct Answer {
     reponse: String,
+    /// Octets déjà reçus lors d'un essai précédent du même envoi (reprise).
+    #[serde(default)]
+    depuis: u64,
+}
+
+/// Décision sur un envoi reçu : refusé, ou accepté (fichier où écrire, et position de reprise
+/// si une partie a déjà été reçue).
+pub enum Decision {
+    Refuse,
+    Accept { dest: std::path::PathBuf, from: u64 },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -72,8 +82,61 @@ fn read_line<T: for<'de> Deserialize<'de>>(reader: &mut impl BufRead, limit: u64
     serde_json::from_slice(&line).map_err(|_| "Message illisible.".to_string())
 }
 
-/// Envoie l'archive `path` au premier appareil joignable parmi `addresses`.
-/// `progress(étape, fait, total)` : « attente » (de l'accord), puis « envoi ».
+/// Un essai d'envoi : connexion, accord (ou reprise), données depuis la position annoncée.
+fn send_once(
+    addresses: &[String],
+    path: &Path,
+    offer: &Offer,
+    cancel: &AtomicBool,
+    accepted: &mut bool,
+    progress: &mut impl FnMut(&'static str, u64, u64),
+) -> Result<(), Failure> {
+    let lost = |e: String| if *accepted { Failure::Retry(e) } else { Failure::Final(e) };
+    let stream = addresses
+        .iter()
+        .filter_map(|a| a.parse::<SocketAddr>().ok())
+        .find_map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(4)).ok())
+        .ok_or_else(|| lost("Appareil injoignable : il a peut-être quitté le réseau ou fermé Music Player.".into()))?;
+    let setup = |s: &TcpStream| -> std::io::Result<()> {
+        s.set_write_timeout(Some(Duration::from_secs(60)))?;
+        s.set_read_timeout(Some(DECISION + Duration::from_secs(10)))
+    };
+    setup(&stream).map_err(|e| lost(e.to_string()))?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| lost(e.to_string()))?);
+    let mut writer = stream;
+    write_line(&mut writer, &Hello { v: 1, offre: offer.clone() }).map_err(lost)?;
+    if !*accepted {
+        progress("attente", 0, offer.size);
+    }
+    let answer: Answer = read_line(&mut reader, 4096).map_err(|e| {
+        if !*accepted && e.contains("répond") {
+            Failure::Final("Pas de réponse : la personne n'a pas accepté à temps.".into())
+        } else {
+            lost(e)
+        }
+    })?;
+    if answer.reponse != "oui" || answer.depuis > offer.size {
+        return Err(Failure::Final("Le destinataire a refusé.".into()));
+    }
+    *accepted = true;
+    let from = answer.depuis;
+    let mut file = File::open(path).map_err(|e| Failure::Final(e.to_string()))?;
+    std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from)).map_err(|e| Failure::Final(e.to_string()))?;
+    progress("envoi", from, offer.size);
+    transfer::copy_exact(&mut file, &mut writer, offer.size - from, cancel, |done| progress("envoi", from + done, offer.size))
+        .map_err(|e| if e.contains("annulé") { Failure::Final(e) } else { Failure::Retry(e) })?;
+    writer.flush().map_err(|e| Failure::Retry(e.to_string()))?;
+    let done: Done = read_line(&mut reader, 4096).map_err(Failure::Retry)?;
+    if done.fin != "ok" {
+        return Err(Failure::Retry("Le destinataire n'a pas tout reçu.".into()));
+    }
+    Ok(())
+}
+
+/// Envoie l'archive `path` au premier appareil joignable parmi `addresses`. Après une coupure
+/// (Wi-Fi qui décroche, appli mise en veille), se reconnecte et reprend où le destinataire en
+/// était. `progress(étape, fait, total)` : « attente » (de l'accord), « envoi », « reprise »
+/// (essai, essais permis).
 pub fn send_to(
     addresses: &[String],
     path: &Path,
@@ -81,41 +144,33 @@ pub fn send_to(
     cancel: &AtomicBool,
     mut progress: impl FnMut(&'static str, u64, u64),
 ) -> Result<(), String> {
-    let stream = addresses
-        .iter()
-        .filter_map(|a| a.parse::<SocketAddr>().ok())
-        .find_map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(4)).ok())
-        .ok_or("Appareil injoignable : il a peut-être quitté le réseau ou fermé Music Player.")?;
-    stream.set_write_timeout(Some(Duration::from_secs(60))).map_err(|e| e.to_string())?;
-    stream.set_read_timeout(Some(DECISION + Duration::from_secs(10))).map_err(|e| e.to_string())?;
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-    let mut writer = stream;
-    write_line(&mut writer, &Hello { v: 1, offre: offer.clone() })?;
-    progress("attente", 0, offer.size);
-    let answer: Answer = read_line(&mut reader, 4096)
-        .map_err(|e| if e.contains("répond") { "Pas de réponse : la personne n'a pas accepté à temps.".into() } else { e })?;
-    if answer.reponse != "oui" {
-        return Err("Le destinataire a refusé.".into());
+    let mut accepted = false;
+    let mut attempt = 0;
+    loop {
+        match send_once(addresses, path, offer, cancel, &mut accepted, &mut progress) {
+            Ok(()) => return Ok(()),
+            Err(Failure::Final(e)) => return Err(e),
+            Err(Failure::Retry(e)) => {
+                attempt += 1;
+                if attempt > transfer::RETRIES {
+                    return Err(e);
+                }
+                progress("reprise", u64::from(attempt), u64::from(transfer::RETRIES));
+                transfer::pause(transfer::retry_delay(attempt), cancel)?;
+            }
+        }
     }
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
-    transfer::copy_exact(&mut file, &mut writer, offer.size, cancel, |done| progress("envoi", done, offer.size))?;
-    writer.flush().map_err(|e| e.to_string())?;
-    let done: Done = read_line(&mut reader, 4096)?;
-    if done.fin != "ok" {
-        return Err("Le destinataire n'a pas tout reçu.".into());
-    }
-    Ok(())
 }
 
-/// Connexion entrante : offre lue, décision de l'utilisateur (`decide`), archive reçue dans
-/// `dest`. `Ok(None)` si l'envoi a été refusé.
+/// Connexion entrante : offre lue, décision (`decide` : accord de l'utilisateur, ou reprise
+/// d'un envoi déjà accepté), archive reçue. `Ok(None)` si l'envoi a été refusé ; sinon l'offre
+/// et le fichier écrit.
 pub fn serve(
     stream: TcpStream,
-    decide: impl FnOnce(&Offer) -> bool,
-    dest: &Path,
+    decide: impl FnOnce(&Offer) -> Decision,
     cancel: &AtomicBool,
     mut progress: impl FnMut(u64, u64),
-) -> Result<Option<Offer>, String> {
+) -> Result<Option<(Offer, std::path::PathBuf)>, String> {
     stream.set_read_timeout(Some(Duration::from_secs(15))).map_err(|e| e.to_string())?;
     stream.set_write_timeout(Some(Duration::from_secs(60))).map_err(|e| e.to_string())?;
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
@@ -125,17 +180,29 @@ pub fn serve(
         return Err("Version de Music Player trop différente.".into());
     }
     let offer = hello.offre;
-    let accepted = offer.size <= MAX_SIZE && decide(&offer);
-    write_line(&mut writer, &Answer { reponse: if accepted { "oui" } else { "non" }.into() })?;
-    if !accepted {
+    let decision = if offer.size <= MAX_SIZE { decide(&offer) } else { Decision::Refuse };
+    let Decision::Accept { dest, from } = decision else {
+        write_line(&mut writer, &Answer { reponse: "non".into(), depuis: 0 })?;
         return Ok(None);
+    };
+    let from = from.min(offer.size);
+    let mut out = if from > 0 {
+        std::fs::OpenOptions::new().write(true).open(&dest).and_then(|f| {
+            f.set_len(from)?;
+            Ok(f)
+        })
+    } else {
+        File::create(&dest)
     }
+    .map_err(|e| e.to_string())?;
+    std::io::Seek::seek(&mut out, std::io::SeekFrom::Start(from)).map_err(|e| e.to_string())?;
+    write_line(&mut writer, &Answer { reponse: "oui".into(), depuis: from })?;
     writer.set_read_timeout(Some(Duration::from_secs(60))).map_err(|e| e.to_string())?;
-    let mut out = File::create(dest).map_err(|e| e.to_string())?;
-    transfer::copy_exact(&mut reader, &mut out, offer.size, cancel, |done| progress(done, offer.size))?;
+    progress(from, offer.size);
+    transfer::copy_exact(&mut reader, &mut out, offer.size - from, cancel, |done| progress(from + done, offer.size))?;
     out.flush().map_err(|e| e.to_string())?;
     write_line(&mut writer, &Done { fin: "ok".into() })?;
-    Ok(Some(offer))
+    Ok(Some((offer, dest)))
 }
 
 // ---------------------------------------------------------------------------------------
@@ -237,42 +304,85 @@ fn accept_loop(app: AppHandle, listener: TcpListener, stop: Arc<AtomicBool>) {
     }
 }
 
+/// Réceptions interrompues, par identifiant d'envoi : identifiant montré à l'interface et
+/// fichier partiel. L'expéditeur qui se reconnecte reprend là, sans redemander l'accord.
+static PARTIALS: LazyLock<Mutex<HashMap<String, (String, std::path::PathBuf)>>> = LazyLock::new(Default::default);
+
 fn handle(app: AppHandle, stream: TcpStream) {
-    let id = uuid::Uuid::new_v4().simple().to_string();
     let Some(dir) = crate::commands::share_temp_dir(&app) else {
         return;
     };
-    let dest = dir.join(format!("{id}.{}", crate::sharing::EXTENSION));
-    let cancel = transfer::cancel_flag(&id);
+    // Identifiant du transfert pour l'interface : nouveau, ou celui de l'envoi repris.
+    let id = std::cell::RefCell::new(uuid::Uuid::new_v4().simple().to_string());
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut resumed_offer: Option<String> = None;
     let result = serve(
         stream,
         |offer| {
+            if let Some((known, path)) = PARTIALS.lock().unwrap().get(&offer.id).cloned() {
+                *id.borrow_mut() = known;
+                transfer::link_cancel(&id.borrow(), cancel.clone());
+                resumed_offer = Some(offer.id.clone());
+                let from = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                return Decision::Accept { dest: path, from };
+            }
+            let id = id.borrow().clone();
             let (tx, rx) = mpsc::channel();
             ANSWERS.lock().unwrap().insert(id.clone(), tx);
             let _ = app.emit("nearby-offer", IncomingOffer { id: id.clone(), offer: offer.clone() });
             let accepted = rx.recv_timeout(DECISION).unwrap_or(false);
             ANSWERS.lock().unwrap().remove(&id);
-            accepted
+            if !accepted {
+                return Decision::Refuse;
+            }
+            transfer::link_cancel(&id, cancel.clone());
+            let dest = dir.join(format!("{id}.{}", crate::sharing::EXTENSION));
+            if !offer.id.is_empty() {
+                PARTIALS.lock().unwrap().insert(offer.id.clone(), (id, dest.clone()));
+                resumed_offer = Some(offer.id.clone());
+            }
+            Decision::Accept { dest, from: 0 }
         },
-        &dest,
         &cancel,
-        |done, total| transfer::emit(&app, Progress::new(&id, "reception", done, total)),
+        |done, total| transfer::emit(&app, Progress::new(&id.borrow(), "reception", done, total)),
     );
+    let id = id.into_inner();
     let end = |stage, message: Option<String>| {
         let mut p = Progress::new(&id, stage, 0, 0);
         p.message = message;
         transfer::emit(&app, p);
     };
+    let forget_partial = || {
+        if let Some(offer_id) = &resumed_offer {
+            PARTIALS.lock().unwrap().remove(offer_id);
+        }
+    };
     match result {
-        Ok(Some(offer)) => match transfer::import_received(&app, &dest) {
-            Ok(_) => end("fini", Some(offer.name)),
-            Err(e) => end("erreur", Some(e)),
-        },
-        Ok(None) => end("refuse", None),
+        Ok(Some((offer, dest))) => {
+            forget_partial();
+            match transfer::import_received(&app, &dest) {
+                Ok(_) => end("fini", Some(offer.name)),
+                Err(e) => end("erreur", Some(e)),
+            }
+            transfer::forget(&id);
+        }
+        Ok(None) => {
+            end("refuse", None);
+            transfer::forget(&id);
+        }
+        Err(e) if e.contains("annulé") => {
+            forget_partial();
+            end("erreur", Some(e));
+            transfer::forget(&id);
+        }
+        // Coupure : le fichier partiel est gardé, l'expéditeur va se reconnecter.
+        Err(_) if resumed_offer.is_some() => {
+            let mut p = Progress::new(&id, "reprise", 0, 0);
+            p.message = Some("Connexion perdue : reprise dès que l'expéditeur se reconnecte…".into());
+            transfer::emit(&app, p);
+        }
         Err(e) => end("erreur", Some(e)),
     }
-    transfer::forget(&id);
-    let _ = std::fs::remove_file(&dest);
 }
 
 /// Réponse de l'utilisateur à une offre reçue.
@@ -331,7 +441,48 @@ mod tests {
     use super::*;
 
     fn offer(size: u64) -> Offer {
-        Offer { from: "Téléphone de Lou".into(), kind: "track".into(), name: "Essai".into(), tracks: 1, size }
+        Offer { id: "envoi-1".into(), from: "Téléphone de Lou".into(), kind: "track".into(), name: "Essai".into(), tracks: 1, size }
+    }
+
+    #[test]
+    fn a_cut_transfer_resumes_without_asking_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("envoi.mpshare");
+        let content: Vec<u8> = (0..1_200_000u32).map(|i| (i % 239) as u8).collect();
+        std::fs::write(&source, &content).unwrap();
+        let (listener, address) = pair();
+        let dest = dir.path().join("recu.mpshare");
+        let receiving = {
+            let dest = dest.clone();
+            std::thread::spawn(move || {
+                // Première liaison coupée après 400 Ko environ.
+                let cut = AtomicBool::new(false);
+                let (first, _) = listener.accept().unwrap();
+                let interrupted = serve(first, |_| Decision::Accept { dest: dest.clone(), from: 0 }, &cut, |done, _| {
+                    if done >= 400_000 {
+                        cut.store(true, Ordering::SeqCst);
+                    }
+                });
+                assert!(interrupted.is_err());
+                let partial = std::fs::metadata(&dest).unwrap().len();
+                // Reprise : pas de nouvelle question, on repart de ce qui est déjà là.
+                let (second, _) = listener.accept().unwrap();
+                let resumed = serve(second, |_| Decision::Accept { dest: dest.clone(), from: partial }, &AtomicBool::new(false), |_, _| {});
+                (resumed, partial)
+            })
+        };
+        let mut stages = Vec::new();
+        send_to(&[address], &source, &offer(content.len() as u64), &AtomicBool::new(false), |s, _, _| {
+            if stages.last() != Some(&s) {
+                stages.push(s)
+            }
+        })
+        .unwrap();
+        let (resumed, partial) = receiving.join().unwrap();
+        assert!(resumed.unwrap().is_some());
+        assert!(partial >= 400_000 && partial < content.len() as u64, "{partial}");
+        assert!(stages.contains(&"reprise"), "{stages:?}");
+        assert_eq!(std::fs::read(dest).unwrap(), content);
     }
 
     fn pair() -> (TcpListener, String) {
@@ -352,7 +503,12 @@ mod tests {
             let dest = dest.clone();
             std::thread::spawn(move || {
                 let (stream, _) = listener.accept().unwrap();
-                serve(stream, |o| o.from == "Téléphone de Lou", &dest, &AtomicBool::new(false), |_, _| {})
+                serve(
+                    stream,
+                    |o| if o.from == "Téléphone de Lou" { Decision::Accept { dest, from: 0 } } else { Decision::Refuse },
+                    &AtomicBool::new(false),
+                    |_, _| {},
+                )
             })
         };
         let mut stages = Vec::new();
@@ -362,7 +518,7 @@ mod tests {
             }
         })
         .unwrap();
-        assert_eq!(receiving.join().unwrap().unwrap(), Some(offer(content.len() as u64)));
+        assert_eq!(receiving.join().unwrap().unwrap().map(|(o, _)| o), Some(offer(content.len() as u64)));
         assert_eq!(stages, vec!["attente", "envoi"]);
         assert_eq!(std::fs::read(dest).unwrap(), content);
     }
@@ -374,16 +530,13 @@ mod tests {
         std::fs::write(&source, b"contenu").unwrap();
         let (listener, address) = pair();
         let dest = dir.path().join("recu.mpshare");
-        let receiving = {
-            let dest = dest.clone();
-            std::thread::spawn(move || {
-                let (stream, _) = listener.accept().unwrap();
-                serve(stream, |_| false, &dest, &AtomicBool::new(false), |_, _| {})
-            })
-        };
+        let receiving = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            serve(stream, |_| Decision::Refuse, &AtomicBool::new(false), |_, _| {})
+        });
         let err = send_to(&[address], &source, &offer(7), &AtomicBool::new(false), |_, _, _| {}).unwrap_err();
         assert!(err.contains("refusé"), "{err}");
-        assert_eq!(receiving.join().unwrap().unwrap(), None);
+        assert!(receiving.join().unwrap().unwrap().is_none());
         assert!(!dest.exists());
     }
 

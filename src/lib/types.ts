@@ -182,7 +182,8 @@ export interface NearbyPeer {
 /** Avancement d'un envoi ou d'une réception. */
 export interface TransferProgress {
   id: string;
-  stage: "attente" | "envoi" | "reception" | "fini" | "refuse" | "erreur";
+  /** « reprise » : connexion perdue, nouvel essai automatique (done = essai, total = essais permis). */
+  stage: "attente" | "envoi" | "reception" | "reprise" | "fini" | "refuse" | "erreur";
   done: number;
   total: number;
   message: string | null;

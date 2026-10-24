@@ -21,7 +21,7 @@ use spake2::{Ed25519Group, Identity, Password, Spake2};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket};
 
-use crate::transfer::{self, Offer, CHUNK, MAX_SIZE};
+use crate::transfer::{self, Failure, Offer, CHUNK, MAX_SIZE};
 
 /// Relais du projet (relay/, mis en ligne sur Cloudflare).
 const PROJECT_RELAY: &str = "https://music-player-relais.loickamg.workers.dev";
@@ -328,49 +328,103 @@ pub fn open_send(relay: &str) -> Result<PendingSend, String> {
     Err("Le relais de partage est saturé, réessayez dans un instant.".into())
 }
 
+/// Erreur définitive (refus, annulation, mauvais code) ou coupure qu'on peut reprendre.
+fn classify(e: String) -> Failure {
+    if e == WRONG_CODE || e.contains("annulé") || e.contains("refusé") || e.contains("volumineuse") {
+        Failure::Final(e)
+    } else {
+        Failure::Retry(e)
+    }
+}
+
+/// Position annoncée par le destinataire (« oui:123456 » : déjà reçu), ou `None` s'il refuse.
+fn accepted_from(body: &[u8]) -> Option<u64> {
+    let text = std::str::from_utf8(body).ok()?;
+    let rest = text.strip_prefix("oui")?;
+    Some(rest.strip_prefix(':').and_then(|n| n.parse().ok()).unwrap_or(0))
+}
+
 impl PendingSend {
-    /// Attend que le destinataire saisisse le code, puis lui envoie l'archive.
-    /// `progress(étape, fait, total)`.
+    /// Attend que le destinataire saisisse le code, puis lui envoie l'archive. Après une
+    /// coupure, les deux appareils se retrouvent dans la même salle et l'envoi reprend où il
+    /// s'était arrêté. `progress(étape, fait, total)` ; « reprise » : (essai, essais permis).
     pub fn finish(
-        mut self,
+        self,
+        relay: &str,
         path: &Path,
         offer: &Offer,
         cancel: &AtomicBool,
         mut progress: impl FnMut(&'static str, u64, u64),
     ) -> Result<(), String> {
         progress("attente", 0, offer.size);
-        wait_ready(&mut self.ws, cancel, WAIT_RECEIVER)
-            .map_err(|e| if e.contains("répond") { "Personne n'a saisi le code à temps.".into() } else { e })?;
-        let mut channel = handshake(self.ws, &self.code.words, true, cancel)?;
-        channel.send(OFFER, &serde_json::to_vec(offer).map_err(|e| e.to_string())?)?;
-        let (kind, body) = channel.recv(Duration::from_secs(120))?;
-        if kind != ANSWER || body != b"oui" {
-            return Err("Le destinataire a refusé.".into());
-        }
-        let mut file = File::open(path).map_err(|e| e.to_string())?;
-        let mut buffer = vec![0u8; CHUNK];
-        let mut sent = 0u64;
+        let code = self.code;
+        let mut first = Some(self.ws);
+        let mut paired = false;
+        let mut attempt = 0;
         loop {
-            transfer::cancelled(cancel)?;
-            let n = file.read(&mut buffer).map_err(|e| e.to_string())?;
-            if n == 0 {
-                break;
+            let result = (|| -> Result<(), Failure> {
+                let mut ws = match first.take() {
+                    Some(ws) => ws,
+                    None => connect(relay, &code.room, "envoi").map_err(Failure::Retry)?,
+                };
+                let wait = if paired { WAIT_SENDER } else { WAIT_RECEIVER };
+                wait_ready(&mut ws, cancel, wait).map_err(|e| {
+                    if !paired && e.contains("répond") {
+                        Failure::Final("Personne n'a saisi le code à temps.".into())
+                    } else {
+                        classify(e)
+                    }
+                })?;
+                paired = true;
+                let mut channel = handshake(ws, &code.words, true, cancel).map_err(classify)?;
+                let offer_json = serde_json::to_vec(offer).map_err(|e| Failure::Final(e.to_string()))?;
+                channel.send(OFFER, &offer_json).map_err(classify)?;
+                let (kind, body) = channel.recv(Duration::from_secs(120)).map_err(classify)?;
+                let from = match (kind, accepted_from(&body)) {
+                    (ANSWER, Some(from)) if from <= offer.size => from,
+                    _ => return Err(Failure::Final("Le destinataire a refusé.".into())),
+                };
+                let mut file = File::open(path).map_err(|e| Failure::Final(e.to_string()))?;
+                std::io::Seek::seek(&mut file, std::io::SeekFrom::Start(from)).map_err(|e| Failure::Final(e.to_string()))?;
+                let mut buffer = vec![0u8; CHUNK];
+                let mut sent = from;
+                progress("envoi", sent, offer.size);
+                loop {
+                    transfer::cancelled(cancel).map_err(Failure::Final)?;
+                    let n = file.read(&mut buffer).map_err(|e| Failure::Final(e.to_string()))?;
+                    if n == 0 {
+                        break;
+                    }
+                    channel.send(DATA, &buffer[..n]).map_err(classify)?;
+                    sent += n as u64;
+                    progress("envoi", sent, offer.size);
+                }
+                channel.send(END, &[]).map_err(classify)?;
+                let (kind, body) = channel.recv(Duration::from_secs(120)).map_err(classify)?;
+                channel.close();
+                if kind != DONE || body != b"ok" {
+                    return Err(Failure::Retry("Le destinataire n'a pas tout reçu.".into()));
+                }
+                Ok(())
+            })();
+            match result {
+                Ok(()) => return Ok(()),
+                Err(Failure::Final(e)) => return Err(e),
+                Err(Failure::Retry(e)) => {
+                    attempt += 1;
+                    if attempt > transfer::RETRIES {
+                        return Err(e);
+                    }
+                    progress("reprise", u64::from(attempt), u64::from(transfer::RETRIES));
+                    transfer::pause(transfer::retry_delay(attempt), cancel)?;
+                }
             }
-            channel.send(DATA, &buffer[..n])?;
-            sent += n as u64;
-            progress("envoi", sent, offer.size);
         }
-        channel.send(END, &[])?;
-        let (kind, body) = channel.recv(Duration::from_secs(120))?;
-        channel.close();
-        if kind != DONE || body != b"ok" {
-            return Err("Le destinataire n'a pas tout reçu.".into());
-        }
-        Ok(())
     }
 }
 
-/// Reçoit l'archive envoyée avec ce code et l'écrit dans `dest`. `progress(étape, fait, total)`.
+/// Reçoit l'archive envoyée avec ce code et l'écrit dans `dest`. Après une coupure, se
+/// reconnecte et indique à l'expéditeur où il en était. `progress(étape, fait, total)`.
 pub fn receive(
     relay: &str,
     code: &Code,
@@ -378,46 +432,87 @@ pub fn receive(
     cancel: &AtomicBool,
     mut progress: impl FnMut(&'static str, u64, u64),
 ) -> Result<Offer, String> {
-    let mut ws = connect(relay, &code.room, "reception")
-        .map_err(|e| if e == TAKEN { "Ce code est déjà en cours d'utilisation.".into() } else { e })?;
     progress("attente", 0, 0);
-    wait_ready(&mut ws, cancel, WAIT_SENDER)
-        .map_err(|e| if e.contains("répond") { "Personne n'envoie avec ce code pour l'instant.".into() } else { e })?;
-    let mut channel = handshake(ws, &code.words, false, cancel)?;
-    let (kind, body) = channel.recv(Duration::from_secs(60))?;
-    if kind != OFFER {
-        return Err("Échange inattendu avec l'expéditeur.".into());
-    }
-    let offer: Offer = serde_json::from_slice(&body).map_err(|_| "Offre illisible.".to_string())?;
-    if offer.size > MAX_SIZE {
-        let _ = channel.send(ANSWER, b"non");
-        return Err("Archive trop volumineuse.".into());
-    }
-    channel.send(ANSWER, b"oui")?;
-    let mut out = File::create(dest).map_err(|e| e.to_string())?;
-    let mut received = 0u64;
+    let mut known: Option<Offer> = None;
+    let mut attempt = 0;
     loop {
-        let (kind, body) = channel.recv(Duration::from_secs(120))?;
-        match kind {
-            DATA => {
-                received += body.len() as u64;
-                if received > offer.size {
-                    return Err("L'expéditeur envoie plus que prévu.".into());
+        let result = (|| -> Result<Offer, Failure> {
+            let mut ws = connect(relay, &code.room, "reception").map_err(|e| {
+                if e == TAKEN && known.is_none() {
+                    Failure::Final("Ce code est déjà en cours d'utilisation.".into())
+                } else {
+                    Failure::Retry(e)
                 }
-                out.write_all(&body).map_err(|e| e.to_string())?;
-                progress("reception", received, offer.size);
+            })?;
+            wait_ready(&mut ws, cancel, WAIT_SENDER).map_err(|e| {
+                if known.is_none() && e.contains("répond") {
+                    Failure::Final("Personne n'envoie avec ce code pour l'instant.".into())
+                } else {
+                    classify(e)
+                }
+            })?;
+            let mut channel = handshake(ws, &code.words, false, cancel).map_err(classify)?;
+            let (kind, body) = channel.recv(Duration::from_secs(60)).map_err(classify)?;
+            if kind != OFFER {
+                return Err(Failure::Retry("Échange inattendu avec l'expéditeur.".into()));
             }
-            END => break,
-            _ => return Err("Échange inattendu avec l'expéditeur.".into()),
+            let offer: Offer = serde_json::from_slice(&body).map_err(|_| Failure::Final("Offre illisible.".into()))?;
+            if offer.size > MAX_SIZE {
+                let _ = channel.send(ANSWER, b"non");
+                return Err(Failure::Final("Archive trop volumineuse.".into()));
+            }
+            // Même envoi qu'avant la coupure : on garde ce qui est déjà reçu.
+            let same = known.as_ref().is_some_and(|k| !k.id.is_empty() && k.id == offer.id && k.size == offer.size);
+            let mut received = if same { std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0).min(offer.size) } else { 0 };
+            let mut out = if received > 0 {
+                std::fs::OpenOptions::new().write(true).open(dest).and_then(|f| {
+                    f.set_len(received)?;
+                    Ok(f)
+                })
+            } else {
+                File::create(dest)
+            }
+            .map_err(|e| Failure::Final(e.to_string()))?;
+            std::io::Seek::seek(&mut out, std::io::SeekFrom::Start(received)).map_err(|e| Failure::Final(e.to_string()))?;
+            known = Some(offer.clone());
+            channel.send(ANSWER, format!("oui:{received}").as_bytes()).map_err(classify)?;
+            progress("reception", received, offer.size);
+            loop {
+                let (kind, body) = channel.recv(Duration::from_secs(120)).map_err(classify)?;
+                match kind {
+                    DATA => {
+                        received += body.len() as u64;
+                        if received > offer.size {
+                            return Err(Failure::Final("L'expéditeur envoie plus que prévu.".into()));
+                        }
+                        out.write_all(&body).map_err(|e| Failure::Final(e.to_string()))?;
+                        progress("reception", received, offer.size);
+                    }
+                    END => break,
+                    _ => return Err(Failure::Retry("Échange inattendu avec l'expéditeur.".into())),
+                }
+            }
+            out.flush().map_err(|e| Failure::Final(e.to_string()))?;
+            if received != offer.size {
+                return Err(Failure::Retry("Archive incomplète.".into()));
+            }
+            channel.send(DONE, b"ok").map_err(classify)?;
+            channel.close();
+            Ok(offer)
+        })();
+        match result {
+            Ok(offer) => return Ok(offer),
+            Err(Failure::Final(e)) => return Err(e),
+            Err(Failure::Retry(e)) => {
+                attempt += 1;
+                if attempt > transfer::RETRIES {
+                    return Err(e);
+                }
+                progress("reprise", u64::from(attempt), u64::from(transfer::RETRIES));
+                transfer::pause(transfer::retry_delay(attempt), cancel)?;
+            }
         }
     }
-    out.flush().map_err(|e| e.to_string())?;
-    if received != offer.size {
-        return Err("Archive incomplète.".into());
-    }
-    channel.send(DONE, b"ok")?;
-    channel.close();
-    Ok(offer)
 }
 
 #[cfg(test)]
@@ -455,57 +550,108 @@ mod tests {
         assert!(room_url("relais.example.dev", "1", "envoi").is_err());
     }
 
-    /// Relais minimal pour les essais : comme relay/src/index.js, met en relation le premier
-    /// envoi et la première réception, annonce « pret », puis passe les messages.
-    fn local_relay() -> String {
+    /// Relais minimal pour les essais : comme relay/src/index.js, met en relation deux
+    /// appareils, annonce « pret », puis passe les messages ; recommence pour chaque nouvelle
+    /// paire. `cut` : coupe net la première liaison après ce nombre de messages (reprise).
+    fn local_relay(cut: Option<usize>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
-            let mut sockets = Vec::new();
-            for stream in listener.incoming().take(2) {
-                let stream = stream.unwrap();
-                let ws = tungstenite::accept(stream.try_clone().unwrap()).unwrap();
-                stream.set_nonblocking(true).unwrap();
-                sockets.push(ws);
-            }
-            let ready = |ws: &mut WebSocket<TcpStream>| {
-                let mut r = ws.send(Message::text("{\"type\":\"pret\"}"));
-                while matches!(&r, Err(e) if would_block(e)) {
-                    r = ws.flush();
+            let mut cut = cut;
+            loop {
+                let mut sockets = Vec::new();
+                for stream in listener.incoming().take(2) {
+                    let stream = stream.unwrap();
+                    let ws = tungstenite::accept(stream.try_clone().unwrap()).unwrap();
+                    stream.set_nonblocking(true).unwrap();
+                    sockets.push(ws);
                 }
-            };
-            sockets.iter_mut().for_each(ready);
-            let (mut a, mut b) = (sockets.remove(0), sockets.remove(0));
-            let pump = |from: &mut WebSocket<TcpStream>, to: &mut WebSocket<TcpStream>| -> bool {
-                match from.read() {
-                    Ok(Message::Close(_)) => false,
-                    Ok(m) => {
-                        let mut r = to.send(m);
-                        while matches!(&r, Err(e) if would_block(e)) {
-                            std::thread::sleep(Duration::from_millis(1));
-                            r = to.flush();
+                let ready = |ws: &mut WebSocket<TcpStream>| {
+                    let mut r = ws.send(Message::text("{\"type\":\"pret\"}"));
+                    while matches!(&r, Err(e) if would_block(e)) {
+                        r = ws.flush();
+                    }
+                };
+                sockets.iter_mut().for_each(ready);
+                let (mut a, mut b) = (sockets.remove(0), sockets.remove(0));
+                let mut forwarded = 0usize;
+                let mut pump = |from: &mut WebSocket<TcpStream>, to: &mut WebSocket<TcpStream>| -> bool {
+                    match from.read() {
+                        Ok(Message::Close(_)) => false,
+                        Ok(m) => {
+                            forwarded += 1;
+                            if cut.is_some_and(|c| forwarded > c) {
+                                return false;
+                            }
+                            let mut r = to.send(m);
+                            while matches!(&r, Err(e) if would_block(e)) {
+                                std::thread::sleep(Duration::from_millis(1));
+                                r = to.flush();
+                            }
+                            r.is_ok()
                         }
-                        r.is_ok()
+                        Err(e) if would_block(&e) => {
+                            std::thread::sleep(Duration::from_millis(1));
+                            true
+                        }
+                        Err(_) => false,
                     }
-                    Err(e) if would_block(&e) => {
-                        std::thread::sleep(Duration::from_millis(1));
-                        true
-                    }
-                    Err(_) => false,
-                }
-            };
-            while pump(&mut a, &mut b) && pump(&mut b, &mut a) {}
+                };
+                while pump(&mut a, &mut b) && pump(&mut b, &mut a) {}
+                cut = None;
+            }
         });
         format!("http://127.0.0.1:{port}")
     }
 
     fn offer(size: u64) -> Offer {
-        Offer { from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size }
+        Offer { id: "envoi-1".into(), from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size }
+    }
+
+    #[test]
+    fn a_cut_transfer_resumes_where_it_stopped() {
+        // Coupure après la clé, l'offre, la réponse et 2 tranches : reprise à la 3e.
+        let relay = local_relay(Some(6));
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("envoi.mpshare");
+        let content: Vec<u8> = (0..1_300_000u32).map(|i| (i % 241) as u8).collect();
+        std::fs::write(&source, &content).unwrap();
+        let pending = open_send(&relay).unwrap();
+        let code = pending.code.clone();
+        let size = content.len() as u64;
+        let sending = {
+            let relay = relay.clone();
+            std::thread::spawn(move || {
+                let mut resumed_from = Vec::new();
+                let mut previous = 0;
+                let result = pending.finish(&relay, &source, &offer(size), &AtomicBool::new(false), |stage, done, _| {
+                    // Premier « envoi » après une reprise : position annoncée par le destinataire.
+                    if stage == "envoi" && done > 0 && previous == 0 {
+                        resumed_from.push(done);
+                    }
+                    previous = if stage == "reprise" { 0 } else { done };
+                });
+                (result, resumed_from)
+            })
+        };
+        let dest = dir.path().join("recu.mpshare");
+        let mut retries = 0;
+        receive(&relay, &code, &dest, &AtomicBool::new(false), |stage, _, _| {
+            if stage == "reprise" {
+                retries += 1
+            }
+        })
+        .unwrap();
+        let (result, resumed_from) = sending.join().unwrap();
+        result.unwrap();
+        assert!(retries >= 1, "la coupure doit provoquer une reprise");
+        assert!(resumed_from.iter().any(|&from| from >= CHUNK as u64), "reprise sans repartir de zéro : {resumed_from:?}");
+        assert_eq!(std::fs::read(&dest).unwrap(), content);
     }
 
     #[test]
     fn archive_crosses_the_relay_encrypted() {
-        let relay = local_relay();
+        let relay = local_relay(None);
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("envoi.mpshare");
         let content: Vec<u8> = (0..700_000u32).map(|i| (i % 251) as u8).collect();
@@ -515,8 +661,9 @@ mod tests {
         let code = parse_code(&pending.code.text()).unwrap();
         let sending = {
             let source = source.clone();
+            let relay = relay.clone();
             let size = content.len() as u64;
-            std::thread::spawn(move || pending.finish(&source, &offer(size), &AtomicBool::new(false), |_, _, _| {}))
+            std::thread::spawn(move || pending.finish(&relay, &source, &offer(size), &AtomicBool::new(false), |_, _, _| {}))
         };
         let dest = dir.path().join("recu.mpshare");
         let mut last = 0;
@@ -539,7 +686,7 @@ mod tests {
         let pending = open_send(relay).unwrap();
         let code = pending.code.clone();
         let size = content.len() as u64;
-        let sending = std::thread::spawn(move || pending.finish(&source, &offer(size), &AtomicBool::new(false), |_, _, _| {}));
+        let sending = std::thread::spawn(move || pending.finish(relay, &source, &offer(size), &AtomicBool::new(false), |_, _, _| {}));
         let dest = dir.path().join("recu.mpshare");
         receive(relay, &code, &dest, &AtomicBool::new(false), |_, _, _| {}).unwrap();
         sending.join().unwrap().unwrap();
@@ -548,16 +695,24 @@ mod tests {
 
     #[test]
     fn wrong_words_are_refused_on_both_sides() {
-        let relay = local_relay();
+        let relay = local_relay(None);
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("envoi.mpshare");
         std::fs::write(&source, b"contenu").unwrap();
         let pending = open_send(&relay).unwrap();
         let mut code = pending.code.clone();
         code.words = if code.words == "soleil-guitare" { "lune-piano".into() } else { "soleil-guitare".into() };
-        let sending = std::thread::spawn(move || pending.finish(&source, &offer(7), &AtomicBool::new(false), |_, _, _| {}));
+        // L'expéditeur, lui, ne peut pas savoir que le code était faux : il attend le bon
+        // destinataire jusqu'à ce qu'on annule.
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let sending = {
+            let relay = relay.clone();
+            let cancel = cancel.clone();
+            std::thread::spawn(move || pending.finish(&relay, &source, &offer(7), &cancel, |_, _, _| {}))
+        };
         let err = receive(&relay, &code, &dir.path().join("x"), &AtomicBool::new(false), |_, _, _| {}).unwrap_err();
         assert!(err.contains("Code incorrect"), "{err}");
-        assert!(sending.join().unwrap().is_err());
+        cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(sending.join().unwrap().unwrap_err().contains("annulé"));
     }
 }
