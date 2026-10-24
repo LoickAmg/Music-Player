@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
+import { type AudioKind, guessKind } from "@/lib/audioKind";
 import { collator } from "@/lib/format";
 import type { Album, Artist, ScanProgress, Track } from "@/lib/types";
 
@@ -70,6 +71,27 @@ export function groupArtists(tracks: Track[], albums: Album[]): Artist[] {
     });
 }
 
+// Corrections manuelles du tri vocaux / musique (par appareil).
+const KIND_KEY = "mp:audio-kind";
+const SEPARATE_KEY = "mp:separate-voices";
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // réglage valable pour la session
+  }
+}
+
 function matches(t: Track, words: string[]): boolean {
   const hay = `${t.title} ${t.artist} ${t.album}`.toLowerCase();
   return words.every((w) => hay.includes(w));
@@ -81,13 +103,20 @@ export const useLibraryStore = defineStore("library", {
     tracks: [] as Track[],
     /** Fichiers illisibles (abîmés, vides) : hors des listes, montrés dans les Réglages. */
     damaged: [] as Track[],
+    /** Notes vocales et enregistrements : hors de la musique, page « Vocaux ». */
+    voices: [] as Track[],
+    /** Toutes les pistes lisibles, telles que le scan les a données. */
+    all: [] as Track[],
+    kindOverrides: readJson<Record<string, AudioKind>>(KIND_KEY, {}),
+    separateVoices: readJson<boolean>(SEPARATE_KEY, true),
     scanning: false,
     progress: null as ScanProgress | null,
     error: null as string | null,
   }),
   getters: {
     albums: (state): Album[] => groupAlbums(state.tracks),
-    trackIndex: (state) => new Map(state.tracks.map((t) => [t.id, t])),
+    // Vocaux compris : la file de lecture et le lecteur les retrouvent aussi.
+    trackIndex: (state) => new Map(state.all.map((t) => [t.id, t])),
     totalDuration: (state) => state.tracks.reduce((s, t) => s + t.duration_secs, 0),
     artists(): Artist[] {
       return groupArtists(this.tracks, this.albums);
@@ -117,8 +146,42 @@ export const useLibraryStore = defineStore("library", {
     },
     /** Range les pistes : les fichiers illisibles à part, pour ne pas polluer les albums. */
     setTracks(all: Track[]) {
-      this.tracks = all.filter((t) => !t.damage);
+      this.all = all.filter((t) => !t.damage);
       this.damaged = all.filter((t) => t.damage);
+      this.sortKinds();
+    },
+    kindOf(t: Track): AudioKind {
+      return this.kindOverrides[t.id] ?? guessKind(t);
+    },
+    /** Sépare la musique des vocaux et enregistrements (sauf si le réglage est coupé). */
+    sortKinds() {
+      if (!this.separateVoices) {
+        this.tracks = this.all;
+        this.voices = [];
+        return;
+      }
+      const music: Track[] = [];
+      const voices: Track[] = [];
+      for (const t of this.all) (this.kindOf(t) === "musique" ? music : voices).push(t);
+      this.tracks = music;
+      this.voices = voices;
+    },
+    /** Correction à la main : « C'est de la musique » ou « Ranger avec les vocaux ». */
+    setKind(ids: string[], kind: AudioKind) {
+      const overrides = { ...this.kindOverrides };
+      for (const id of ids) {
+        const t = this.byId(id);
+        if (t && guessKind(t) === kind) delete overrides[id];
+        else overrides[id] = kind;
+      }
+      this.kindOverrides = overrides;
+      writeJson(KIND_KEY, overrides);
+      this.sortKinds();
+    },
+    setSeparateVoices(on: boolean) {
+      this.separateVoices = on;
+      writeJson(SEPARATE_KEY, on);
+      this.sortKinds();
     },
     setFromInitialState(root: string | null, tracks: Track[], scanning = false) {
       this.root = root;

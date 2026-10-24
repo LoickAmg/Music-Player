@@ -123,6 +123,14 @@ const shortcuts = [
         </button>
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
+      <label class="toggle">
+        <input type="checkbox" :checked="library.separateVoices" @change="library.setSeparateVoices(($event.target as HTMLInputElement).checked)" />
+        <span>
+          Ranger à part les notes vocales et les enregistrements
+          <template v-if="library.voices.length">({{ library.voices.length }}, page « Vocaux »)</template>
+        </span>
+      </label>
+      <p class="muted small">Notes vocales WhatsApp, Telegram, dictaphone, appels enregistrés. Un fichier mal rangé se corrige depuis son menu (« ⋯ »).</p>
     </section>
 
     <section class="card">

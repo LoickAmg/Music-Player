@@ -65,6 +65,16 @@ function newPlaylist() {
         <Icon :name="item.icon" :size="17" class="ico" />
         {{ item.label }}
       </button>
+      <button
+        v-if="library.voices.length"
+        type="button"
+        class="nav-item"
+        :class="{ active: ui.route.name === 'voices' }"
+        @click="ui.go({ name: 'voices' })"
+      >
+        <Icon name="mic" :size="17" class="ico" />
+        Vocaux
+      </button>
     </nav>
 
     <nav class="section playlists" aria-label="Playlists">

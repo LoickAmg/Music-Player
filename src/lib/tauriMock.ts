@@ -93,6 +93,23 @@ export function installTauriMock() {
         damage: "Début du fichier vide : téléchargement inachevé ?",
       }),
     ),
+    // Notes vocales et enregistrements, rangés à part (page « Vocaux »).
+    ...[
+      ["WhatsApp/Media/WhatsApp Voice Notes/202643/PTT-20261021-WA0007.opus", 42],
+      ["WhatsApp/Media/WhatsApp Voice Notes/202643/PTT-20261023-WA0012.opus", 118],
+      ["WhatsApp/Media/WhatsApp Audio/AUD-20261019-WA0003.opus", 25],
+      ["Recordings/Rendez-vous banque.m4a", 640],
+    ].map(([rel, secs], i) =>
+      makeTrack(200 + i, {
+        title: String(rel).split("/").pop()!.replace(/\.[^.]+$/, ""),
+        artist: "Artiste inconnu",
+        album: "Album inconnu",
+        album_artist: "Artiste inconnu",
+        path: `/musique/demo/${rel}`,
+        duration_secs: Number(secs),
+        has_cover: false,
+      }),
+    ),
   ];
 
   let queue: QueueView = { track_ids: [], position: null, shuffle: false, repeat: "off" };

@@ -83,6 +83,15 @@ async function toggleFavorite() {
   const now = await favorites.toggle(track.value.id);
   ui.notify(now ? `« ${track.value.title} » ajouté aux titres aimés` : `« ${track.value.title} » retiré des titres aimés`);
 }
+const isVoice = computed(() => !!track.value && library.separateVoices && library.kindOf(track.value) !== "musique");
+function reclassify() {
+  if (!track.value) return;
+  const { id, title } = track.value;
+  const toMusic = isVoice.value;
+  close();
+  library.setKind([id], toMusic ? "musique" : "vocal");
+  ui.notify(toMusic ? `« ${title} » rangé avec la musique` : `« ${title} » rangé dans les vocaux`);
+}
 function share() {
   if (!track.value) return;
   const { id, title } = track.value;
@@ -133,6 +142,9 @@ function share() {
       </button>
       <hr />
       <button type="button" role="menuitem" @click="share">Partager ce morceau</button>
+      <button v-if="library.separateVoices" type="button" role="menuitem" @click="reclassify">
+        {{ isVoice ? "C'est de la musique" : "Ranger dans les vocaux" }}
+      </button>
       <template v-if="ui.menu.playlistId">
         <hr />
         <button type="button" role="menuitem" class="danger" @click="removeFromPlaylist">Retirer de la playlist</button>

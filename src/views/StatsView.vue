@@ -27,7 +27,7 @@ function setKind(k: "month" | "year") {
   period.value = k === "year" ? { kind: "year", year: p.year } : { kind: "month", year: p.year, month: p.year === today.getFullYear() ? today.getMonth() : 11 };
 }
 
-const recap = computed(() => buildRecap(listening.listens, period.value));
+const recap = computed(() => buildRecap(listening.music, period.value));
 const isCurrent = computed(() => {
   const p = period.value;
   return p.kind === "year" ? p.year >= today.getFullYear() : p.year > today.getFullYear() || (p.year === today.getFullYear() && p.month >= today.getMonth());

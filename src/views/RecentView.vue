@@ -4,6 +4,7 @@ import { computed } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
+import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
 
 const library = useLibraryStore();
@@ -24,6 +25,14 @@ function play(index: number) {
   <div class="page">
     <h1 class="page-title">Ajouts récents</h1>
     <RecapBanner />
+    <button v-if="library.voices.length" type="button" class="voices-link" @click="ui.go({ name: 'voices' })">
+      <Icon name="mic" :size="18" />
+      <span>
+        <strong>Vocaux et enregistrements</strong>
+        <small>{{ library.voices.length }} fichier{{ library.voices.length > 1 ? "s" : "" }} rangé{{ library.voices.length > 1 ? "s" : "" }} à part de la musique</small>
+      </span>
+      <span class="chev" aria-hidden="true">›</span>
+    </button>
 
     <section>
       <div class="head">
@@ -63,5 +72,41 @@ h2 {
 }
 .row {
   height: 52px;
+}
+.voices-link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 24px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: var(--text);
+  text-align: left;
+}
+.voices-link:hover {
+  background: rgba(var(--fg-rgb), 0.1);
+}
+.voices-link > :first-child {
+  color: var(--accent);
+}
+.voices-link span:not(.chev) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.voices-link strong {
+  font-size: 14px;
+}
+.voices-link small {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.chev {
+  font-size: 20px;
+  color: var(--text-2);
 }
 </style>

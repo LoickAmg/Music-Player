@@ -88,10 +88,30 @@ describe("library store", () => {
   it("byId et albumByKey retrouvent leurs éléments", () => {
     const store = useLibraryStore();
     const t = track({ album: "Horizon", artist: "Camille" });
-    store.tracks = [t];
+    store.setTracks([t]);
     expect(store.byId(t.id)?.id).toBe(t.id);
     expect(store.byId("nope")).toBeNull();
     expect(store.albumByKey(store.albums[0].key)?.title).toBe("Horizon");
+  });
+
+  it("range les notes vocales à part, corrigeables à la main", () => {
+    const store = useLibraryStore();
+    const song = track({ album: "Horizon", artist: "Camille" });
+    const voice = track({ artist: "Artiste inconnu", path: "/sd/WhatsApp/Media/WhatsApp Voice Notes/1/PTT-20261020-WA0001.opus" });
+    store.setTracks([song, voice]);
+    expect(store.tracks.map((t) => t.id)).toEqual([song.id]);
+    expect(store.voices.map((t) => t.id)).toEqual([voice.id]);
+    expect(store.byId(voice.id)?.id).toBe(voice.id);
+
+    store.setKind([voice.id], "musique");
+    expect(store.tracks).toHaveLength(2);
+    expect(store.voices).toHaveLength(0);
+
+    store.setKind([voice.id], "vocal");
+    store.setSeparateVoices(false);
+    expect(store.tracks).toHaveLength(2);
+    store.setSeparateVoices(true);
+    expect(store.voices).toHaveLength(1);
   });
 
   it("scan() met à jour les pistes, et l'erreur en cas d'échec", async () => {

@@ -23,12 +23,12 @@ const offer = computed<{ period: Period; title: string; text: string } | null>((
   const y = today.getFullYear();
   const yearPeriod: Period | null = today.getMonth() === 11 ? { kind: "year", year: y } : today.getMonth() === 0 && today.getDate() <= 10 ? { kind: "year", year: y - 1 } : null;
   if (yearPeriod) {
-    const r = buildRecap(listening.listens, yearPeriod);
+    const r = buildRecap(listening.music, yearPeriod);
     if (r.totalSecs >= 3600) return { period: yearPeriod, title: `Ton année ${yearPeriod.year} en musique est prête`, text: `${formatListening(r.totalSecs)} d'écoute, ton artiste n°1, ton morceau de l'année… À découvrir en story.` };
   }
   if (today.getDate() <= 10) {
     const last: Period = today.getMonth() === 0 ? { kind: "month", year: y - 1, month: 11 } : { kind: "month", year: y, month: today.getMonth() - 1 };
-    const r = buildRecap(listening.listens, last);
+    const r = buildRecap(listening.music, last);
     if (r.totalSecs >= 1800) return { period: last, title: `Ton mois de ${monthName(last.month)} en musique`, text: `${formatListening(r.totalSecs)} d'écoute et ${r.topArtists[0]?.label ?? "tes artistes"} en tête. Revis-le en quelques secondes.` };
   }
   return null;
@@ -51,8 +51,8 @@ function dismiss() {
     // retiré pour la session
   }
 }
-const thisMonth = computed(() => buildRecap(listening.listens, { kind: "month", year: today.getFullYear(), month: today.getMonth() }));
-const storyRecap = computed(() => (story.value ? buildRecap(listening.listens, story.value) : null));
+const thisMonth = computed(() => buildRecap(listening.music, { kind: "month", year: today.getFullYear(), month: today.getMonth() }));
+const storyRecap = computed(() => (story.value ? buildRecap(listening.music, story.value) : null));
 </script>
 
 <template>
