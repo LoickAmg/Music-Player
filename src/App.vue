@@ -37,6 +37,8 @@ import ArtistsView from "@/views/ArtistsView.vue";
 import FavoritesView from "@/views/FavoritesView.vue";
 import VoicesView from "@/views/VoicesView.vue";
 import DuplicatesView from "@/views/DuplicatesView.vue";
+import FriendsView from "@/views/FriendsView.vue";
+import { useFriendsStore } from "@/stores/friends";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
@@ -50,6 +52,7 @@ const library = useLibraryStore();
 const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
+const friends = useFriendsStore();
 const share = useShareStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
@@ -224,6 +227,19 @@ function onReturn() {
 /** Nom présenté aux appareils voisins : celui du profil, sinon le type d'appareil. */
 const deviceName = computed(() => appearance.settings.profile.name.trim() || (onAndroid ? "Téléphone Android" : "Ordinateur"));
 watch(deviceName, (name) => void share.setDeviceName(name));
+// Proches : nouveau morceau, pause ou reprise publiés aussitôt ; carte d'ami à jour.
+watch(
+  () => [player.currentTrack?.id, player.isPaused],
+  () => void friends.publish(),
+);
+let cardTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => [appearance.settings.profile.name, appearance.settings.profile.avatar],
+  () => {
+    if (cardTimer) clearTimeout(cardTimer);
+    cardTimer = setTimeout(() => void friends.refreshCard(), 2000);
+  },
+);
 const offPlayback: (() => void)[] = [];
 const onPopState = () => ui.onPopState();
 let saveInterval: ReturnType<typeof setInterval> | null = null;
@@ -261,6 +277,8 @@ onMounted(async () => {
     }),
   );
   void share.init(deviceName.value);
+  // Proches : statut des amis et de ce que j'écoute (si activé).
+  friends.start();
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.
   try {
     offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));
@@ -292,6 +310,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   player.stopPolling();
+  friends.stop();
   unlisten?.();
   offPlayback.forEach((off) => off());
   window.removeEventListener("popstate", onPopState);
@@ -375,6 +394,7 @@ onBeforeUnmount(() => {
               <FavoritesView v-else-if="ui.route.name === 'favorites'" />
               <VoicesView v-else-if="ui.route.name === 'voices'" />
               <DuplicatesView v-else-if="ui.route.name === 'duplicates'" />
+              <FriendsView v-else-if="ui.route.name === 'friends'" />
               <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
               <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />

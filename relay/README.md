@@ -10,6 +10,19 @@ morceau ou une playlist avec un code du type `4821-soleil-guitare`.
   appareils).
 - Il n'enregistre rien. Une salle se ferme au bout de 15 minutes.
 
+## Proches
+
+Le même relais sert aux Proches (voir ce qu'écoutent ses amis) :
+
+- chaque appareil qui active les Proches reçoit un code d'ami (`K7QM-2D9X`) et un secret
+  qui reste sur l'appareil ;
+- on s'ajoute par ce code (ou depuis les appareils du même Wi-Fi) ; l'ajout n'aboutit que si
+  l'autre accepte, et chacun donne à l'autre un jeton qui lui permet de lire son statut ;
+- le relais garde par profil : nom, petite photo, morceau en cours (effacé au bout de
+  6 heures), demandes en attente, jetons des amis autorisés (empreintes seulement) ;
+- annuaire de ville, sur option : nom et code des profils qui ont choisi d'y être visibles,
+  d'après l'adresse IP vue par Cloudflare ; une annonce s'efface au bout de 10 minutes.
+
 ## Mise en ligne (une fois)
 
 Avec un compte Cloudflare (offre gratuite suffisante) :
@@ -20,7 +33,8 @@ npx wrangler login
 npx wrangler deploy
 ```
 
-`wrangler deploy` affiche l'adresse du relais. Celle du projet,
+`wrangler deploy` affiche l'adresse du relais. Après une mise à jour du relais (nouvelle
+version de `src/index.js`), relancer `npx wrangler deploy`. Celle du projet,
 `https://music-player-relais.loickamg.workers.dev`, est intégrée à l'application
 (`PROJECT_RELAY` dans `src-tauri/src/remote.rs`). Un autre relais se règle :
 

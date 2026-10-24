@@ -7,7 +7,20 @@ compatibility_date = "2025-09-01"
 name = "SALLES"
 class_name = "Salle"
 
+[[durable_objects.bindings]]
+name = "PROFILS"
+class_name = "Profil"
+
+[[durable_objects.bindings]]
+name = "ZONES"
+class_name = "Zone"
+
 # Durable Objects « SQLite » : disponibles avec l'offre gratuite de Cloudflare Workers.
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Salle"]
+
+# Proches : profils (code d'ami, statut d'écoute) et annuaire de zone, sur option.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Profil", "Zone"]

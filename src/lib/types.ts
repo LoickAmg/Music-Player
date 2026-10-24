@@ -177,6 +177,8 @@ export interface NearbyPeer {
   id: string;
   name: string;
   addresses: string[];
+  /** Code d'ami (Proches), quand cet appareil l'a activé. */
+  code?: string | null;
 }
 
 /** Avancement d'un envoi ou d'une réception. */

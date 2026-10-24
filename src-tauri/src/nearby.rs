@@ -30,6 +30,9 @@ pub struct Peer {
     pub name: String,
     /// « adresse:port », IPv4 d'abord.
     pub addresses: Vec<String>,
+    /// Code d'ami (Proches), quand l'appareil l'a activé : « Ajouter » sans le saisir.
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -213,6 +216,7 @@ struct Running {
     daemon: ServiceDaemon,
     fullname: String,
     name: String,
+    code: Option<String>,
     stop: Arc<AtomicBool>,
 }
 
@@ -244,10 +248,11 @@ struct IncomingOffer {
     offer: Offer,
 }
 
-/// Rend l'appareil visible sous le nom `name` et prêt à recevoir (relancé si le nom change).
-pub fn start(app: &AppHandle, name: &str) -> Result<(), String> {
+/// Rend l'appareil visible sous le nom `name` (avec son code d'ami s'il en a un) et prêt à
+/// recevoir ; relancé si le nom ou le code change.
+pub fn start(app: &AppHandle, name: &str, code: Option<&str>) -> Result<(), String> {
     let mut running = RUNNING.lock().unwrap();
-    if running.as_ref().is_some_and(|r| r.name == name) {
+    if running.as_ref().is_some_and(|r| r.name == name && r.code.as_deref() == code) {
         return Ok(());
     }
     if let Some(previous) = running.take() {
@@ -259,7 +264,10 @@ pub fn start(app: &AppHandle, name: &str) -> Result<(), String> {
     let daemon = ServiceDaemon::new().map_err(|e| format!("Réseau local indisponible : {e}"))?;
     let id = device_id(&app.state::<AppState>().data_dir);
     let host = format!("mp-{}.local.", &id[..8]);
-    let properties = [("id", id.as_str()), ("nom", name), ("v", "1")];
+    let mut properties = vec![("id", id.as_str()), ("nom", name), ("v", "1")];
+    if let Some(code) = code {
+        properties.push(("ami", code));
+    }
     let info = ServiceInfo::new(SERVICE, &format!("mp-{}", &id[..12]), &host, "", port, &properties[..])
         .map_err(|e| e.to_string())?
         .enable_addr_auto();
@@ -271,7 +279,7 @@ pub fn start(app: &AppHandle, name: &str) -> Result<(), String> {
         let stop = stop.clone();
         std::thread::spawn(move || accept_loop(app, listener, stop));
     }
-    *running = Some(Running { daemon, fullname, name: name.to_string(), stop });
+    *running = Some(Running { daemon, fullname, name: name.to_string(), code: code.map(str::to_string), stop });
     Ok(())
 }
 
@@ -416,6 +424,7 @@ pub fn scan(app: &AppHandle, wait: Duration) -> Result<Vec<Peer>, String> {
             continue;
         }
         let name = info.txt_properties.get_property_val_str("nom").unwrap_or("Appareil").to_string();
+        let code = info.txt_properties.get_property_val_str("ami").map(str::to_string);
         let mut ips: Vec<std::net::IpAddr> = info.addresses.iter().map(|a| a.to_ip_addr()).collect();
         ips.sort_by_key(|ip| ip.is_ipv6());
         let addresses: Vec<String> = ips.into_iter().map(|ip| SocketAddr::new(ip, info.port).to_string()).collect();
@@ -427,7 +436,7 @@ pub fn scan(app: &AppHandle, wait: Duration) -> Result<Vec<Peer>, String> {
                     }
                 }
             }
-            None => peers.push(Peer { id, name, addresses }),
+            None => peers.push(Peer { id, name, addresses, code }),
         }
     }
     let _ = daemon.stop_browse(SERVICE);

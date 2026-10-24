@@ -5,11 +5,14 @@ import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
+import FriendAvatar from "@/components/FriendAvatar.vue";
+import { useFriendsStore } from "@/stores/friends";
 import TrackRow from "@/components/TrackRow.vue";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
 const ui = useUiStore();
+const friends = useFriendsStore();
 
 // Les vrais ajouts récents, piste par piste : un album bucketé par sa piste la plus
 // récente montrait tout un album ancien dès qu'un seul morceau y était ajouté ou retouché.
@@ -25,6 +28,25 @@ function play(index: number) {
   <div class="page">
     <h1 class="page-title">Ajouts récents</h1>
     <RecapBanner />
+    <div v-if="friends.listening.length" class="friends-strip">
+      <button v-for="x in friends.listening.slice(0, 8)" :key="x.friend.code" type="button" class="friend-chip" @click="ui.go({ name: 'friends' })">
+        <FriendAvatar :name="x.friend.name" :src="x.friend.avatar" :size="34" :live="x.status.playing" />
+        <span>
+          <strong>{{ x.friend.name }}</strong>
+          <small>{{ x.status.playing ? "♪" : "En pause ·" }} {{ x.status.title }} · {{ x.status.artist }}</small>
+        </span>
+      </button>
+    </div>
+    <button v-else-if="ui.isMobile" type="button" class="voices-link" @click="ui.go({ name: 'friends' })">
+      <Icon name="user" :size="18" />
+      <span>
+        <strong>Proches</strong>
+        <small>{{
+          friends.enabled ? (friends.incoming.length ? `${friends.incoming.length} demande(s) reçue(s)` : "Voir ce qu'écoutent vos proches") : "Ajoutez-vous avec vos codes d'ami"
+        }}</small>
+      </span>
+      <span class="chev" aria-hidden="true">›</span>
+    </button>
     <button v-if="library.voices.length" type="button" class="voices-link" @click="ui.go({ name: 'voices' })">
       <Icon name="mic" :size="18" />
       <span>
@@ -72,6 +94,41 @@ h2 {
 }
 .row {
   height: 52px;
+}
+.friends-strip {
+  display: flex;
+  gap: 10px;
+  margin: 0 0 14px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.friend-chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 280px;
+  padding: 8px 14px 8px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(var(--fg-rgb), 0.06);
+  color: var(--text);
+  text-align: left;
+}
+.friend-chip span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.friend-chip strong {
+  font-size: 13px;
+}
+.friend-chip small {
+  font-size: 11.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .voices-link {
   display: flex;

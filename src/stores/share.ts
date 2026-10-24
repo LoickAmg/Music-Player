@@ -72,6 +72,8 @@ export const useShareStore = defineStore("share", {
     defaultRelay: null as string | null,
     /** Nom sous lequel cet appareil se présente. */
     deviceName: "",
+    /** Code d'ami (Proches) annoncé aux voisins, s'il est activé. */
+    friendCode: null as string | null,
   }),
   getters: {
     relayInUse: (s): string | null => s.relay.trim() || s.defaultRelay,
@@ -93,7 +95,7 @@ export const useShareStore = defineStore("share", {
     },
     async startVisible() {
       try {
-        await api.nearbyStart(this.deviceName);
+        await api.nearbyStart(this.deviceName, this.friendCode);
       } catch {
         // pas de réseau local (hors ligne, mode avion) : réessayé au prochain retour dans l'appli
       }
@@ -103,6 +105,11 @@ export const useShareStore = defineStore("share", {
       write(VISIBLE_KEY, on ? "1" : "0");
       if (on) await this.startVisible();
       else await api.nearbyStop().catch(() => {});
+    },
+    async setFriendCode(code: string | null) {
+      if (this.friendCode === code) return;
+      this.friendCode = code;
+      if (this.visible && this.deviceName) await this.startVisible();
     },
     setRelay(url: string) {
       this.relay = url.trim();

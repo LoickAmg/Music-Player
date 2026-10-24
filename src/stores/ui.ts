@@ -8,6 +8,7 @@ export type Route =
   | { name: "favorites" }
   | { name: "voices" }
   | { name: "duplicates" }
+  | { name: "friends" }
   | { name: "album"; key: string }
   | { name: "playlist"; id: string }
   | { name: "search"; query: string }

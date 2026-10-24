@@ -7,12 +7,15 @@ import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
 import PlaylistCover from "./PlaylistCover.vue";
+import FriendAvatar from "./FriendAvatar.vue";
+import { useFriendsStore } from "@/stores/friends";
 
 const ui = useUiStore();
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
 const appearance = useAppearanceStore();
 const share = useShareStore();
+const friends = useFriendsStore();
 const searchInput = ref<HTMLInputElement | null>(null);
 
 defineExpose({ focusSearch: () => searchInput.value?.focus() });
@@ -74,6 +77,31 @@ function newPlaylist() {
       >
         <Icon name="mic" :size="17" class="ico" />
         Vocaux
+      </button>
+    </nav>
+
+    <nav class="section" aria-label="Proches">
+      <p class="section-title">
+        Proches
+        <span v-if="friends.incoming.length" class="badge" :title="`${friends.incoming.length} demande(s) reçue(s)`">{{ friends.incoming.length }}</span>
+      </p>
+      <button
+        v-for="x in friends.listening.slice(0, 4)"
+        :key="x.friend.code"
+        type="button"
+        class="nav-item friend"
+        :title="`${x.friend.name} : ${x.status.title} · ${x.status.artist}`"
+        @click="ui.go({ name: 'friends' })"
+      >
+        <FriendAvatar :name="x.friend.name" :src="x.friend.avatar" :size="22" :live="x.status.playing" />
+        <span class="friend-text">
+          <span class="friend-name">{{ x.friend.name }}</span>
+          <span class="friend-track">{{ x.status.playing ? "♪ " : "❚❚ " }}{{ x.status.title }}</span>
+        </span>
+      </button>
+      <button type="button" class="nav-item" :class="{ active: ui.route.name === 'friends' }" @click="ui.go({ name: 'friends' })">
+        <Icon name="user" :size="17" class="ico" />
+        {{ friends.enabled ? (friends.friends.length ? "Tous mes proches" : "Ajouter des proches") : "Voir ce qu'écoutent mes proches" }}
       </button>
     </nav>
 
@@ -175,6 +203,35 @@ function newPlaylist() {
   flex-direction: column;
   gap: 1px;
   margin-bottom: 18px;
+}
+.badge {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+}
+.friend {
+  gap: 9px;
+}
+.friend-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.2;
+}
+.friend-name {
+  font-size: 12.5px;
+}
+.friend-track {
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .playlists {
   flex: 1;

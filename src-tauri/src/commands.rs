@@ -960,8 +960,9 @@ pub fn pick_share_file(app: AppHandle) -> Option<String> {
 
 /// Rend l'appareil visible des voisins sous ce nom (relancé si le nom change).
 #[tauri::command(async)]
-pub fn nearby_start(app: AppHandle, name: String) -> Result<(), String> {
-    crate::nearby::start(&app, &name)
+pub fn nearby_start(app: AppHandle, name: String, code: Option<String>) -> Result<(), String> {
+    let code = code.filter(|c| c.len() == 9 && c.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '-'));
+    crate::nearby::start(&app, &name, code.as_deref())
 }
 
 #[tauri::command(async)]

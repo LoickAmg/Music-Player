@@ -126,7 +126,7 @@ export const api = {
   importShareBundle: (path: string) => invoke<ShareImportResult>("import_share_bundle", { path }),
 
   /** Visible des appareils voisins (même réseau) sous ce nom, prêt à recevoir. */
-  nearbyStart: (name: string) => invoke<void>("nearby_start", { name }),
+  nearbyStart: (name: string, code: string | null) => invoke<void>("nearby_start", { name, code }),
   nearbyStop: () => invoke<void>("nearby_stop"),
   nearbyScan: () => invoke<NearbyPeer[]>("nearby_scan"),
   nearbyAnswer: (id: string, accept: boolean) => invoke<void>("nearby_answer", { id, accept }),
