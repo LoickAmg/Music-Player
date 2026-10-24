@@ -170,6 +170,7 @@ pub fn run() {
             commands::get_initial_state,
             commands::save_session,
             commands::toggle_favorite,
+            commands::add_favorites,
             commands::remove_duplicates,
             commands::take_opened_file,
             commands::get_spectrum,

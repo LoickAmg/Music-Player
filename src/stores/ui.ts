@@ -9,6 +9,7 @@ export type Route =
   | { name: "voices" }
   | { name: "duplicates" }
   | { name: "friends" }
+  | { name: "spotify" }
   | { name: "album"; key: string }
   | { name: "playlist"; id: string }
   | { name: "search"; query: string }

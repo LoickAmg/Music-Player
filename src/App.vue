@@ -38,6 +38,7 @@ import FavoritesView from "@/views/FavoritesView.vue";
 import VoicesView from "@/views/VoicesView.vue";
 import DuplicatesView from "@/views/DuplicatesView.vue";
 import FriendsView from "@/views/FriendsView.vue";
+import SpotifyImportView from "@/views/SpotifyImportView.vue";
 import { useFriendsStore } from "@/stores/friends";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
@@ -395,6 +396,7 @@ onBeforeUnmount(() => {
               <VoicesView v-else-if="ui.route.name === 'voices'" />
               <DuplicatesView v-else-if="ui.route.name === 'duplicates'" />
               <FriendsView v-else-if="ui.route.name === 'friends'" />
+              <SpotifyImportView v-else-if="ui.route.name === 'spotify'" />
               <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
               <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />

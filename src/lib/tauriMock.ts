@@ -408,6 +408,11 @@ export function installTauriMock() {
       return now;
     },
     list_favorites: () => [...favorites],
+    add_favorites: ({ trackIds }: { trackIds: string[] }) => {
+      const before = favorites.size;
+      trackIds.forEach((id) => favorites.add(id));
+      return favorites.size - before;
+    },
     // Partage : pas de vrai fichier en mode démo (navigateur, hors webview Tauri).
     export_track: ({ trackId }) => {
       const t = library.find((x) => x.id === trackId);

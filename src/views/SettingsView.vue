@@ -139,6 +139,9 @@ const shortcuts = [
         <button type="button" class="pill pill-ghost" :disabled="!library.tracks.length" @click="ui.go({ name: 'duplicates' })">
           <Icon name="songs" :size="15" /> Doublons…
         </button>
+        <button type="button" class="pill pill-ghost" @click="ui.go({ name: 'spotify' })">
+          <Icon name="import" :size="15" /> Importer de Spotify…
+        </button>
       </div>
       <p v-if="library.error" class="error">{{ library.error }}</p>
       <label class="toggle">

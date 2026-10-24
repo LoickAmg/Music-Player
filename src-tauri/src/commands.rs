@@ -839,6 +839,17 @@ pub fn remove_duplicates(
     Ok(outcome)
 }
 
+/// Aime plusieurs morceaux d'un coup (import des titres likés) ; renvoie le nombre ajouté.
+#[tauri::command]
+pub fn add_favorites(state: State<AppState>, track_ids: Vec<String>) -> Result<usize, String> {
+    let mut store = state.favorites.lock().unwrap();
+    let added = track_ids.into_iter().filter(|id| store.track_ids.insert(id.clone())).count();
+    if added > 0 {
+        store.save(&state.favorites_path()).map_err(|e| e.to_string())?;
+    }
+    Ok(added)
+}
+
 #[tauri::command]
 pub fn list_favorites(state: State<AppState>) -> Vec<String> {
     state.favorites.lock().unwrap().track_ids.iter().cloned().collect()
