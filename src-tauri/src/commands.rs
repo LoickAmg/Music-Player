@@ -787,6 +787,12 @@ pub fn toggle_favorite(state: State<AppState>, track_id: String) -> Result<bool,
     Ok(now)
 }
 
+/// Visualiseur : spectre du son joué à l'instant (32 bandes, 0 à 255 ; vide en pause).
+#[tauri::command]
+pub fn get_spectrum() -> Vec<u8> {
+    crate::spectrum::bands()
+}
+
 /// Fichier audio reçu au lancement (« Ouvrir avec Music Player ») ; une seule fois.
 #[tauri::command]
 pub fn take_opened_file() -> Option<String> {

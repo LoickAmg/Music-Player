@@ -225,7 +225,7 @@ button:disabled {
   color: var(--text-2);
 }
 .danger {
-  color: #ff6b7d;
+  color: var(--danger);
 }
 hr {
   border: 0;

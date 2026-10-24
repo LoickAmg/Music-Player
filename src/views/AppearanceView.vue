@@ -604,7 +604,7 @@ h2 {
   font-weight: 600;
 }
 .danger {
-  color: #ff6b7d;
+  color: var(--danger);
 }
 .field {
   display: flex;

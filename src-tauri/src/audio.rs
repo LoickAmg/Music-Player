@@ -249,7 +249,7 @@ impl Engine {
                     let player = Player::connect_new(&self.mixer);
                     player.set_volume(volume);
                     self.volume = volume;
-                    player.append(EqSource::new(decoder, self.eq_gains.clone()));
+                    player.append(crate::spectrum::Tap::new(EqSource::new(decoder, self.eq_gains.clone())));
                     self.player = Some(player);
                     let mut st = status.lock().unwrap();
                     st.current_path = Some(path);

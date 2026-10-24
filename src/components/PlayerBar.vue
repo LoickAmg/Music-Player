@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import { useFrame, useNow } from "@/lib/clock";
+import { useNow } from "@/lib/clock";
 import { formatDuration } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
 import { useAppearanceStore } from "@/stores/appearance";
@@ -8,6 +8,7 @@ import { useUiStore } from "@/stores/ui";
 import { albumKey } from "@/stores/library";
 import Artwork from "./Artwork.vue";
 import Icon from "./Icon.vue";
+import SeekBar from "./SeekBar.vue";
 
 const player = usePlayerStore();
 const ui = useUiStore();
@@ -16,36 +17,10 @@ const now = useNow();
 
 const track = computed(() => player.currentTrack);
 const duration = computed(() => track.value?.duration_secs ?? 0);
+// Position visée pendant qu'on fait glisser la barre (affichée à la place de la position).
 const dragging = ref<number | null>(null);
 // À la seconde près : le texte ne change qu'une fois par seconde (pas de rendu à chaque image).
 const position = computed(() => Math.floor(dragging.value ?? player.positionAt(now.value)));
-// La barre, elle, avance à chaque image, mise à jour directement.
-const fill = ref<HTMLElement | null>(null);
-useFrame((t) => {
-  if (!fill.value) return;
-  const pos = dragging.value ?? player.positionAt(t);
-  fill.value.style.transform = `scaleX(${duration.value > 0 ? Math.min(1, pos / duration.value) : 0})`;
-});
-
-const bar = ref<HTMLElement | null>(null);
-function ratioFromEvent(e: PointerEvent) {
-  const rect = bar.value!.getBoundingClientRect();
-  return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-}
-function startSeek(e: PointerEvent) {
-  if (!track.value || !duration.value) return;
-  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  dragging.value = ratioFromEvent(e) * duration.value;
-}
-function moveSeek(e: PointerEvent) {
-  if (dragging.value !== null) dragging.value = ratioFromEvent(e) * duration.value;
-}
-async function endSeek() {
-  if (dragging.value === null) return;
-  const target = dragging.value;
-  await player.seek(target);
-  dragging.value = null;
-}
 
 const lastVolume = ref(1);
 function toggleMute() {
@@ -100,24 +75,7 @@ function toggleMute() {
             <span>{{ formatDuration(position) }}</span>
             <span>-{{ formatDuration(Math.max(0, duration - position)) }}</span>
           </div>
-          <div
-            ref="bar"
-            class="progress"
-            role="slider"
-            aria-label="Position dans le morceau"
-            :aria-valuemin="0"
-            :aria-valuemax="Math.round(duration)"
-            :aria-valuenow="Math.round(position)"
-            tabindex="0"
-            @pointerdown="startSeek"
-            @pointermove="moveSeek"
-            @pointerup="endSeek"
-            @pointercancel="dragging = null"
-            @keydown.right.prevent="player.seek(Math.min(duration, position + 5))"
-            @keydown.left.prevent="player.seek(Math.max(0, position - 5))"
-          >
-            <div ref="fill" class="fill" />
-          </div>
+          <SeekBar variant="lcd" @dragging="dragging = $event" />
         </div>
       </template>
       <div v-else class="lcd-idle"><Icon name="note" :size="22" /></div>
@@ -296,32 +254,6 @@ function toggleMute() {
 }
 .lcd:hover .times {
   opacity: 1;
-}
-.progress {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 3px;
-  background: rgba(var(--fg-rgb), 0.1);
-  cursor: pointer;
-  outline: none;
-}
-.progress::before {
-  content: "";
-  position: absolute;
-  inset: -6px 0 0;
-}
-.lcd:hover .progress {
-  height: 5px;
-}
-.fill {
-  height: 100%;
-  background: var(--text-2);
-  transform-origin: left;
-}
-.lcd:hover .fill {
-  background: var(--accent);
 }
 .right {
   display: flex;

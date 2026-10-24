@@ -111,6 +111,8 @@ export const api = {
   /** Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état. */
   toggleFavorite: (trackId: string) => invoke<boolean>("toggle_favorite", { trackId }),
   listFavorites: () => invoke<string[]>("list_favorites"),
+  /** Visualiseur : spectre du son joué (32 bandes, 0 à 255 ; vide en pause). */
+  getSpectrum: () => invoke<number[]>("get_spectrum"),
   /** Fichier audio reçu au lancement (« Ouvrir avec »), une seule fois. */
   takeOpenedFile: () => invoke<string | null>("take_opened_file"),
   /** Windows : inscrit l'appli comme lecteur possible et ouvre « Applications par défaut ». */

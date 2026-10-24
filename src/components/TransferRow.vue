@@ -106,13 +106,13 @@ const status = computed(() => {
   color: var(--accent);
 }
 .fini .ico {
-  background: rgba(60, 200, 120, 0.18);
-  color: #3cc878;
+  background: var(--success-soft);
+  color: var(--success);
 }
 .erreur .ico,
 .refuse .ico {
-  background: rgba(255, 107, 125, 0.16);
-  color: #ff6b7d;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 .body {
   flex: 1;
@@ -137,7 +137,7 @@ const status = computed(() => {
   font-variant-numeric: tabular-nums;
 }
 .erreur .status {
-  color: #ff8b98;
+  color: var(--danger-text);
 }
 .bar {
   height: 4px;

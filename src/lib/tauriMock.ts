@@ -439,6 +439,17 @@ export function installTauriMock() {
       return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2" };
     },
     transfer_cancel: () => undefined,
+    // Visualiseur : spectre de démonstration qui « bat » à 120 BPM pendant la lecture.
+    get_spectrum: () => {
+      if (isPaused) return [];
+      const t = performance.now() / 1000;
+      const beat = Math.pow(Math.max(0, Math.sin(t * Math.PI * 2)), 6);
+      return Array.from({ length: 32 }, (_, i) => {
+        const shape = 0.85 - i / 48 + 0.15 * Math.sin(t * 3 + i * 0.7);
+        const kick = i < 6 ? beat * 0.35 : beat * 0.1;
+        return Math.round(Math.max(0, Math.min(1, shape * 0.75 + kick + Math.random() * 0.08)) * 255);
+      });
+    },
     remove_duplicates: ({ groups }: { groups: { keep: string; remove: string[] }[] }) => {
       const gone = new Set(groups.flatMap((g) => g.remove.filter((id) => id !== g.keep)));
       for (let i = library.length - 1; i >= 0; i--) if (gone.has(library[i].id)) library.splice(i, 1);

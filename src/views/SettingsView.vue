@@ -369,7 +369,7 @@ h2 :deep(svg) {
   opacity: 0.45;
 }
 .error {
-  color: #ff6b7d;
+  color: var(--danger);
 }
 .warn {
   color: #ffb454;
@@ -418,17 +418,6 @@ h2 :deep(svg) {
 .db {
   font-variant-numeric: tabular-nums;
   color: var(--text);
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13.5px;
-}
-.toggle input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
 }
 .small {
   font-size: 12.5px;

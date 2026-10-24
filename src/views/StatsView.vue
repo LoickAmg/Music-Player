@@ -266,7 +266,7 @@ function playTop() {
   color: #4fd18b;
 }
 .change.down {
-  background: rgba(255, 107, 125, 0.14);
+  background: var(--danger-soft);
   color: #ff8a98;
 }
 .figures {

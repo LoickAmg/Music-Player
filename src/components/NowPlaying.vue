@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { coverUrl } from "@/lib/covers";
-import { useFrame, useNow } from "@/lib/clock";
+import { useNow } from "@/lib/clock";
 import { keepScreenOn } from "@/lib/androidMedia";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useLyricsStore } from "@/stores/lyrics";
@@ -11,6 +11,11 @@ import { useUiStore } from "@/stores/ui";
 import Artwork from "./Artwork.vue";
 import Icon from "./Icon.vue";
 import LyricsView from "./LyricsView.vue";
+import CdCase from "./CdCase.vue";
+import SeekBar from "./SeekBar.vue";
+import VinylArt from "./VinylArt.vue";
+import Visualizer from "./Visualizer.vue";
+import { type ArtStyle, useVisualsStore } from "@/stores/visuals";
 
 const player = usePlayerStore();
 const ui = useUiStore();
@@ -46,41 +51,24 @@ onBeforeUnmount(() => keepScreenOn(false));
 const hue = computed(() => hueFor(track.value?.album || track.value?.title || ""));
 
 const duration = computed(() => track.value?.duration_secs ?? 0);
-// À la seconde près pour le texte ; la barre avance à chaque image, mise à jour directement.
-// Position visée pendant qu'on fait glisser la barre (null sinon).
+// À la seconde près pour le texte ; position visée pendant qu'on fait glisser la barre.
 const dragging = ref<number | null>(null);
 const position = computed(() => Math.floor(dragging.value ?? player.positionAt(now.value)));
-const fill = ref<HTMLElement | null>(null);
-function paintFill(pos: number) {
-  if (fill.value) fill.value.style.transform = `scaleX(${duration.value ? Math.min(1, pos / duration.value) : 0})`;
-}
-useFrame((t) => {
-  if (dragging.value === null) paintFill(player.positionAt(t));
-});
 
-// Barre de progression : appui ou glissement du doigt (grande zone tactile autour de la
-// barre fine) ; le saut se fait au relâchement.
-const bar = ref<HTMLElement | null>(null);
-function positionFromEvent(e: PointerEvent) {
-  const rect = bar.value!.getBoundingClientRect();
-  return Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width)) * duration.value;
+// Pochette : classique, vinyle ou boîtier de CD (par défaut : vinyle sur téléphone, CD sur
+// grand écran), et visualiseur du son.
+const visuals = useVisualsStore();
+const artStyle = computed(() => visuals.resolved(narrow.value));
+const STYLE_LABEL: Record<Exclude<ArtStyle, "auto">, string> = { cover: "Pochette", vinyl: "Vinyle", cd: "Boîtier de CD" };
+function cycleArt() {
+  const order: Exclude<ArtStyle, "auto">[] = ["cover", "vinyl", "cd"];
+  const next = order[(order.indexOf(artStyle.value) + 1) % order.length];
+  visuals.setArtStyle(next);
+  ui.notify(`Affichage : ${STYLE_LABEL[next]}`);
 }
-function startSeek(e: PointerEvent) {
-  if (!duration.value) return;
-  (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-  dragging.value = positionFromEvent(e);
-  paintFill(dragging.value);
-}
-function moveSeek(e: PointerEvent) {
-  if (dragging.value === null) return;
-  dragging.value = positionFromEvent(e);
-  paintFill(dragging.value);
-}
-async function endSeek() {
-  if (dragging.value === null) return;
-  const target = dragging.value;
-  await player.seek(target);
-  dragging.value = null;
+function toggleVisualizer() {
+  visuals.setVisualizer(!visuals.visualizer);
+  ui.notify(visuals.visualizer ? "Visualiseur affiché" : "Visualiseur masqué");
 }
 
 const REPEAT_LABEL = { off: "Répéter : non", all: "Répéter : toute la liste", one: "Répéter : ce morceau" } as const;
@@ -108,15 +96,37 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       <span class="aura a3" />
       <div class="veil" />
       <div class="grain" />
+      <Visualizer v-if="visuals.visualizer && track && !player.isPaused" class="floor-viz" shape="bars" />
     </div>
 
     <button type="button" class="icon-btn collapse" aria-label="Réduire" @click="ui.closeNowPlaying()">
       <Icon name="collapse" :size="18" />
     </button>
+    <div class="view-tools">
+      <button type="button" class="icon-btn" :title="`Affichage : ${STYLE_LABEL[artStyle]} (changer)`" aria-label="Changer l'affichage de la pochette" @click="cycleArt">
+        <Icon :name="artStyle === 'cover' ? 'image' : 'album'" :size="18" />
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        :class="{ on: visuals.visualizer }"
+        :title="visuals.visualizer ? 'Masquer le visualiseur' : 'Afficher le visualiseur'"
+        :aria-pressed="visuals.visualizer"
+        aria-label="Visualiseur"
+        @click="toggleVisualizer"
+      >
+        <Icon name="eq" :size="18" />
+      </button>
+    </div>
 
     <div v-if="track" class="layout" :class="{ 'm-lyrics': narrow && showLyrics }">
       <div class="left">
-        <Artwork :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
+        <div class="art-stage" :class="[artStyle, { paused: player.isPaused }]">
+          <Visualizer v-if="visuals.visualizer && artStyle === 'vinyl' && !player.isPaused" class="ring-viz" shape="ring" :inner="0.33" />
+          <VinylArt v-if="artStyle === 'vinyl'" :track="track" :playing="!player.isPaused" />
+          <CdCase v-else-if="artStyle === 'cd'" :track="track" :playing="!player.isPaused" />
+          <Artwork v-else :track="track" :radius="12" eager class="hero-art" :class="{ paused: player.isPaused }" />
+        </div>
         <div class="meta">
           <div class="meta-text">
             <h2>{{ track.title }}</h2>
@@ -133,23 +143,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <Icon name="heart" :size="19" :style="favorites.isFavorite(track.id) ? '--icon-fill: currentColor' : undefined" />
           </button>
         </div>
-        <div
-          class="seek"
-          :class="{ dragging: dragging !== null }"
-          role="slider"
-          aria-label="Position dans le morceau"
-          :aria-valuemin="0"
-          :aria-valuemax="Math.round(duration)"
-          :aria-valuenow="position"
-          @pointerdown="startSeek"
-          @pointermove="moveSeek"
-          @pointerup="endSeek"
-          @pointercancel="dragging = null"
-        >
-          <div ref="bar" class="bar">
-            <div ref="fill" class="bar-fill" />
-          </div>
-        </div>
+        <SeekBar variant="hero" @dragging="dragging = $event" />
         <div class="times">
           <span>{{ formatDuration(position) }}</span>
           <span>-{{ formatDuration(Math.max(0, duration - position)) }}</span>
@@ -359,6 +353,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   gap: 4vw;
   padding: var(--safe-top) calc(6vw + var(--safe-right)) var(--safe-bottom) calc(6vw + var(--safe-left));
 }
+.layout:has(.art-stage.cd) .left {
+  width: min(50vh, 36vw);
+}
 .left {
   align-self: center;
   justify-self: center;
@@ -402,29 +399,41 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Zone tactile de 34 px de haut autour d'une barre fine : facile à attraper au doigt. */
-.seek {
-  padding: 14px 0;
-  margin: -14px 0;
-  cursor: pointer;
-  touch-action: none;
-  -webkit-tap-highlight-color: transparent;
-}
-.bar {
+.art-stage {
   position: relative;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.2);
-  overflow: hidden;
-  transition: transform 0.15s ease;
+  width: 100%;
 }
-.seek.dragging .bar {
-  transform: scaleY(1.6);
+.ring-viz {
+  position: absolute;
+  inset: -16%;
+  width: 132%;
+  height: 132%;
+  --viz-color: color-mix(in srgb, var(--amb-glow) 70%, #fff);
 }
-.bar-fill {
-  height: 100%;
-  background: color-mix(in srgb, var(--amb-glow) 45%, #fff);
-  transform-origin: left;
+.floor-viz {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24vh;
+  opacity: 0.45;
+  --viz-color: color-mix(in srgb, var(--amb-glow) 75%, #fff);
+  mask: linear-gradient(transparent, #000 60%);
+}
+.view-tools {
+  position: absolute;
+  top: calc(var(--safe-top) + 14px);
+  left: calc(var(--safe-left) + 54px);
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+.view-tools .icon-btn {
+  color: rgba(255, 255, 255, 0.75);
+}
+.view-tools .icon-btn.on {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
 }
 .times {
   display: flex;
@@ -572,10 +581,22 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
     font-size: 14px;
     color: rgba(255, 255, 255, 0.65);
   }
-  .m-lyrics .bar {
+  .m-lyrics .seek {
     margin-top: 4px;
   }
-  .collapse {
+  .art-stage.vinyl,
+  .art-stage.cd {
+    width: min(100%, 44vh);
+    margin: 0 auto;
+  }
+  .m-lyrics .art-stage {
+    display: none;
+  }
+  .floor-viz {
+    height: 16vh;
+  }
+  .collapse,
+  .view-tools {
     top: calc(var(--safe-top) + 12px);
   }
   /* Fond allégé pour les téléphones modestes : un flou calculé une fois (plus d'image

@@ -343,12 +343,6 @@ function relation(code: string): "ami" | "attente" | null {
   letter-spacing: 0.08em;
   font-variant-numeric: tabular-nums;
 }
-.toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  font-size: 13.5px;
-}
 .block {
   margin-bottom: 28px;
 }
@@ -467,13 +461,13 @@ function relation(code: string): "ami" | "attente" | null {
   font-size: 13px;
 }
 .link.danger {
-  color: #ff6b7d;
+  color: var(--danger);
 }
 .small {
   font-size: 12px;
 }
 .error {
-  color: #ff8b98;
+  color: var(--danger-text);
   font-size: 13px;
 }
 .footer {

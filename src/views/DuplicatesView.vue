@@ -179,10 +179,6 @@ async function removeAll() {
   display: flex;
   gap: 8px;
 }
-.pill-danger {
-  background: #e5484d;
-  color: #fff;
-}
 .group {
   margin-bottom: 14px;
   padding: 12px;
@@ -259,8 +255,8 @@ async function removeAll() {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 999px;
-  background: rgba(60, 200, 120, 0.18);
-  color: #3cc878;
+  background: var(--success-soft);
+  color: var(--success);
   font-size: 11px;
 }
 .verdict {

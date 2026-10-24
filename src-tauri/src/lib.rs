@@ -16,6 +16,7 @@ pub mod queue;
 pub mod remote;
 pub mod session;
 pub mod sharing;
+pub mod spectrum;
 pub mod transfer;
 pub mod shortcut_icon;
 pub mod state;
@@ -171,6 +172,7 @@ pub fn run() {
             commands::toggle_favorite,
             commands::remove_duplicates,
             commands::take_opened_file,
+            commands::get_spectrum,
             commands::make_default_player,
             commands::list_favorites,
             commands::export_track,
