@@ -37,6 +37,10 @@ const CHUNK_MAX = 1024 * 1024;
 const MAX_CHUNKS = 20;
 const TRIES_PER_HOUR = 10;
 
+// Avis : types (comme le formulaire de l'appli) et taille d'un envoi (3 captures réduites).
+const AVIS_KINDS = ["bug", "suggestion", "idee", "avis", "autre"];
+const AVIS_MAX_BODY = 5 * 1024 * 1024;
+
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -157,6 +161,24 @@ export default {
             }),
         );
         return json({ amis: results });
+      }
+
+      // « Un avis ? » : dépôt public, lecture réservée au code administrateur (AVIS_ADMIN).
+      const avis = url.pathname.match(/^\/v1\/avis(?:\/([a-z]+))?$/);
+      if (avis && request.method === "POST") {
+        const stub = env.AVIS.get(env.AVIS.idFromName("avis"));
+        if (avis[1]) {
+          // Administration : le code est vérifié ici, l'objet ne voit que le résultat.
+          const body = await readJson(request);
+          // Seule l'empreinte du code est connue du relais (wrangler.toml, AVIS_ADMIN_SHA256).
+          const ok = !!env.AVIS_ADMIN_SHA256 && typeof body.admin === "string" && (await sha256(body.admin.trim())) === env.AVIS_ADMIN_SHA256;
+          if (!ok) return json({ erreur: "Code administrateur incorrect" }, 403);
+          return stub.fetch(new Request(`https://avis/${avis[1]}`, { method: "POST", body: JSON.stringify(body) }));
+        }
+        const visitor = await sha256(`${request.headers.get("cf-connecting-ip") ?? "?"}|avis`);
+        const text = await request.text();
+        if (text.length > AVIS_MAX_BODY) return json({ erreur: "Captures trop lourdes" }, 413);
+        return stub.fetch(new Request(`https://avis/deposer?v=${visitor}`, { method: "POST", body: text }));
       }
 
       if (url.pathname === "/v1/zone") {
@@ -415,6 +437,106 @@ export class Profil {
 }
 
 /** Annuaire d'une ville : profils qui ont choisi d'y être visibles (10 minutes par annonce). */
+/** Avis des utilisateurs (« Un avis ? ») : gardés ici, lus dans l'appli par l'administrateur. */
+export class Avis {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const storage = this.state.storage;
+    const index = (await storage.get("index")) ?? [];
+    const action = url.pathname.slice(1);
+
+    if (action === "deposer") {
+      // Limite d'envois : 10 avis par heure et par adresse (empreinte, jamais l'adresse elle-même).
+      const visitor = url.searchParams.get("v") ?? "?";
+      const now = Date.now();
+      const rate = (await storage.get("envois")) ?? {};
+      for (const [k, v] of Object.entries(rate)) if (now - v.since > 3600_000) delete rate[k];
+      const mine = rate[visitor] ?? { n: 0, since: now };
+      if (mine.n >= 10) return json({ erreur: "Merci pour tous ces retours ! Réessayez dans une heure." }, 429);
+      let body;
+      try {
+        body = JSON.parse(await request.text());
+      } catch {
+        return json({ erreur: "Requête invalide" }, 400);
+      }
+      const kind = AVIS_KINDS.includes(body.kind) ? body.kind : null;
+      const message = clean(String(body.message ?? "").replace(/\r\n/g, "\n"), 3000);
+      if (!kind) return json({ erreur: "Choisissez le type de retour.", field: "kind" }, 400);
+      if (message.length < 5) return json({ erreur: "Écrivez au moins quelques mots.", field: "message" }, 400);
+      const contact = clean(body.contact, 160).toLowerCase();
+      if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+        return json({ erreur: "Adresse e-mail invalide (ou laissez le champ vide).", field: "contact" }, 400);
+      }
+      const images = Array.isArray(body.images) ? body.images.slice(0, 3) : [];
+      for (const img of images) {
+        if (!["image/jpeg", "image/png", "image/webp"].includes(img?.type) || typeof img?.data !== "string" || img.data.length > 1_500_000 || !/^[A-Za-z0-9+/=]+$/.test(img.data)) {
+          return json({ erreur: "Captures refusées : 3 images PNG, JPEG ou WebP au plus." }, 400);
+        }
+      }
+      const id = crypto.randomUUID();
+      for (const [n, img] of images.entries()) await storage.put(`img:${id}:${n}`, `data:${img.type};base64,${img.data}`);
+      index.push({
+        id,
+        kind,
+        message,
+        name: clean(body.name, 60),
+        contact,
+        screen: clean(body.screen, 40),
+        version: clean(body.version, 20),
+        platform: clean(body.platform, 40),
+        images: images.length,
+        statut: "nouveau",
+        at: now,
+      });
+      // 500 avis au plus : les plus anciens (et leurs captures) partent.
+      while (index.length > 500) {
+        const old = index.shift();
+        for (let n = 0; n < old.images; n++) await storage.delete(`img:${old.id}:${n}`);
+      }
+      await storage.put("index", index);
+      rate[visitor] = { n: mine.n + 1, since: mine.since };
+      await storage.put("envois", rate);
+      return json({ ok: true, message: "Votre retour est bien arrivé : il sera lu avec attention." });
+    }
+
+    const body = JSON.parse(await request.text());
+    switch (action) {
+      case "liste":
+        return json({ avis: [...index].reverse() });
+      // Nombre d'avis nouveaux (notifications) et date du plus récent.
+      case "nouveaux": {
+        const fresh = index.filter((a) => a.statut === "nouveau");
+        return json({ nouveaux: fresh.length, dernier: fresh.at(-1) ?? null });
+      }
+      case "image": {
+        const data = await storage.get(`img:${body.id}:${Number(body.n)}`);
+        return data ? json({ data }) : json({ erreur: "Capture introuvable" }, 404);
+      }
+      case "statut": {
+        const item = index.find((a) => a.id === body.id);
+        if (!item || !["nouveau", "lu", "traite"].includes(body.statut)) return json({ erreur: "Avis introuvable" }, 404);
+        item.statut = body.statut;
+        await storage.put("index", index);
+        return json({ ok: true });
+      }
+      case "supprimer": {
+        const i = index.findIndex((a) => a.id === body.id);
+        if (i < 0) return json({ erreur: "Avis introuvable" }, 404);
+        const [old] = index.splice(i, 1);
+        for (let n = 0; n < old.images; n++) await storage.delete(`img:${old.id}:${n}`);
+        await storage.put("index", index);
+        return json({ ok: true });
+      }
+      default:
+        return json({ erreur: "Introuvable" }, 404);
+    }
+  }
+}
+
 export class Zone {
   constructor(state) {
     this.state = state;
