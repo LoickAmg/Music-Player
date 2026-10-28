@@ -161,6 +161,7 @@ if (!manifest.includes(".UpdateCheckJob")) {
   manifest = manifest.replace(
     /<\/application>/,
     `    <service android:name="${pkg}.UpdateCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <service android:name="${pkg}.AvisCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <receiver android:name="${pkg}.UpdateNowReceiver" android:exported="false" />
         <receiver android:name="${pkg}.UpdateDownloadedReceiver" android:exported="true">
             <intent-filter>
@@ -323,6 +324,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     webView.addJavascriptInterface(LookBridge(applicationContext), "AndroidLook")
     webView.addJavascriptInterface(ShareBridge(applicationContext), "AndroidShare")
     webView.addJavascriptInterface(DeleteBridge(this), "AndroidFiles")
+    webView.addJavascriptInterface(AvisBridge(applicationContext), "AndroidAvis")
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -1484,6 +1486,125 @@ class DeleteBridge(private val activity: Activity) {
       if (cursor.moveToFirst()) return ContentUris.withAppendedId(collection, cursor.getLong(0))
     }
     return null
+  }
+}
+`,
+);
+
+// 3 quinquies. Avis reçus (administrateur) : vérification en arrière-plan toutes les heures
+// environ, notification d'un nouvel avis même appli fermée (même modèle que UpdateCheckJob).
+fs.writeFileSync(
+  path.join(kotlinDir, "AvisWatch.kt"),
+  `package ${pkg}
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
+import android.content.ComponentName
+import android.content.Context
+import android.webkit.JavascriptInterface
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+object AvisWatch {
+  private const val PREFS = "music-player-avis"
+  private const val CHANNEL = "avis"
+  private const val JOB_ID = 4243
+  private const val NOTIFY = 31
+
+  fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  fun watch(context: Context, base: String, code: String, notified: Long) {
+    prefs(context).edit().putString("base", base).putString("code", code).putLong("notified", notified).apply()
+    val scheduler = context.getSystemService(JobScheduler::class.java)
+    if (scheduler.getPendingJob(JOB_ID) != null) return
+    val job = JobInfo.Builder(JOB_ID, ComponentName(context, AvisCheckJob::class.java))
+      .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+      .setPeriodic(60 * 60 * 1000L)
+      .setPersisted(true)
+      .build()
+    try {
+      scheduler.schedule(job)
+    } catch (e: Exception) {
+      // planification refusée : la vérification appli ouverte suffit
+    }
+  }
+
+  fun stop(context: Context) {
+    prefs(context).edit().clear().apply()
+    context.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+  }
+
+  /** Nouveaux avis depuis la dernière notification : notification du système. */
+  fun check(context: Context) {
+    val prefs = prefs(context)
+    val base = prefs.getString("base", null) ?: return
+    val code = prefs.getString("code", null) ?: return
+    val connection = URL(base + "/v1/avis/nouveaux").openConnection() as HttpURLConnection
+    connection.requestMethod = "POST"
+    connection.doOutput = true
+    connection.connectTimeout = 15000
+    connection.readTimeout = 15000
+    connection.outputStream.use { it.write(JSONObject().put("admin", code).toString().toByteArray()) }
+    if (connection.responseCode != 200) return
+    val body = JSONObject(connection.inputStream.bufferedReader().readText())
+    val count = body.optInt("nouveaux", 0)
+    val last = body.optJSONObject("dernier") ?: return
+    val at = last.optLong("at", 0L)
+    if (at <= prefs.getLong("notified", 0L)) return
+    prefs.edit().putLong("notified", at).apply()
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (manager.getNotificationChannel(CHANNEL) == null) {
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Avis reçus", NotificationManager.IMPORTANCE_DEFAULT))
+    }
+    val open = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+      PendingIntent.getActivity(context, 5, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val message = last.optString("message").let { if (it.length > 90) it.take(90) + "…" else it }
+    val notification = Notification.Builder(context, CHANNEL)
+      .setSmallIcon(android.R.drawable.ic_dialog_email)
+      .setContentTitle(if (count > 1) "$count nouveaux avis sur Music Player" else "Nouvel avis sur Music Player")
+      .setContentText(message)
+      .setStyle(Notification.BigTextStyle().bigText(message))
+      .setContentIntent(open)
+      .setAutoCancel(true)
+      .build()
+    manager.notify(NOTIFY, notification)
+  }
+}
+
+class AvisCheckJob : JobService() {
+  override fun onStartJob(params: JobParameters): Boolean {
+    Thread {
+      try {
+        AvisWatch.check(this)
+      } catch (e: Exception) {
+        // hors ligne : prochaine vérification plus tard
+      }
+      jobFinished(params, false)
+    }.start()
+    return true
+  }
+
+  override fun onStopJob(params: JobParameters): Boolean = true
+}
+
+/** window.AndroidAvis : la page transmet l'accès administrateur (et la dernière notification). */
+class AvisBridge(private val context: Context) {
+  @JavascriptInterface
+  fun watch(base: String, code: String, notified: Double) {
+    AvisWatch.watch(context, base, code, notified.toLong())
+  }
+
+  @JavascriptInterface
+  fun stop() {
+    AvisWatch.stop(context)
   }
 }
 `,

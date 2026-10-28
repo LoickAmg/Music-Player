@@ -64,6 +64,21 @@ export interface Word {
   at: number;
 }
 
+/** Avis reçu (« Un avis ? »), lu par l'administrateur. */
+export interface AvisItem {
+  id: string;
+  kind: "bug" | "suggestion" | "idee" | "avis" | "autre";
+  message: string;
+  name: string;
+  contact: string;
+  screen: string;
+  version: string;
+  platform: string;
+  images: number;
+  statut: "nouveau" | "lu" | "traite";
+  at: number;
+}
+
 export class RelayError extends Error {
   constructor(
     message: string,
@@ -128,6 +143,15 @@ export const relay = {
     call<{ ok: true }>(base, `/v1/profil/${code}/envoyer`, { cle, n, total, data }),
   downloadChunk: (base: string, code: string, cle: string, n: number) =>
     call<{ total: number; at: number; data: string }>(base, `/v1/profil/${code}/recuperer`, { cle, n }),
+  /** Avis : dépôt (public) ; le reste avec le code administrateur. */
+  sendAvis: (base: string, avis: Record<string, unknown>) => call<{ ok: true; message: string }>(base, "/v1/avis", avis),
+  avisCount: (base: string, admin: string) =>
+    call<{ nouveaux: number; dernier: AvisItem | null }>(base, "/v1/avis/nouveaux", { admin }),
+  avisList: (base: string, admin: string) => call<{ avis: AvisItem[] }>(base, "/v1/avis/liste", { admin }),
+  avisImage: (base: string, admin: string, id: string, n: number) => call<{ data: string }>(base, "/v1/avis/image", { admin, id, n }),
+  avisStatus: (base: string, admin: string, id: string, statut: AvisItem["statut"]) =>
+    call<{ ok: true }>(base, "/v1/avis/statut", { admin, id, statut }),
+  avisDelete: (base: string, admin: string, id: string) => call<{ ok: true }>(base, "/v1/avis/supprimer", { admin, id }),
   zone: (base: string) => call<{ zone: string | null; profils: Card[] }>(base, "/v1/zone"),
   announce: (base: string, code: string, secret: string, visible: boolean) =>
     call<{ zone: string | null }>(base, "/v1/zone", { code, secret, visible }),

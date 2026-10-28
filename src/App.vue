@@ -41,6 +41,8 @@ import VoicesView from "@/views/VoicesView.vue";
 import DuplicatesView from "@/views/DuplicatesView.vue";
 import FriendsView from "@/views/FriendsView.vue";
 import SpotifyImportView from "@/views/SpotifyImportView.vue";
+import AvisView from "@/views/AvisView.vue";
+import { useAvisStore } from "@/stores/avis";
 import { useFriendsStore } from "@/stores/friends";
 import { useAccountStore } from "@/stores/account";
 import PlaylistView from "@/views/PlaylistView.vue";
@@ -300,6 +302,8 @@ onMounted(async () => {
   friends.start();
   // Compte : sauvegarde en ligne une fois par jour (quelques secondes après l'ouverture).
   setTimeout(() => void useAccountStore().autoUpload(), 20_000);
+  // Administrateur : nouveaux avis vérifiés toutes les 3 minutes (notification du système).
+  useAvisStore().start();
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.
   try {
     offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));
@@ -417,6 +421,7 @@ onBeforeUnmount(() => {
               <DuplicatesView v-else-if="ui.route.name === 'duplicates'" />
               <FriendsView v-else-if="ui.route.name === 'friends'" />
               <SpotifyImportView v-else-if="ui.route.name === 'spotify'" />
+              <AvisView v-else-if="ui.route.name === 'avis'" />
               <AlbumDetail v-else-if="ui.route.name === 'album'" :key="ui.route.key" :album-key="ui.route.key" />
               <PlaylistView v-else-if="ui.route.name === 'playlist'" :key="ui.route.id" :id="ui.route.id" />
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />

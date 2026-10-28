@@ -52,6 +52,8 @@ declare global {
     AndroidLook?: AndroidLookBridge;
     AndroidShare?: AndroidShareBridge;
     AndroidFiles?: AndroidFilesBridge;
+    /** Avis reçus : vérification en arrière-plan par Android (administrateur). */
+    AndroidAvis?: { watch(base: string, code: string, notified: number): void; stop(): void };
     __mpDeleted?: (ok: boolean) => void;
     __mpSystemDark?: (dark: boolean) => void;
     AndroidMedia?: AndroidMediaBridge;

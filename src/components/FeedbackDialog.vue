@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { loadImage } from "@/lib/imageCrop";
+import { relay, relayBase } from "@/lib/friendsApi";
+import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
 
-// « Un avis ? » : problème, suggestion, idée… envoyé au développeur par e-mail (même chemin
-// que le formulaire de Boème, voir FEEDBACK_URL), avec jusqu'à 3 captures d'écran.
-const FEEDBACK_URL = import.meta.env.VITE_FEEDBACK_URL || "https://boeme.vercel.app/api/retours";
+// « Un avis ? » : problème, suggestion, idée… gardé par le relais de l'appli (avec jusqu'à 3
+// captures d'écran) et lu par le développeur dans « Avis reçus », qui en est notifié.
 const KINDS = [
   { id: "bug", label: "Un problème", hint: "Quelque chose ne marche pas" },
   { id: "suggestion", label: "Suggestion", hint: "Une amélioration, un réglage" },
@@ -18,6 +19,7 @@ const MAX = 3000;
 const MAX_IMAGES = 3;
 
 const ui = useUiStore();
+const share = useShareStore();
 const kind = ref<string>("bug");
 const message = ref("");
 const name = ref("");
@@ -92,32 +94,28 @@ async function send() {
     error.value = "Écrivez au moins quelques mots.";
     return;
   }
+  const base = share.relayInUse ? relayBase(share.relayInUse) : null;
+  if (!base) {
+    error.value = "Aucun relais configuré (Réglages → Partage).";
+    return;
+  }
   sending.value = true;
   try {
-    const response = await fetch(FEEDBACK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind: kind.value,
-        message: message.value,
-        name: name.value,
-        contact: contact.value,
-        screen: screen.value,
-        version: await appVersion(),
-        platform: platform.value,
-        images: images.value.map(({ type, data }) => ({ type, data })),
-      }),
+    await relay.sendAvis(base, {
+      kind: kind.value,
+      message: message.value,
+      name: name.value,
+      contact: contact.value,
+      screen: screen.value,
+      version: await appVersion(),
+      platform: platform.value,
+      images: images.value.map(({ type, data }) => ({ type, data })),
     });
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    if (!response.ok) {
-      error.value = body.error ?? `Envoi impossible (erreur ${response.status}).`;
-      return;
-    }
     sent.value = true;
     message.value = "";
     images.value = [];
-  } catch {
-    error.value = "Envoi impossible : vérifiez la connexion Internet.";
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
   } finally {
     sending.value = false;
   }

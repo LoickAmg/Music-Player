@@ -9,6 +9,7 @@ import Icon from "./Icon.vue";
 import PlaylistCover from "./PlaylistCover.vue";
 import FriendAvatar from "./FriendAvatar.vue";
 import { useFriendsStore } from "@/stores/friends";
+import { useAvisStore } from "@/stores/avis";
 
 const ui = useUiStore();
 const library = useLibraryStore();
@@ -16,6 +17,7 @@ const playlists = usePlaylistsStore();
 const appearance = useAppearanceStore();
 const share = useShareStore();
 const friends = useFriendsStore();
+const avis = useAvisStore();
 const searchInput = ref<HTMLInputElement | null>(null);
 
 defineExpose({ focusSearch: () => searchInput.value?.focus() });
@@ -143,6 +145,11 @@ function newPlaylist() {
           Analyse de la bibliothèque<span v-if="progress !== null"> · {{ progress }} %</span>
         </span>
       </div>
+      <button v-if="avis.isAdmin" type="button" class="nav-item" :class="{ active: ui.route.name === 'avis' }" @click="ui.go({ name: 'avis' })">
+        <Icon name="check" :size="17" class="ico" />
+        Avis reçus
+        <span v-if="avis.fresh" class="badge">{{ avis.fresh }}</span>
+      </button>
       <button type="button" class="nav-item feedback" @click="ui.feedback = true">
         <Icon name="lyrics" :size="17" class="ico" />
         Un avis ?

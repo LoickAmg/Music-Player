@@ -15,6 +15,7 @@ import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type Per
 import DamagedFiles from "@/components/DamagedFiles.vue";
 import BackupSection from "@/components/BackupSection.vue";
 import AccountSection from "@/components/AccountSection.vue";
+import AdminAccess from "@/components/AdminAccess.vue";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
@@ -342,6 +343,7 @@ const shortcuts = [
     </section>
 
     <LegalDialog v-if="showLegal" @close="showLegal = false" />
+    <AdminAccess />
   </div>
 </template>
 
