@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { type ArtStyle, useVisualsStore, type VinylColor, type VisualColors } from "@/stores/visuals";
 import { computed, onMounted, ref } from "vue";
 import { renderCrop, type Crop } from "@/lib/imageCrop";
 import { catalogFont, SYSTEM_FONT } from "@/lib/fonts";
@@ -254,6 +255,23 @@ const COLOR_FIELDS: { key: keyof Theme["colors"]; label: string }[] = [
   { key: "accent", label: "Accent" },
   { key: "accent2", label: "Halo" },
 ];
+
+// « À l'écoute » : présentation de la pochette et couleurs des visuels.
+const visuals = useVisualsStore();
+const ART_STYLES: { id: ArtStyle; label: string }[] = [
+  { id: "auto", label: "Automatique" },
+  { id: "cover", label: "Pochette" },
+  { id: "vinyl", label: "Vinyle" },
+  { id: "cd", label: "CD 3D" },
+];
+const VISUAL_COLORS: { id: VisualColors; label: string }[] = [
+  { id: "pochette", label: "De la pochette" },
+  { id: "theme", label: "Du thème" },
+];
+const VINYL_COLORS: { id: VinylColor; label: string }[] = [
+  { id: "noir", label: "Noir" },
+  { id: "teinte", label: "Coloré" },
+];
 </script>
 
 <template>
@@ -400,6 +418,26 @@ const COLOR_FIELDS: { key: keyof Theme["colors"]; label: string }[] = [
     </section>
 
     <section class="card">
+      <h2>À l'écoute</h2>
+      <p class="label">Présentation de la pochette</p>
+      <div class="seg" role="radiogroup">
+        <button v-for="o in ART_STYLES" :key="o.id" type="button" role="radio" :aria-checked="visuals.artStyle === o.id" :class="{ on: visuals.artStyle === o.id }" @click="visuals.setArtStyle(o.id)">{{ o.label }}</button>
+      </div>
+      <p class="label">Couleurs des visuels (visualiseur, vinyle, CD, barre)</p>
+      <div class="seg" role="radiogroup">
+        <button v-for="o in VISUAL_COLORS" :key="o.id" type="button" role="radio" :aria-checked="visuals.colors === o.id" :class="{ on: visuals.colors === o.id }" @click="visuals.setColors(o.id)">{{ o.label }}</button>
+      </div>
+      <p class="label">Vinyle</p>
+      <div class="seg" role="radiogroup">
+        <button v-for="o in VINYL_COLORS" :key="o.id" type="button" role="radio" :aria-checked="visuals.vinyl === o.id" :class="{ on: visuals.vinyl === o.id }" @click="visuals.setVinyl(o.id)">{{ o.label }}</button>
+      </div>
+      <label class="toggle visualizer-toggle">
+        <input type="checkbox" :checked="visuals.visualizer" @change="visuals.setVisualizer(($event.target as HTMLInputElement).checked)" />
+        <span>Visualiseur du son (couronne autour du vinyle, barres en bas de l'écran)</span>
+      </label>
+    </section>
+
+    <section class="card">
       <h2>Icônes</h2>
       <div class="icon-styles">
         <button v-for="o in ICON_STYLES" :key="o.id" type="button" class="icon-style" :class="{ on: s.icons === o.id }" :style="o.vars" :aria-pressed="s.icons === o.id" @click="setIcons(o.id)">
@@ -487,6 +525,9 @@ const COLOR_FIELDS: { key: keyof Theme["colors"]; label: string }[] = [
 </template>
 
 <style scoped>
+.visualizer-toggle {
+  margin-top: 14px;
+}
 .appearance {
   max-width: 880px;
 }

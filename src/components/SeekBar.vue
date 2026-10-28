@@ -164,12 +164,12 @@ const bubble = computed(() => {
   background: rgba(255, 255, 255, 0.18);
 }
 .hero .fill {
-  background: linear-gradient(90deg, color-mix(in srgb, var(--amb-glow, #fff) 55%, #fff), #fff);
-  box-shadow: 0 0 12px color-mix(in srgb, var(--amb-glow, #fff) 60%, transparent);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--visual, #fff) 55%, #fff), #fff);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--visual, #fff) 60%, transparent);
 }
 .hero .knob {
   background: #fff;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--amb-glow, #fff) 35%, transparent), 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--visual, #fff) 35%, transparent), 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 .hero .bubble {
   background: rgba(0, 0, 0, 0.6);

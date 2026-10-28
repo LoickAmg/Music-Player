@@ -86,7 +86,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 </script>
 
 <template>
-  <section class="now-playing" role="dialog" aria-label="À l'écoute" :class="{ paused: player.isPaused }" :style="{ '--h': hue }">
+  <section
+    class="now-playing"
+    role="dialog"
+    aria-label="À l'écoute"
+    :class="{ paused: player.isPaused, 'theme-colors': visuals.colors === 'theme' }"
+    :style="{ '--h': hue }"
+  >
     <div class="backdrop" aria-hidden="true">
       <img v-if="bg" :key="`1${bg}`" :src="bg" alt="" class="blob b1" />
       <img v-if="bg" :key="`2${bg}`" :src="bg" alt="" class="blob b2" />
@@ -204,6 +210,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
      sur fond sombre. */
   --accent: var(--accent-on-dark, #3aa8ff);
   --accent-soft: color-mix(in srgb, var(--accent-on-dark, #3aa8ff) 18%, transparent);
+  /* Couleurs des visuels (visualiseur, vinyle, CD, barre) : pochette, ou thème (réglage
+     « À l'écoute » de la personnalisation). */
+  --visual: var(--amb-glow);
+  --visual-2: var(--amb-primary);
+  --visual-3: var(--amb-secondary);
   color: var(--text);
   position: fixed;
   inset: 0;
@@ -211,6 +222,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   overflow: hidden;
   background: var(--amb-base);
   animation: rise 0.45s var(--ease);
+}
+.now-playing.theme-colors {
+  --visual: var(--accent);
+  --visual-2: color-mix(in srgb, var(--accent) 80%, #000);
+  --visual-3: color-mix(in srgb, var(--accent) 55%, #fff);
 }
 @keyframes rise {
   from {
@@ -377,7 +393,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .hero-art {
   width: 100%;
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45),
-    0 0 calc(40px + var(--amb-energy) * 60px) color-mix(in srgb, var(--amb-glow) 38%, transparent);
+    0 0 calc(40px + var(--amb-energy) * 60px) color-mix(in srgb, var(--visual) 38%, transparent);
   transition: transform 0.6s var(--ease), box-shadow 1.2s ease;
 }
 .hero-art.paused {
@@ -419,7 +435,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   inset: -16%;
   width: 132%;
   height: 132%;
-  --viz-color: color-mix(in srgb, var(--amb-glow) 70%, #fff);
+  --viz-color: color-mix(in srgb, var(--visual) 70%, #fff);
 }
 .floor-viz {
   position: absolute;
@@ -428,7 +444,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   bottom: 0;
   height: 24vh;
   opacity: 0.45;
-  --viz-color: color-mix(in srgb, var(--amb-glow) 75%, #fff);
+  --viz-color: color-mix(in srgb, var(--visual) 75%, #fff);
   mask: linear-gradient(transparent, #000 60%);
 }
 .view-tools {
@@ -448,7 +464,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 }
 .view-tools .icon-btn.on {
   color: #fff;
-  background: color-mix(in srgb, var(--amb-glow, #fff) 35%, rgba(255, 255, 255, 0.12));
+  background: color-mix(in srgb, var(--visual) 35%, rgba(255, 255, 255, 0.12));
 }
 .times {
   display: flex;

@@ -3,11 +3,13 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { coverUrl } from "@/lib/covers";
 import { hueFor } from "@/lib/format";
 import type { Track } from "@/lib/types";
+import { useVisualsStore } from "@/stores/visuals";
 
 // Pochette en vinyle : le disque tourne à 33 tours pendant la lecture (démarrage et arrêt
 // progressifs, comme une platine), l'étiquette est la pochette, le bras se pose sur le
 // disque. On peut le faire tourner au doigt (sans effet sur la lecture).
 const props = defineProps<{ track: Track; playing: boolean }>();
+const visuals = useVisualsStore();
 
 const cover = ref<string | null>(null);
 watch(
@@ -81,7 +83,7 @@ function up() {
 </script>
 
 <template>
-  <div class="vinyl" :class="{ playing }" :style="{ '--h': hueFor(track.album || track.title) }">
+  <div class="vinyl" :class="{ playing, tinted: visuals.vinyl === 'teinte' }" :style="{ '--h': hueFor(track.album || track.title) }">
     <div
       ref="disc"
       class="disc"
@@ -126,7 +128,7 @@ function up() {
   box-shadow:
     0 24px 50px rgba(0, 0, 0, 0.55),
     0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 0 calc(30px + var(--amb-energy, 0) * 50px) color-mix(in srgb, var(--amb-glow, #3aa8ff) 30%, transparent);
+    0 0 calc(30px + var(--amb-energy, 0) * 50px) color-mix(in srgb, var(--visual, #3aa8ff) 30%, transparent);
   cursor: grab;
   will-change: transform;
 }
@@ -142,6 +144,16 @@ function up() {
     radial-gradient(circle, transparent 47%, rgba(255, 255, 255, 0.05) 47.3%, transparent 47.8%),
     radial-gradient(circle, transparent 66%, rgba(255, 255, 255, 0.05) 66.3%, transparent 66.8%),
     repeating-radial-gradient(circle, #121214 0 1.2px, #19191c 1.2px 2.4px);
+}
+/* Vinyle coloré (réglage « À l'écoute ») : teinte des visuels, sillons gardés en relief. */
+.tinted .disc {
+  background: color-mix(in srgb, var(--visual, #3aa8ff) 62%, #0b0b0d);
+}
+.tinted .grooves {
+  background:
+    radial-gradient(circle, transparent 31%, rgba(255, 255, 255, 0.12) 31.4%, transparent 32%),
+    radial-gradient(circle, transparent 47%, rgba(255, 255, 255, 0.08) 47.3%, transparent 47.8%),
+    repeating-radial-gradient(circle, rgba(0, 0, 0, 0.3) 0 1.2px, rgba(255, 255, 255, 0.04) 1.2px 2.4px);
 }
 .label {
   position: absolute;

@@ -402,8 +402,8 @@ onBeforeUnmount(() => {
 }
 .disc.couleur {
   background:
-    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--amb-glow, #fff) 70%, transparent), transparent 55%),
-    conic-gradient(from 90deg, var(--amb-primary, hsl(var(--h) 70% 50%)), var(--amb-secondary, hsl(calc(var(--h) + 80) 70% 45%)), var(--amb-primary, hsl(var(--h) 70% 50%)));
+    radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--visual, #fff) 70%, transparent), transparent 55%),
+    conic-gradient(from 90deg, var(--visual-2, hsl(var(--h) 70% 50%)), var(--visual-3, hsl(calc(var(--h) + 80) 70% 45%)), var(--visual-2, hsl(var(--h) 70% 50%)));
 }
 .print {
   position: absolute;
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
   background: #15161a;
 }
 .dot.couleur {
-  background: linear-gradient(135deg, var(--amb-primary, #3aa8ff), var(--amb-secondary, #b48cff));
+  background: linear-gradient(135deg, var(--visual-2, #3aa8ff), var(--visual-3, #b48cff));
 }
 @media (prefers-reduced-motion: reduce) {
   .dot {

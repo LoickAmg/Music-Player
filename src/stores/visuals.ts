@@ -14,14 +14,20 @@ export const DISC_DESIGNS: { id: DiscDesign; label: string }[] = [
 
 const KEY = "mp:visuels";
 
+/** Couleur des visuels (visualiseur, vinyle, CD, barre) : celle de la pochette ou du thème. */
+export type VisualColors = "pochette" | "theme";
+export type VinylColor = "noir" | "teinte";
+
 interface Saved {
   artStyle: ArtStyle;
   discDesign: DiscDesign;
   visualizer: boolean;
+  colors: VisualColors;
+  vinyl: VinylColor;
 }
 
 function load(): Saved {
-  const base: Saved = { artStyle: "auto", discDesign: "pochette", visualizer: true };
+  const base: Saved = { artStyle: "auto", discDesign: "pochette", visualizer: true, colors: "pochette", vinyl: "noir" };
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? { ...base, ...(JSON.parse(raw) as Partial<Saved>) } : base;
@@ -35,8 +41,8 @@ export const useVisualsStore = defineStore("visuals", {
   actions: {
     save() {
       try {
-        const { artStyle, discDesign, visualizer } = this;
-        localStorage.setItem(KEY, JSON.stringify({ artStyle, discDesign, visualizer }));
+        const { artStyle, discDesign, visualizer, colors, vinyl } = this;
+        localStorage.setItem(KEY, JSON.stringify({ artStyle, discDesign, visualizer, colors, vinyl }));
       } catch {
         // réglage valable pour la session
       }
@@ -52,6 +58,14 @@ export const useVisualsStore = defineStore("visuals", {
     },
     setDiscDesign(design: DiscDesign) {
       this.discDesign = design;
+      this.save();
+    },
+    setColors(colors: VisualColors) {
+      this.colors = colors;
+      this.save();
+    },
+    setVinyl(vinyl: VinylColor) {
+      this.vinyl = vinyl;
       this.save();
     },
     setVisualizer(on: boolean) {
