@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use zip::write::SimpleFileOptions;
 
 /// Extension des archives de partage (sans le point).
@@ -151,6 +151,11 @@ pub fn export_playlist(state: &AppState, dest: &Path, playlist_id: &str) -> Resu
     write_bundle(dest, "playlist", &name, theme, &tracks)
 }
 
+/// Dossier des morceaux reçus par partage, ajouté aux dossiers parcourus par le scan.
+pub fn imports_dir(data_dir: &Path) -> PathBuf {
+    data_dir.join("importes")
+}
+
 /// Importe une archive de partage : copie les fichiers audio dans un dossier dédié du
 /// dossier de données de l'appli, les ajoute à la bibliothèque, et recrée la playlist
 /// si l'archive en contenait une.
@@ -172,23 +177,34 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
     let file = fs::File::open(source).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
-    // Dossier où les morceaux importés sont enregistrés (persistant, hors du cache de scan).
-    let dest_dir = state.data_dir.join("importes");
+    // Dossier où les morceaux importés sont enregistrés (persistant, parcouru à chaque scan).
+    let dest_dir = imports_dir(&state.data_dir);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
 
     let mut imported_ids = Vec::new();
     let mut skipped = 0usize;
+    // Morceaux déjà là avant cet import : deux fichiers distincts de l'archive aux mêmes
+    // étiquettes (fréquent) ne sont jamais fusionnés entre eux.
+    let before: Vec<(String, String, String, f64, String)> = state
+        .library
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|t| (t.title.clone(), t.artist.clone(), t.album.clone(), t.duration_secs, t.id.clone()))
+        .collect();
     for entry in &manifest.tracks {
         // Déjà importé (même titre/artiste/album) : on réutilise la piste existante, sans
         // recopier le fichier ni créer un doublon (une même archive importée deux fois, ou
         // deux playlists qui partagent un morceau déjà reçu).
-        let existing_id = state
-            .library
-            .lock()
-            .unwrap()
+        let existing_id = before
             .iter()
-            .find(|t| t.title == entry.title && t.artist == entry.artist && t.album == entry.album)
-            .map(|t| t.id.clone());
+            .find(|(title, artist, album, duration, _)| {
+                *title == entry.title
+                    && *artist == entry.artist
+                    && *album == entry.album
+                    && (duration - entry.duration_secs).abs() <= 2.0
+            })
+            .map(|(.., id)| id.clone());
         if let Some(id) = existing_id {
             imported_ids.push(id);
             continue;
@@ -374,6 +390,38 @@ mod tests {
         assert_eq!(playlist.name, "Ma Playlist");
         assert_eq!(playlist.theme, "ocean");
         assert_eq!(playlist.track_ids.len(), 2);
+    }
+
+    #[test]
+    fn received_playlist_keeps_same_tagged_files_and_survives_a_rescan() {
+        // Deux fichiers distincts aux mêmes étiquettes (fréquent) : la playlist reçue garde
+        // les deux, et un nouveau scan de la bibliothèque ne perd pas les morceaux reçus.
+        let source_dir = tempfile::tempdir().unwrap();
+        let t1 = track_at(write_audio(source_dir.path(), "un.mp3"), "Même titre", "Artiste");
+        let t2 = track_at(write_audio(source_dir.path(), "deux.mp3"), "Même titre", "Artiste");
+        let state_dir = tempfile::tempdir().unwrap();
+        let state = make_state(state_dir.path());
+        *state.library.lock().unwrap() = vec![t1.clone(), t2.clone()];
+        let playlist_id = state.playlists.lock().unwrap().create("J-Pop".to_string(), None);
+        state.playlists.lock().unwrap().add_tracks(&playlist_id, vec![t1.id.clone(), t2.id.clone()]).unwrap();
+        let bundle_dir = tempfile::tempdir().unwrap();
+        let bundle_path = bundle_dir.path().join("playlist.mpshare");
+        export_playlist(&state, &bundle_path, &playlist_id).unwrap();
+
+        let other_dir = tempfile::tempdir().unwrap();
+        let other_state = make_state(other_dir.path());
+        let result = import_bundle(&other_state, &bundle_path).unwrap();
+        let ids = other_state.playlists.lock().unwrap().get(&result.playlist_id.unwrap()).unwrap().track_ids.clone();
+        assert_eq!(ids.len(), 2);
+
+        // Rescan d'un dossier de musique sans rapport : les morceaux reçus restent.
+        let music = tempfile::tempdir().unwrap();
+        let previous = other_state.library.lock().unwrap().clone();
+        let rescanned =
+            library::scan_library_with_extras(music.path(), &[imports_dir(other_dir.path())], &previous, |_, _| {});
+        for id in &ids {
+            assert!(rescanned.iter().any(|t| &t.id == id), "morceau reçu perdu au rescan");
+        }
     }
 
     #[test]

@@ -105,7 +105,9 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
     } else {
         Vec::new()
     };
-    let tracks = library::scan_library_incremental(Path::new(root), &previous, |done, total| {
+    // Morceaux reçus par partage : hors du dossier de musique, mais dans la bibliothèque.
+    let extras = [crate::sharing::imports_dir(&state.data_dir)];
+    let tracks = library::scan_library_with_extras(Path::new(root), &extras, &previous, |done, total| {
         let _ = app.emit("scan-progress", ScanProgress { done, total });
     });
     *state.library.lock().unwrap() = tracks.clone();

@@ -97,6 +97,16 @@ export const usePlaylistsStore = defineStore("playlists", {
         this.error = String(e);
       }
     },
+    /** Retire plusieurs morceaux (introuvables, par exemple), puis relit les playlists une fois. */
+    async removeTracks(playlistId: string, trackIds: string[]) {
+      this.error = null;
+      try {
+        for (const id of trackIds) await api.removeFromPlaylist(playlistId, id);
+        await this.fetchAll();
+      } catch (e) {
+        this.error = String(e);
+      }
+    },
     async moveTrack(playlistId: string, from: number, to: number) {
       this.error = null;
       try {

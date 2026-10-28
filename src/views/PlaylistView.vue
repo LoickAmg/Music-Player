@@ -25,6 +25,16 @@ const tracks = computed(
   () => (playlist.value?.track_ids.map((id) => library.byId(id)).filter(Boolean) as Track[]) ?? [],
 );
 const ids = computed(() => tracks.value.map((t) => t.id));
+// Morceaux de la playlist dont le fichier n'est plus dans la bibliothèque (déplacé, supprimé).
+const missing = computed(() =>
+  library.scanning ? [] : (playlist.value?.track_ids.filter((id) => !library.byId(id)) ?? []),
+);
+async function removeMissing() {
+  if (!playlist.value) return;
+  const n = missing.value.length;
+  await playlists.removeTracks(playlist.value.id, missing.value);
+  ui.notify(`${n} morceau${n > 1 ? "x" : ""} introuvable${n > 1 ? "s" : ""} retiré${n > 1 ? "s" : ""}`);
+}
 // Titre de la page dans la police de la jaquette, si demandé dans la personnalisation.
 const titleFont = computed(() => {
   const st = playlist.value?.style;
@@ -76,7 +86,16 @@ function share() {
         <p class="kicker">Playlist</p>
         <input v-if="editing" ref="input" v-model="draft" class="title-input" aria-label="Nom de la playlist" @keydown.enter="commitEdit" @keydown.esc="editing = false" @blur="commitEdit" />
         <h1 v-else title="Cliquer pour renommer" :style="{ fontFamily: titleFont }" @click="startEdit">{{ playlist.name }}</h1>
-        <p class="muted">{{ formatCollection(tracks.length, duration) }}</p>
+        <p class="muted">
+          {{ formatCollection(tracks.length, duration) }}
+          <template v-if="missing.length">
+            ·
+            <span class="warn" title="Fichiers déplacés ou supprimés depuis leur ajout à la playlist">
+              {{ missing.length }} introuvable{{ missing.length > 1 ? "s" : "" }}
+            </span>
+            <button type="button" class="link" @click="removeMissing">Retirer</button>
+          </template>
+        </p>
         <div class="actions">
           <button type="button" class="pill pill-accent" :disabled="!ids.length" @click="player.playQueue(ids, ids[0])"><Icon name="play" :size="14" /> Lire</button>
           <button type="button" class="pill pill-ghost" :disabled="!ids.length" @click="player.playShuffled(ids)"><Icon name="shuffle" :size="15" /> Aléatoire</button>
@@ -110,6 +129,16 @@ function share() {
 </template>
 
 <style scoped>
+.warn {
+  color: var(--warning);
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 0 0 0 4px;
+  color: var(--accent);
+  font-size: inherit;
+}
 .hero {
   display: flex;
   align-items: flex-end;

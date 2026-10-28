@@ -401,11 +401,29 @@ pub fn scan_library_incremental(
     previous: &[Track],
     on_progress: impl Fn(usize, usize) + Sync,
 ) -> Vec<Track> {
+    scan_folders(&scan_roots(root), previous, on_progress)
+}
+
+/// Comme `scan_library_incremental`, avec des dossiers en plus du dossier de musique choisi
+/// (morceaux reçus par partage, rangés dans le dossier de données de l'appli).
+pub fn scan_library_with_extras(
+    root: &Path,
+    extras: &[PathBuf],
+    previous: &[Track],
+    on_progress: impl Fn(usize, usize) + Sync,
+) -> Vec<Track> {
+    let mut roots = scan_roots(root);
+    let more: Vec<PathBuf> = extras.iter().filter(|d| d.is_dir() && !roots.iter().any(|r| d.starts_with(r))).cloned().collect();
+    roots.extend(more);
+    scan_folders(&roots, previous, on_progress)
+}
+
+fn scan_folders(roots: &[PathBuf], previous: &[Track], on_progress: impl Fn(usize, usize) + Sync) -> Vec<Track> {
     let known: HashMap<&str, &Track> = previous.iter().map(|t| (t.path.as_str(), t)).collect();
     let mut audio_files = Vec::new();
     let mut images_by_dir: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    for entry in scan_roots(root)
-        .into_iter()
+    for entry in roots
+        .iter()
         .flat_map(|r| {
             WalkDir::new(r)
                 .follow_links(true)

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { Playlist } from "@/lib/types";
+import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
@@ -9,6 +11,12 @@ import PlaylistCover from "@/components/PlaylistCover.vue";
 const playlists = usePlaylistsStore();
 const share = useShareStore();
 const ui = useUiStore();
+const library = useLibraryStore();
+
+/** Morceaux réellement présents (sans les fichiers déplacés ou supprimés). */
+function present(p: Playlist): number {
+  return p.track_ids.filter((id) => library.byId(id)).length;
+}
 </script>
 
 <template>
@@ -16,7 +24,6 @@ const ui = useUiStore();
     <div class="head">
       <h1 class="page-title">Playlists</h1>
       <div class="head-actions">
-        <button type="button" class="pill pill-ghost" title="Recréer ses playlists Spotify avec sa musique" @click="ui.go({ name: 'spotify' })">Depuis Spotify</button>
         <button type="button" class="pill pill-ghost" @click="share.receiving = true"><Icon name="import" :size="15" /> Recevoir</button>
         <button type="button" class="pill pill-accent" @click="ui.playlistDialog = { mode: 'create' }"><Icon name="plus" :size="15" /> Nouvelle</button>
       </div>
@@ -25,7 +32,7 @@ const ui = useUiStore();
       <button v-for="p in playlists.items" :key="p.id" type="button" class="card" @click="ui.go({ name: 'playlist', id: p.id })">
         <PlaylistCover :name="p.name" :theme="p.theme" :styling="p.style" :radius="10" />
         <span class="name">{{ p.name }}</span>
-        <span class="count">{{ p.track_ids.length }} morceau{{ p.track_ids.length > 1 ? "x" : "" }}</span>
+        <span class="count">{{ present(p) }} morceau{{ present(p) > 1 ? "x" : "" }}</span>
       </button>
     </div>
     <div v-else class="empty">
