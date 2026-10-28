@@ -24,8 +24,11 @@ const TOKEN = /^[0-9a-f]{32,64}$/;
 const PRESENCE_TTL_MS = 6 * 60 * 60 * 1000;
 const ZONE_TTL_MS = 10 * 60 * 1000;
 const MAX_INBOX = 50;
+/** Mots (messagerie entre proches) en attente de lecture, en plus des demandes. */
+const MAX_WORDS = 200;
 const MAX_FRIENDS = 200;
-const MAX_BODY = 32 * 1024;
+// Une playlist jointe à un mot (300 morceaux décrits au plus) tient dans cette limite.
+const MAX_BODY = 96 * 1024;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -63,6 +66,21 @@ function cleanAvatar(value) {
   return typeof value === "string" && value.length <= 24 * 1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
     ? value
     : null;
+}
+
+/** Morceau ou playlist joint à un mot (décrits, jamais de fichier). */
+function cleanPiece(p) {
+  if (!p || typeof p !== "object") return null;
+  const track = (t) => ({ titre: clean(t?.titre, 200), artiste: clean(t?.artiste, 200), album: clean(t?.album, 200) });
+  if (p.type === "morceau") {
+    const t = track(p);
+    return t.titre ? { type: "morceau", ...t } : null;
+  }
+  if (p.type === "playlist") {
+    const morceaux = (Array.isArray(p.morceaux) ? p.morceaux : []).slice(0, 300).map(track).filter((t) => t.titre);
+    return morceaux.length ? { type: "playlist", nom: clean(p.nom, 80) || "Playlist", morceaux } : null;
+  }
+  return null;
 }
 
 function cleanPresence(p) {
@@ -285,6 +303,22 @@ export class Profil {
       case "message": {
         if (!(await storage.get("secret"))) return json({ erreur: "Aucun profil avec ce code" }, 404);
         if (!CODE.test(body.de ?? "") || body.de === code) return json({ erreur: "Expéditeur inconnu" }, 400);
+        // Mot d'un proche (texte, morceau ou playlist) : seulement d'un ami autorisé, qui le
+        // prouve avec le jeton reçu au moment de l'ajout.
+        if (body.type === "mot") {
+          const grants = (await storage.get("amis")) ?? {};
+          if (!grants[body.de] || !TOKEN.test(body.token ?? "") || grants[body.de] !== (await sha256(body.token))) {
+            return json({ erreur: "Réservé à vos proches" }, 403);
+          }
+          const texte = clean(body.texte, 1000);
+          const piece = cleanPiece(body.piece);
+          if (!texte && !piece) return json({ erreur: "Message vide" }, 400);
+          const inbox = (await storage.get("boite")) ?? [];
+          if (inbox.filter((m) => m.type === "mot").length >= MAX_WORDS) return json({ erreur: "Boîte pleine" }, 429);
+          inbox.push({ type: "mot", de: body.de, texte, piece, at: Date.now() });
+          await storage.put("boite", inbox);
+          return json({ ok: true });
+        }
         if (!["demande", "accord", "retrait"].includes(body.type)) return json({ erreur: "Message inconnu" }, 400);
         if (body.type !== "retrait" && !TOKEN.test(body.token ?? "")) return json({ erreur: "Jeton invalide" }, 400);
         const inbox = ((await storage.get("boite")) ?? []).filter((m) => !(m.de === body.de && m.type === body.type));
