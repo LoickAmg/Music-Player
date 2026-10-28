@@ -9,6 +9,7 @@ import { albumKey } from "@/stores/library";
 import Artwork from "./Artwork.vue";
 import Icon from "./Icon.vue";
 import SeekBar from "./SeekBar.vue";
+import SkipButton from "./SkipButton.vue";
 
 const player = usePlayerStore();
 const ui = useUiStore();
@@ -39,6 +40,7 @@ function toggleMute() {
       <button type="button" class="icon-btn" :class="{ on: player.shuffle }" title="Aléatoire" aria-label="Aléatoire" :aria-pressed="player.shuffle" @click="player.setShuffle(!player.shuffle)">
         <Icon name="shuffle" :size="17" />
       </button>
+      <SkipButton :seconds="-10" :size="18" />
       <button type="button" class="icon-btn big" title="Précédent" aria-label="Précédent" :disabled="!track" @click="player.previous()">
         <Icon name="prev" :size="20" />
       </button>
@@ -48,6 +50,7 @@ function toggleMute() {
       <button type="button" class="icon-btn big" title="Suivant" aria-label="Suivant" :disabled="!track" @click="player.next()">
         <Icon name="next" :size="20" />
       </button>
+      <SkipButton :seconds="10" :size="18" />
       <button type="button" class="icon-btn repeat" :class="{ on: player.repeat !== 'off' }" :title="`Répéter : ${player.repeat === 'off' ? 'non' : player.repeat === 'all' ? 'tout' : 'ce morceau'}`" :aria-label="`Répéter : ${player.repeat === 'off' ? 'non' : player.repeat === 'all' ? 'tout' : 'ce morceau'}`" @click="player.cycleRepeat()">
         <Icon name="repeat" :size="17" />
         <span v-if="player.repeat === 'one'" class="one">1</span>

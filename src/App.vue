@@ -171,9 +171,9 @@ function onKey(e: KeyboardEvent) {
   } else if (ctrl && e.key === "ArrowLeft") {
     void player.previous();
   } else if (e.key === "ArrowRight") {
-    void player.seek(Math.min(player.currentTrack.duration_secs, player.positionAt(performance.now()) + 5));
+    void player.skip(e.shiftKey ? 10 : 5);
   } else if (e.key === "ArrowLeft") {
-    void player.seek(Math.max(0, player.positionAt(performance.now()) - 5));
+    void player.skip(e.shiftKey ? -10 : -5);
   }
 }
 

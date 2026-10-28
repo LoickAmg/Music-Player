@@ -38,6 +38,9 @@ const PATHS: Record<string, string> = {
   collapse: "M9.5 4.5v5h-5M14.5 19.5v-5h5M4.5 4.5l5 5M19.5 19.5l-5-5",
   folder: "M3.5 7a1.5 1.5 0 0 1 1.5-1.5h4.2l2 2.2H19A1.5 1.5 0 0 1 20.5 9.2v8.3A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5Z",
   refresh: "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4",
+  // Reculer / avancer de 10 s (le chiffre est posé par SkipButton.vue).
+  "skip-back": "M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4.5v4h4",
+  "skip-fwd": "M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4",
   trash: "M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7",
   eq: "M6 4v16M12 4v16M18 4v16M4 14h4M10 8h4M16 12h4",
   brush: "M14.5 4.5 19.5 9.5 11 18l-5 .9.9-5ZM12.5 6.5l5 5M4.5 20.5h6",

@@ -13,6 +13,7 @@ import Icon from "./Icon.vue";
 import LyricsView from "./LyricsView.vue";
 import CdCase from "./CdCase.vue";
 import SeekBar from "./SeekBar.vue";
+import SkipButton from "./SkipButton.vue";
 import VinylArt from "./VinylArt.vue";
 import Visualizer from "./Visualizer.vue";
 import { type ArtStyle, useVisualsStore } from "@/stores/visuals";
@@ -152,11 +153,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
           <button type="button" class="icon-btn" :class="{ on: player.shuffle }" aria-label="Aléatoire" @click="player.setShuffle(!player.shuffle)">
             <Icon name="shuffle" :size="20" />
           </button>
+          <SkipButton :seconds="-10" :size="24" />
           <button type="button" class="icon-btn c-big" aria-label="Précédent" @click="player.previous()"><Icon name="prev" :size="28" /></button>
           <button type="button" class="icon-btn c-play" :aria-label="player.isPaused ? 'Lire' : 'Pause'" @click="player.togglePlayPause()">
             <Icon :name="player.isPaused ? 'play' : 'pause'" :size="38" />
           </button>
           <button type="button" class="icon-btn c-big" aria-label="Suivant" @click="player.next()"><Icon name="next" :size="28" /></button>
+          <SkipButton :seconds="10" :size="24" />
           <button type="button" class="icon-btn rep" :class="{ on: player.repeat !== 'off' }" :aria-label="REPEAT_LABEL[player.repeat]" @click="cycleRepeat">
             <Icon name="repeat" :size="20" />
             <span v-if="player.repeat === 'one'" class="rep-one">1</span>

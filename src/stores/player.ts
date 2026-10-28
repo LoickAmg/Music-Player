@@ -138,6 +138,13 @@ export const usePlayerStore = defineStore("player", {
         this.error = String(e);
       }
     },
+    /** Avance (secondes positives) ou recule dans le morceau, sans sortir de ses bornes. */
+    async skip(seconds: number) {
+      const t = this.currentTrack;
+      if (!t) return;
+      const target = this.positionAt(performance.now()) + seconds;
+      await this.seek(Math.min(Math.max(0, target), Math.max(0, t.duration_secs - 1)));
+    },
     async setVolume(volume: number) {
       this.volume = volume;
       try {
