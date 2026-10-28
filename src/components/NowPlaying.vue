@@ -335,7 +335,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   top: calc(var(--safe-top) + 14px);
   left: calc(var(--safe-left) + 14px);
   z-index: 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
 }
 .like-now {
   flex: none;
@@ -353,8 +357,12 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   gap: 4vw;
   padding: var(--safe-top) calc(6vw + var(--safe-right)) var(--safe-bottom) calc(6vw + var(--safe-left));
 }
-.layout:has(.art-stage.cd) .left {
-  width: min(50vh, 36vw);
+/* Grand écran seulement : sur téléphone, la colonne garde toute la largeur (sinon titre
+   coupé, barre de progression et boutons tassés). */
+@media (min-width: 600px) {
+  .layout:has(.art-stage.cd) .left {
+    width: min(50vh, 36vw);
+  }
 }
 .left {
   align-self: center;
@@ -423,17 +431,21 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 .view-tools {
   position: absolute;
   top: calc(var(--safe-top) + 14px);
-  left: calc(var(--safe-left) + 54px);
+  left: calc(var(--safe-left) + 58px);
   z-index: 2;
   display: flex;
   gap: 4px;
 }
 .view-tools .icon-btn {
-  color: rgba(255, 255, 255, 0.75);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.08);
 }
 .view-tools .icon-btn.on {
   color: #fff;
-  background: rgba(255, 255, 255, 0.14);
+  background: color-mix(in srgb, var(--amb-glow, #fff) 35%, rgba(255, 255, 255, 0.12));
 }
 .times {
   display: flex;

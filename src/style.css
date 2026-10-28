@@ -199,9 +199,12 @@ input {
   color: var(--text-2);
   transition: color 0.15s, background 0.15s;
 }
-.icon-btn:hover {
-  color: var(--text);
-  background: var(--bg-hover);
+/* Survol à la souris seulement : sur écran tactile, le fond restait collé après un appui. */
+@media (hover: hover) {
+  .icon-btn:hover {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
 }
 .icon-btn.on {
   color: var(--accent);
