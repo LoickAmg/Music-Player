@@ -42,6 +42,7 @@ import DuplicatesView from "@/views/DuplicatesView.vue";
 import FriendsView from "@/views/FriendsView.vue";
 import SpotifyImportView from "@/views/SpotifyImportView.vue";
 import { useFriendsStore } from "@/stores/friends";
+import { useAccountStore } from "@/stores/account";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
@@ -297,6 +298,8 @@ onMounted(async () => {
   void share.init(deviceName.value);
   // Proches : statut des amis et de ce que j'écoute (si activé).
   friends.start();
+  // Compte : sauvegarde en ligne une fois par jour (quelques secondes après l'ouverture).
+  setTimeout(() => void useAccountStore().autoUpload(), 20_000);
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.
   try {
     offPlayback.push(await listen<Track | null>("track-changed", (e) => void player.afterTrackChange(e.payload)));

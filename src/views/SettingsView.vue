@@ -14,6 +14,7 @@ import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
 import DamagedFiles from "@/components/DamagedFiles.vue";
 import BackupSection from "@/components/BackupSection.vue";
+import AccountSection from "@/components/AccountSection.vue";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
@@ -222,6 +223,7 @@ const shortcuts = [
     </section>
 
     <DamagedFiles />
+    <AccountSection />
     <BackupSection />
 
     <section class="section-card">

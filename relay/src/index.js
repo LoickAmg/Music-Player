@@ -30,6 +30,13 @@ const MAX_FRIENDS = 200;
 // Une playlist jointe à un mot (300 morceaux décrits au plus) tient dans cette limite.
 const MAX_BODY = 96 * 1024;
 
+// Compte (sauvegarde en ligne) : sauvegarde chiffrée sur l'appareil (le relais ne voit ni le
+// mot de passe ni le contenu), découpée en morceaux de 1 Mo au plus, 20 Mo en tout.
+const ACCOUNT_KEY = /^[0-9a-f]{64}$/;
+const CHUNK_MAX = 1024 * 1024;
+const MAX_CHUNKS = 20;
+const TRIES_PER_HOUR = 10;
+
 const CORS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
@@ -44,9 +51,9 @@ function json(body, status = 200) {
   });
 }
 
-async function readJson(request) {
+async function readJson(request, max = MAX_BODY) {
   const text = await request.text();
-  if (text.length > MAX_BODY) throw new Error("trop long");
+  if (text.length > max) throw new Error("trop long");
   return text ? JSON.parse(text) : {};
 }
 
@@ -248,7 +255,7 @@ export class Profil {
       return card ? json(card) : json({ erreur: "Aucun profil avec ce code" }, 404);
     }
     if (request.method !== "POST") return json({ erreur: "Introuvable" }, 404);
-    const body = await readJson(request);
+    const body = await readJson(request, action === "envoyer" ? CHUNK_MAX + 4096 : MAX_BODY);
 
     switch (action) {
       // Création (premier appareil qui présente ce code) ou mise à jour du nom et de la photo.
@@ -341,9 +348,69 @@ export class Profil {
         if (inbox.length) await storage.put("boite", []);
         return json({ messages: inbox });
       }
+      // Compte : création ou nouveau mot de passe (par l'appareil propriétaire du profil).
+      // `cle` : empreinte tirée du mot de passe sur l'appareil, qui prouve qu'on le connaît.
+      case "compte": {
+        if (!(await this.owner(body.secret)) || !ACCOUNT_KEY.test(body.cle ?? "")) return json({ erreur: "Refusé" }, 403);
+        await storage.put("compte", await sha256(body.cle));
+        return json({ ok: true });
+      }
+      // Envoi d'une sauvegarde chiffrée, morceau par morceau (`n` sur `total`).
+      case "envoyer": {
+        if (!(await this.accountOk(body.cle, true))) return json({ erreur: "Code ou mot de passe incorrect" }, 403);
+        const n = Number(body.n);
+        const total = Number(body.total);
+        if (!Number.isInteger(total) || total < 1 || total > MAX_CHUNKS || !Number.isInteger(n) || n < 0 || n >= total) {
+          return json({ erreur: "Sauvegarde trop volumineuse" }, 400);
+        }
+        if (typeof body.data !== "string" || body.data.length > CHUNK_MAX || !/^[A-Za-z0-9+/=]*$/.test(body.data)) {
+          return json({ erreur: "Morceau invalide" }, 400);
+        }
+        await storage.put(`envoi:${n}`, body.data);
+        // Dernier morceau : la nouvelle sauvegarde remplace l'ancienne d'un coup.
+        if (n === total - 1) {
+          const parts = [];
+          for (let i = 0; i < total; i++) {
+            const part = await storage.get(`envoi:${i}`);
+            if (typeof part !== "string") return json({ erreur: "Morceau manquant, recommencez l'envoi" }, 400);
+            parts.push(part);
+          }
+          for (let i = 0; i < total; i++) {
+            await storage.put(`sauvegarde:${i}`, parts[i]);
+            await storage.delete(`envoi:${i}`);
+          }
+          const previous = (await storage.get("sauvegarde")) ?? { total: 0 };
+          for (let i = total; i < previous.total; i++) await storage.delete(`sauvegarde:${i}`);
+          await storage.put("sauvegarde", { total, at: Date.now() });
+        }
+        return json({ ok: true });
+      }
+      // Récupération (autre appareil) : morceau `n` et description de la sauvegarde.
+      case "recuperer": {
+        if (!(await this.accountOk(body.cle, true))) return json({ erreur: "Code ou mot de passe incorrect" }, 403);
+        const meta = await storage.get("sauvegarde");
+        if (!meta) return json({ erreur: "Aucune sauvegarde en ligne pour ce compte" }, 404);
+        const n = Number(body.n ?? 0);
+        if (!Number.isInteger(n) || n < 0 || n >= meta.total) return json({ erreur: "Morceau inconnu" }, 400);
+        return json({ total: meta.total, at: meta.at, data: (await storage.get(`sauvegarde:${n}`)) ?? "" });
+      }
       default:
         return json({ erreur: "Introuvable" }, 404);
     }
+  }
+
+  /** Mot de passe du compte prouvé par `cle` ; `counted` : essai décompté (10 ratés par heure). */
+  async accountOk(cle, counted = false) {
+    const storage = this.state.storage;
+    const expected = await storage.get("compte");
+    if (!expected) return false;
+    const now = Date.now();
+    let tries = (await storage.get("essais")) ?? { n: 0, since: now };
+    if (now - tries.since > 3600_000) tries = { n: 0, since: now };
+    if (counted && tries.n >= TRIES_PER_HOUR) return false;
+    const ok = ACCOUNT_KEY.test(cle ?? "") && expected === (await sha256(cle));
+    if (!ok && counted) await storage.put("essais", { n: tries.n + 1, since: tries.since });
+    return ok;
   }
 }
 

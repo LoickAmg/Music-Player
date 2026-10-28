@@ -2,7 +2,8 @@
 import { computed, reactive, ref, watch } from "vue";
 import { api } from "@/lib/api";
 import { shareFile } from "@/lib/androidMedia";
-import { type Backup, buildBackup, parseBackup, planRestore, restorePrefs } from "@/lib/backup";
+import { type Backup, parseBackup, planRestore, restorePrefs } from "@/lib/backup";
+import { currentBackupJson, deviceName } from "@/lib/backupNow";
 import { useAppearanceStore } from "@/stores/appearance";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useLibraryStore } from "@/stores/library";
@@ -33,19 +34,8 @@ const found = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.
 const hasSettings = computed(() => !!backup.value && (!!backup.value.appearance || Object.keys(backup.value.prefs).length > 0));
 const total = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.length + p.missing.length, 0) ?? 0);
 
-const device = computed(() => share.deviceName || (onAndroid ? "Téléphone" : "Ordinateur"));
-
-async function backupJson(): Promise<string> {
-  const data = buildBackup({
-    device: device.value,
-    playlists: playlists.items,
-    favoriteIds: [...favorites.ids],
-    byId: (id) => library.byId(id),
-    listens: await api.getListens(),
-    appearance: JSON.parse(JSON.stringify(appearance.settings)),
-  });
-  return JSON.stringify(data);
-}
+const device = computed(() => deviceName());
+const backupJson = currentBackupJson;
 
 /** Synchronisation : la sauvegarde part par le partage (même Wi-Fi, code ou fichier) ;
  *  l'autre appareil la fusionne avec ses données. */
@@ -108,6 +98,7 @@ async function restore() {
   if (!backup.value || !plan.value) return;
   restoring.value = true;
   const summary: string[] = [];
+  let reload = false;
   try {
     if (parts.playlists) {
       let n = 0;
@@ -140,9 +131,12 @@ async function restore() {
       if (backup.value.appearance) appearance.restore(backup.value.appearance);
       restorePrefs(backup.value.prefs);
       summary.push("apparence et réglages");
+      // Identité des Proches (compte) et réglages lus au démarrage : interface relancée.
+      reload = true;
     }
     done.value = `Restauré : ${summary.join(", ")}.`;
     backup.value = null;
+    if (reload) setTimeout(() => location.reload(), 1500);
   } catch (e) {
     ui.notify(`Restauration interrompue : ${String(e)}`);
   } finally {

@@ -121,6 +121,13 @@ export const relay = {
       lecteur,
       amis,
     }),
+  /** Compte : empreinte du mot de passe enregistrée (par l'appareil propriétaire du profil). */
+  account: (base: string, code: string, secret: string, cle: string) =>
+    call<{ ok: true }>(base, `/v1/profil/${code}/compte`, { secret, cle }),
+  uploadChunk: (base: string, code: string, cle: string, n: number, total: number, data: string) =>
+    call<{ ok: true }>(base, `/v1/profil/${code}/envoyer`, { cle, n, total, data }),
+  downloadChunk: (base: string, code: string, cle: string, n: number) =>
+    call<{ total: number; at: number; data: string }>(base, `/v1/profil/${code}/recuperer`, { cle, n }),
   zone: (base: string) => call<{ zone: string | null; profils: Card[] }>(base, "/v1/zone"),
   announce: (base: string, code: string, secret: string, visible: boolean) =>
     call<{ zone: string | null }>(base, "/v1/zone", { code, secret, visible }),
