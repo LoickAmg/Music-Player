@@ -4,7 +4,7 @@ import tseslint from "typescript-eslint";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "qa-screenshots/**", "src/vite-env.d.ts"] },
+  { ignores: ["dist/**", "node_modules/**", "src-tauri/**", "qa-screenshots/**", "relay/.wrangler/**", "src/vite-env.d.ts"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   ...pluginVue.configs["flat/essential"],

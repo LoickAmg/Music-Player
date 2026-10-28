@@ -83,7 +83,12 @@ function newPlaylist() {
     <nav class="section" aria-label="Proches">
       <p class="section-title">
         Proches
-        <span v-if="friends.incoming.length" class="badge" :title="`${friends.incoming.length} demande(s) reçue(s)`">{{ friends.incoming.length }}</span>
+        <span
+          v-if="friends.incoming.length + friends.unreadTotal"
+          class="badge"
+          :title="`${friends.incoming.length} demande(s), ${friends.unreadTotal} message(s) non lu(s)`"
+          >{{ friends.incoming.length + friends.unreadTotal }}</span
+        >
       </p>
       <button
         v-for="x in friends.listening.slice(0, 4)"

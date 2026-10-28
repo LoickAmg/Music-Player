@@ -205,6 +205,10 @@ function relation(code: string): "ami" | "attente" | null {
           >
             <Icon name="play" :size="14" /> Écouter aussi
           </button>
+          <button type="button" class="icon-btn chat-btn" :aria-label="`Discuter avec ${f.name}`" title="Discuter" @click="friends.openChat(f.code)">
+            <Icon name="lyrics" :size="17" />
+            <span v-if="friends.unread[f.code]" class="unread">{{ friends.unread[f.code] }}</span>
+          </button>
           <button type="button" class="icon-btn" :aria-label="`Retirer ${f.name} de mes proches`" title="Retirer" @click="friends.remove(f.code)">
             <Icon name="close" :size="15" />
           </button>
@@ -293,6 +297,23 @@ function relation(code: string): "ami" | "attente" | null {
 </template>
 
 <style scoped>
+.chat-btn {
+  position: relative;
+  color: var(--accent);
+}
+.unread {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger-strong);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+}
 .card {
   padding: 18px;
   border-radius: 14px;

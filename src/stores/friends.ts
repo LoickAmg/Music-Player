@@ -1,5 +1,17 @@
 import { defineStore } from "pinia";
-import { type Card, hex, type Message, newCode, type Presence, relay, RelayError, relayBase, smallAvatar } from "@/lib/friendsApi";
+import {
+  type Card,
+  hex,
+  type Message,
+  newCode,
+  type Piece,
+  type Presence,
+  relay,
+  RelayError,
+  relayBase,
+  smallAvatar,
+  type Word,
+} from "@/lib/friendsApi";
 import { useAppearanceStore } from "./appearance";
 import { useLibraryStore } from "./library";
 import { usePlayerStore } from "./player";
@@ -11,6 +23,26 @@ import { useShareStore } from "./share";
 // partage ; l'état (code, secret, amis) reste sur l'appareil.
 
 const KEY = "mp:proches";
+/** Conversations avec les proches (gardées sur l'appareil, 300 lignes par proche au plus). */
+const WORDS_KEY = "mp:proches-mots";
+const MAX_LINES = 300;
+
+export interface ChatLine {
+  mine: boolean;
+  texte: string;
+  piece: Piece | null;
+  at: number;
+}
+
+function loadWords(): { conversations: Record<string, ChatLine[]>; unread: Record<string, number> } {
+  try {
+    const raw = localStorage.getItem(WORDS_KEY);
+    if (raw) return { conversations: {}, unread: {}, ...(JSON.parse(raw) as object) };
+  } catch {
+    // illisible : on repart de zéro
+  }
+  return { conversations: {}, unread: {} };
+}
 
 export interface Friend {
   code: string;
@@ -77,6 +109,9 @@ export const useFriendsStore = defineStore("friends", {
   state: () => ({
     ...load(),
     live: {} as Record<string, Live>,
+    ...loadWords(),
+    /** Conversation ouverte (code du proche), ou null. */
+    chatWith: null as string | null,
     /** Page « Proches » à l'écran : rafraîchissement plus fréquent. */
     watching: false,
     zone: null as { label: string | null; profiles: Card[] } | null,
@@ -96,6 +131,7 @@ export const useFriendsStore = defineStore("friends", {
         .sort((a, b) => Number(b.status.playing) - Number(a.status.playing) || b.status.at - a.status.at);
     },
     isFriend: (state) => (code: string) => state.friends.some((f) => f.code === code),
+    unreadTotal: (state) => Object.values(state.unread).reduce((s, n) => s + n, 0),
     isPending: (state) => (code: string) => state.outgoing.some((o) => o.code === code),
   },
   actions: {
@@ -242,6 +278,46 @@ export const useFriendsStore = defineStore("friends", {
       this.outgoing = this.outgoing.filter((o) => o.code !== friend.code);
     },
 
+    saveWords() {
+      try {
+        localStorage.setItem(WORDS_KEY, JSON.stringify({ conversations: this.conversations, unread: this.unread }));
+      } catch {
+        // stockage plein ou indisponible : la conversation reste pour la session
+      }
+    },
+    addLine(code: string, line: ChatLine) {
+      const lines = [...(this.conversations[code] ?? []), line].slice(-MAX_LINES);
+      this.conversations = { ...this.conversations, [code]: lines };
+    },
+    onWord(w: Word) {
+      if (!this.isFriend(w.de)) return;
+      this.addLine(w.de, { mine: false, texte: w.texte, piece: w.piece, at: w.at });
+      if (this.chatWith !== w.de) this.unread = { ...this.unread, [w.de]: (this.unread[w.de] ?? 0) + 1 };
+      this.saveWords();
+    },
+    /** Mot à un proche : texte, et/ou un morceau ou une playlist décrits. */
+    async sendWord(code: string, texte: string, piece: Piece | null): Promise<boolean> {
+      const friend = this.friends.find((f) => f.code === code);
+      if (!friend) return false;
+      const ok = await this.run(async () => {
+        const { base, code: me } = this.need();
+        await relay.word(base, code, { de: me, token: friend.readToken, texte: texte.trim(), piece });
+        this.addLine(code, { mine: true, texte: texte.trim(), piece, at: Date.now() });
+        this.saveWords();
+        return true;
+      });
+      return !!ok;
+    },
+    openChat(code: string | null) {
+      this.chatWith = code;
+      if (code && this.unread[code]) {
+        const rest = { ...this.unread };
+        delete rest[code];
+        this.unread = rest;
+        this.saveWords();
+      }
+      lastInbox = 0;
+    },
     onMessage(m: Message) {
       if (m.type === "retrait") {
         this.friends = this.friends.filter((f) => f.code !== m.de);
@@ -270,7 +346,10 @@ export const useFriendsStore = defineStore("friends", {
       if (!this.enabled || !this.me || !this.base) return;
       try {
         const { messages } = await relay.inbox(this.base, this.me.code, this.me.secret);
-        for (const m of messages) this.onMessage(m);
+        for (const m of messages) {
+          if (m.type === "mot") this.onWord(m);
+          else this.onMessage(m);
+        }
         if (messages.length) this.save();
       } catch {
         // hors ligne : au prochain tour
@@ -352,7 +431,7 @@ export const useFriendsStore = defineStore("friends", {
       const now = Date.now();
       const hidden = typeof document !== "undefined" && document.hidden;
       const friendsEvery = this.watching ? 8_000 : hidden ? 120_000 : 20_000;
-      const inboxEvery = this.watching ? 10_000 : hidden ? 180_000 : 45_000;
+      const inboxEvery = this.chatWith ? 4_000 : this.watching ? 10_000 : hidden ? 180_000 : 45_000;
       if (now - lastFriends >= friendsEvery) {
         lastFriends = now;
         void this.pollFriends();

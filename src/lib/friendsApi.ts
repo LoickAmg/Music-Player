@@ -50,6 +50,20 @@ export interface Message {
   at: number;
 }
 
+/** Morceau ou playlist joint à un mot (décrits, jamais de fichier). */
+export type Piece =
+  | { type: "morceau"; titre: string; artiste: string; album: string }
+  | { type: "playlist"; nom: string; morceaux: { titre: string; artiste: string; album: string }[] };
+
+/** Mot reçu d'un proche (messagerie). */
+export interface Word {
+  type: "mot";
+  de: string;
+  texte: string;
+  piece: Piece | null;
+  at: number;
+}
+
 export class RelayError extends Error {
   constructor(
     message: string,
@@ -97,8 +111,11 @@ export const relay = {
   revoke: (base: string, code: string, secret: string, lecteur: string) =>
     call<{ ok: true }>(base, `/v1/profil/${code}/retirer`, { secret, lecteur }),
   send: (base: string, to: string, message: Omit<Message, "at">) => call<{ ok: true }>(base, `/v1/profil/${to}/message`, message),
+  /** Mot à un proche : `token` est celui qu'il nous a donné (preuve qu'on est son ami). */
+  word: (base: string, to: string, word: { de: string; token: string; texte: string; piece: Piece | null }) =>
+    call<{ ok: true }>(base, `/v1/profil/${to}/message`, { type: "mot", ...word }),
   inbox: (base: string, code: string, secret: string) =>
-    call<{ messages: Message[] }>(base, `/v1/profil/${code}/boite`, { secret }),
+    call<{ messages: (Message | Word)[] }>(base, `/v1/profil/${code}/boite`, { secret }),
   friends: (base: string, lecteur: string, amis: { code: string; token: string }[]) =>
     call<{ amis: { code: string; carte?: Card; statut?: Presence | null; refuse?: boolean }[] }>(base, "/v1/amis", {
       lecteur,

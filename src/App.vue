@@ -27,6 +27,7 @@ import PlayerBar from "@/components/PlayerBar.vue";
 import ShareActivity from "@/components/ShareActivity.vue";
 import ShareDialog from "@/components/ShareDialog.vue";
 import FeedbackDialog from "@/components/FeedbackDialog.vue";
+import FriendChat from "@/components/FriendChat.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import TrackMenu from "@/components/TrackMenu.vue";
@@ -437,6 +438,7 @@ onBeforeUnmount(() => {
     <UpdateDialog />
     <ShareDialog />
     <FeedbackDialog />
+    <FriendChat />
     <ShareActivity />
     <TrackMenu />
     <TrackPicker />
