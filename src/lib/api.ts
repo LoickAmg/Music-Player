@@ -115,6 +115,10 @@ export const api = {
   listFavorites: () => invoke<string[]>("list_favorites"),
   /** Aime plusieurs morceaux d'un coup ; renvoie le nombre ajouté. */
   addFavorites: (trackIds: string[]) => invoke<number>("add_favorites", { trackIds }),
+  /** Sauvegarde (.mpsave) : enregistrée (chemin, null si annulé), lue, écoute fusionnée. */
+  saveBackup: (json: string, name: string) => invoke<string | null>("save_backup", { json, name }),
+  readBackup: (path: string) => invoke<string>("read_backup", { path }),
+  importListens: (listens: import("./recap").Listen[]) => invoke<number>("import_listens", { listens }),
   /** Visualiseur : spectre du son joué (32 bandes, 0 à 255 ; vide en pause). */
   getSpectrum: () => invoke<number[]>("get_spectrum"),
   /** Fichier audio reçu au lancement (« Ouvrir avec »), une seule fois. */

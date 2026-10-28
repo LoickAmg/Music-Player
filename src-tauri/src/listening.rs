@@ -102,6 +102,21 @@ pub fn record(data_dir: &Path, listen: &Listen) -> Result<(), String> {
     writeln!(file, "{line}").map_err(|e| e.to_string())
 }
 
+/// Ajoute les écoutes absentes de l'historique (même début et même titre : déjà là).
+pub fn merge(data_dir: &Path, listens: Vec<Listen>) -> Result<usize, String> {
+    let mut known: std::collections::HashSet<(u64, String)> =
+        load_all(data_dir).into_iter().map(|l| (l.started, l.title)).collect();
+    let mut added = 0;
+    for listen in listens {
+        if listen.secs < MIN_LISTEN_SECS || !known.insert((listen.started, listen.title.clone())) {
+            continue;
+        }
+        record(data_dir, &listen)?;
+        added += 1;
+    }
+    Ok(added)
+}
+
 fn pending_path(data_dir: &Path) -> PathBuf {
     dir(data_dir).join("en-cours.json")
 }
@@ -193,5 +208,17 @@ mod tests {
         record(dir.path(), &listen).unwrap();
         record(dir.path(), &listen).unwrap();
         assert_eq!(load_all(dir.path()), vec![listen.clone(), listen]);
+    }
+
+    #[test]
+    fn merging_a_backup_skips_listens_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let listen = Listen { track_id: "x".into(), title: "T".into(), artist: "A".into(), album: "B".into(), genre: None, started: 1_790_000_000, secs: 61.5, duration_secs: 200.0 };
+        record(dir.path(), &listen).unwrap();
+        let other = Listen { started: 1_790_000_500, ..listen.clone() };
+        let skipped = Listen { secs: 3.0, started: 1_790_001_000, ..listen.clone() };
+        let added = merge(dir.path(), vec![listen.clone(), other.clone(), other.clone(), skipped]).unwrap();
+        assert_eq!(added, 1);
+        assert_eq!(load_all(dir.path()).len(), 2);
     }
 }

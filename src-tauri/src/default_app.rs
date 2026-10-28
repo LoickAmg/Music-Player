@@ -17,7 +17,8 @@ pub fn file_from_args<S: AsRef<str>>(args: &[S]) -> Option<String> {
         let path = Path::new(arg);
         let wanted = crate::ffmpeg::is_native(path)
             || crate::ffmpeg::needs_ffmpeg(path)
-            || crate::ffmpeg::extension_of(path) == crate::sharing::EXTENSION;
+            || crate::ffmpeg::extension_of(path) == crate::sharing::EXTENSION
+            || crate::ffmpeg::extension_of(path) == crate::commands::BACKUP_EXTENSION;
         (wanted && path.is_file()).then(|| arg.to_string())
     })
 }

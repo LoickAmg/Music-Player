@@ -13,6 +13,7 @@ import { useUiStore } from "@/stores/ui";
 import { useUpdaterStore } from "@/stores/updater";
 import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type PerfSetting } from "@/lib/perf";
 import DamagedFiles from "@/components/DamagedFiles.vue";
+import BackupSection from "@/components/BackupSection.vue";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
 
@@ -123,7 +124,7 @@ const shortcuts = [
       <span class="chev" aria-hidden="true">›</span>
     </button>
 
-    <section class="card custom-card">
+    <section class="section-card custom-card">
       <h2><Icon name="brush" :size="17" /> Personnalisation</h2>
       <p class="muted">Thèmes et couleurs, polices de l'interface, des titres et des paroles, taille des paroles. Jaquettes de playlists : bouton « Personnaliser » de chaque playlist.</p>
       <div class="actions">
@@ -131,7 +132,7 @@ const shortcuts = [
       </div>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="folder" :size="17" /> Bibliothèque</h2>
       <p class="path">{{ library.root ?? "Aucun dossier choisi" }}</p>
       <p class="muted">
@@ -160,7 +161,7 @@ const shortcuts = [
       <p class="muted small">Notes vocales WhatsApp, Telegram, dictaphone, appels enregistrés. Un fichier mal rangé se corrige depuis son menu (« ⋯ »).</p>
     </section>
 
-    <section v-if="onAndroid || onWindows" class="card">
+    <section v-if="onAndroid || onWindows" class="section-card">
       <h2><Icon name="play" :size="17" /> Lecteur par défaut</h2>
       <p v-if="onWindows" class="muted">
         Ouvrez vos fichiers audio avec Music Player d'un double-clic. Windows vous laisse choisir l'application par
@@ -178,7 +179,7 @@ const shortcuts = [
       </div>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="share" :size="17" /> Partage</h2>
       <p class="muted">
         Un morceau ou une playlist se partage depuis son menu (« Partager ») : à un appareil voisin sur le même Wi-Fi, à distance
@@ -221,8 +222,9 @@ const shortcuts = [
     </section>
 
     <DamagedFiles />
+    <BackupSection />
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="refresh" :size="17" /> Mises à jour</h2>
       <p v-if="onAndroid" class="muted">
         Version installée : {{ version ?? "—" }}. L'application vérifie au démarrage, et en arrière-plan quelques fois par
@@ -252,7 +254,7 @@ const shortcuts = [
       </div>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="brush" :size="17" /> Affichage</h2>
       <div class="presets">
         <button
@@ -277,7 +279,7 @@ const shortcuts = [
       </p>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="eq" :size="17" /> Égaliseur</h2>
       <div class="presets">
         <button v-for="p in EQ_PRESETS" :key="p.name" type="button" class="chip" :class="{ on: eq.activePreset === p.name }" @click="eq.applyPreset(p.gains)">{{ p.name }}</button>
@@ -291,7 +293,7 @@ const shortcuts = [
       </div>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2><Icon name="lyrics" :size="17" /> Paroles</h2>
       <label class="toggle">
         <input type="checkbox" :checked="lyrics.allowOnline" @change="lyrics.setAllowOnline(($event.target as HTMLInputElement).checked)" />
@@ -318,7 +320,7 @@ const shortcuts = [
       <p v-if="lyrics.installError" class="error">{{ lyrics.installError }}</p>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2>Raccourcis clavier</h2>
       <dl class="keys">
         <template v-for="[k, v] in shortcuts" :key="k">
@@ -328,7 +330,7 @@ const shortcuts = [
       </dl>
     </section>
 
-    <section class="card">
+    <section class="section-card">
       <h2>À propos</h2>
       <p class="muted small">
         Music Player — lecteur de musique local : la plupart des formats audio (ffmpeg en appoint), paroles
@@ -375,34 +377,12 @@ const shortcuts = [
 .settings {
   max-width: 760px;
 }
-.card {
-  margin-bottom: 16px;
-  padding: 18px 20px;
-  border-radius: 12px;
-  background: rgba(var(--fg-rgb), 0.04);
-  box-shadow: inset 0 0 0 0.5px var(--separator);
-}
-h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 15px;
-}
-h2 :deep(svg) {
-  color: var(--accent);
-}
 .path {
   margin: 0 0 2px;
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 12.5px;
   word-break: break-all;
   user-select: text;
-}
-.actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
 }
 .pill:disabled {
   opacity: 0.45;

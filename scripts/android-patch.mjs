@@ -109,6 +109,7 @@ if (!manifest.includes("audio/*")) {
                 <data android:mimeType="application/ogg" />
                 <data android:mimeType="application/x-flac" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="application/json" />
                 <data android:mimeType="application/octet-stream" />
             </intent-filter>
         </activity>`;

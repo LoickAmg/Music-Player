@@ -342,6 +342,27 @@ export const useAppearanceStore = defineStore("appearance", {
       await this.applyWindowIcon(true);
       return true;
     },
+    /** Apparence d'une sauvegarde : tout sauf les fichiers propres à l'autre appareil (photo
+     *  de profil, polices importées), qui gardent ceux de cet appareil. */
+    restore(raw: unknown) {
+      const incoming = normalize(raw);
+      const mine = this.settings;
+      const knownFonts = new Set(mine.customFonts.map((f) => f.id));
+      const font = (id: string, fallback: string) => (incoming.customFonts.some((f) => f.id === id) && !knownFonts.has(id) ? fallback : id);
+      this.settings = {
+        ...incoming,
+        customFonts: mine.customFonts,
+        fonts: {
+          ui: font(incoming.fonts.ui, mine.fonts.ui),
+          display: font(incoming.fonts.display, mine.fonts.display),
+          lyrics: font(incoming.fonts.lyrics, mine.fonts.lyrics),
+        },
+        profile: { name: incoming.profile.name || mine.profile.name, avatar: mine.profile.avatar },
+        appIcon: incoming.appIcon === "photo" ? mine.appIcon : incoming.appIcon,
+        appIconImage: mine.appIconImage,
+      };
+      this.changed();
+    },
     reset() {
       const keep = this.settings.customThemes;
       const fonts = this.settings.customFonts;

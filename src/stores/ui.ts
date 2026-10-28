@@ -68,6 +68,8 @@ export const useUiStore = defineStore("ui", {
     playlistDialog: null as PlaylistDialog | null,
     /** Fenêtre « Un avis ? » ouverte. */
     feedback: false,
+    /** Sauvegarde ouverte avec l'appli, à proposer de restaurer (contenu du fichier). */
+    backupToRestore: null as string | null,
     /** Playlist dans laquelle on choisit des morceaux à ajouter (sélecteur plein écran). */
     trackPicker: null as string | null,
     /** Recherche manuelle de paroles ouverte (pour le morceau en cours). */

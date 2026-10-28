@@ -346,6 +346,11 @@ export function installTauriMock() {
     },
     sync_app_icon: () => null,
     save_image: ({ name }) => `C:/Users/Moi/Pictures/Music Player/${name}`,
+    save_backup: ({ name }) => `C:/Users/Moi/Documents/${name}.mpsave`,
+    read_backup: () => {
+      throw new Error("Lecture de fichier indisponible en mode démo.");
+    },
+    import_listens: ({ listens }: { listens: unknown[] }) => listens.length,
     // Trois mois d'écoutes inventées (soirées surtout), pour voir la rétrospective.
     get_listens: () => {
       const out = [];

@@ -226,6 +226,31 @@ select {
   font-weight: 700;
   letter-spacing: -0.02em;
 }
+/* Carte d'une section de réglages (Réglages, fichiers illisibles, sauvegarde…). */
+.section-card {
+  margin-bottom: 16px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(var(--fg-rgb), 0.04);
+  box-shadow: inset 0 0 0 0.5px var(--separator);
+}
+.section-card > h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+.section-card > h2 svg {
+  color: var(--accent);
+}
+.section-card .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 /* Ligne sous le titre d'une page (nombre de morceaux, durée…). */
 .page-sub {
   margin: -16px 0 18px;

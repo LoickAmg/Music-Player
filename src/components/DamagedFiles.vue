@@ -62,7 +62,7 @@ async function reveal(path: string) {
 </script>
 
 <template>
-  <section id="fichiers-illisibles" class="card">
+  <section id="fichiers-illisibles" class="section-card damaged">
     <h2>
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 4 21 19.5H3Z M12 10v4.2 M12 17h.01" />
@@ -98,28 +98,16 @@ async function reveal(path: string) {
 </template>
 
 <style scoped>
-.card {
-  margin-bottom: 16px;
-  padding: 18px 20px;
-  border-radius: 12px;
-  background: rgba(var(--fg-rgb), 0.04);
-  box-shadow: inset 0 0 0 0.5px var(--separator);
+.damaged {
   /* Lien « N fichiers illisibles » : le titre reste visible sous la barre du haut. */
   scroll-margin-top: 24px;
 }
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
-  .card {
+  .damaged {
     scroll-margin-top: calc(var(--safe-top) + 84px);
   }
 }
-h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 12px;
-  font-size: 15px;
-}
-h2 svg {
+.damaged > h2 svg {
   color: var(--warning);
 }
 .count {

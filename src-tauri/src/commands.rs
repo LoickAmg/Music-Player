@@ -875,15 +875,26 @@ pub fn list_favorites(state: State<AppState>) -> Vec<String> {
 /// `sharing::EXTENSION` et le dossier `partages/`, exposés autrement (feuille de partage).
 #[cfg(not(target_os = "android"))]
 fn pick_save_path(app: &AppHandle, suggested_name: &str) -> Option<PathBuf> {
+    pick_save_path_as(app, suggested_name, "Partage Music Player", sharing::EXTENSION)
+}
+
+/// Boîte « Enregistrer sous » pour un type de fichier donné (partage, sauvegarde).
+#[cfg(not(target_os = "android"))]
+fn pick_save_path_as(app: &AppHandle, suggested_name: &str, label: &str, ext: &str) -> Option<PathBuf> {
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
         .file()
         .set_file_name(suggested_name)
-        .add_filter("Partage Music Player", &[sharing::EXTENSION])
+        .add_filter(label, &[ext])
         .save_file(move |path| {
             let _ = tx.send(path);
         });
     rx.recv().ok().flatten().and_then(|p| p.into_path().ok())
+}
+
+#[cfg(target_os = "android")]
+fn pick_save_path_as(app: &AppHandle, suggested_name: &str, _label: &str, _ext: &str) -> Option<PathBuf> {
+    pick_save_path(app, suggested_name)
 }
 
 #[cfg(target_os = "android")]
@@ -953,6 +964,46 @@ pub fn export_playlist(app: AppHandle, playlist_id: String) -> Result<Option<Str
     };
     sharing::export_playlist(&state, &dest, &playlist_id)?;
     Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+// ---------------------------------------------------------------------
+// Sauvegarde (fichier .mpsave : playlists, titres aimés, écoute, réglages)
+// ---------------------------------------------------------------------
+
+pub const BACKUP_EXTENSION: &str = "mpsave";
+const BACKUP_MAX: u64 = 30 * 1024 * 1024;
+
+/// Écrit la sauvegarde préparée par l'interface (JSON) ; ordinateur : « Enregistrer sous »,
+/// Android : dans le cache, partagée ensuite par la feuille de partage. `None` : annulé.
+#[tauri::command(async)]
+pub fn save_backup(app: AppHandle, json: String, name: String) -> Result<Option<String>, String> {
+    serde_json::from_str::<serde_json::Value>(&json).map_err(|_| "Sauvegarde invalide.".to_string())?;
+    let file = bundle_filename(&name).replace(&format!(".{}", sharing::EXTENSION), &format!(".{BACKUP_EXTENSION}"));
+    let Some(dest) = pick_save_path_as(&app, &file, "Sauvegarde Music Player", BACKUP_EXTENSION) else {
+        return Ok(None);
+    };
+    std::fs::write(&dest, json).map_err(|e| e.to_string())?;
+    Ok(Some(dest.to_string_lossy().to_string()))
+}
+
+/// Contenu d'une sauvegarde ouverte avec l'appli (« Ouvrir avec Music Player »).
+#[tauri::command(async)]
+pub fn read_backup(path: String) -> Result<String, String> {
+    let path = PathBuf::from(path);
+    if crate::ffmpeg::extension_of(&path) != BACKUP_EXTENSION {
+        return Err("Ce fichier n'est pas une sauvegarde Music Player.".into());
+    }
+    if std::fs::metadata(&path).map_err(|e| e.to_string())?.len() > BACKUP_MAX {
+        return Err("Sauvegarde trop volumineuse.".into());
+    }
+    std::fs::read_to_string(&path).map_err(|e| e.to_string())
+}
+
+/// Ajoute à l'historique d'écoute les écoutes d'une sauvegarde qui n'y sont pas déjà ;
+/// renvoie le nombre ajouté.
+#[tauri::command(async)]
+pub fn import_listens(state: State<'_, AppState>, listens: Vec<crate::listening::Listen>) -> Result<usize, String> {
+    crate::listening::merge(&state.data_dir, listens)
 }
 
 /// Propose de choisir une archive de partage à importer (boîte de dialogue, ordinateur

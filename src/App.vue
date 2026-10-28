@@ -190,6 +190,16 @@ function shareImportMessage(result: { name: string; kind: string; added_tracks: 
 // Fichier ouvert depuis une autre appli : une archive de partage (.mpshare) est importée,
 // un fichier audio est lu tout de suite (écran « À l'écoute » affiché).
 async function openFile(path: string) {
+  // Sauvegarde : proposée à la restauration dans les Réglages (rien n'est appliqué d'office).
+  if (/\.mpsave$/i.test(path)) {
+    try {
+      ui.backupToRestore = await api.readBackup(path);
+      ui.go({ name: "settings" });
+    } catch (e) {
+      ui.notify(String(e));
+    }
+    return;
+  }
   if (/\.mpshare$/i.test(path)) {
     try {
       // La bibliothèque (avec les morceaux importés) arrive par l'événement « library-updated »,
