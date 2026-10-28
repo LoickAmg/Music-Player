@@ -33,19 +33,38 @@ const found = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.
 const hasSettings = computed(() => !!backup.value && (!!backup.value.appearance || Object.keys(backup.value.prefs).length > 0));
 const total = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.length + p.missing.length, 0) ?? 0);
 
+const device = computed(() => share.deviceName || (onAndroid ? "Téléphone" : "Ordinateur"));
+
+async function backupJson(): Promise<string> {
+  const data = buildBackup({
+    device: device.value,
+    playlists: playlists.items,
+    favoriteIds: [...favorites.ids],
+    byId: (id) => library.byId(id),
+    listens: await api.getListens(),
+    appearance: JSON.parse(JSON.stringify(appearance.settings)),
+  });
+  return JSON.stringify(data);
+}
+
+/** Synchronisation : la sauvegarde part par le partage (même Wi-Fi, code ou fichier) ;
+ *  l'autre appareil la fusionne avec ses données. */
+async function sync() {
+  saving.value = true;
+  try {
+    share.open({ kind: "backup", id: await backupJson() }, `Sauvegarde de ${device.value}`);
+  } catch (e) {
+    ui.notify(`Synchronisation impossible : ${String(e)}`);
+  } finally {
+    saving.value = false;
+  }
+}
+
 async function save() {
   saving.value = true;
   try {
-    const data = buildBackup({
-      device: share.deviceName || (onAndroid ? "Téléphone" : "Ordinateur"),
-      playlists: playlists.items,
-      favoriteIds: [...favorites.ids],
-      byId: (id) => library.byId(id),
-      listens: await api.getListens(),
-      appearance: JSON.parse(JSON.stringify(appearance.settings)),
-    });
     const day = new Date().toISOString().slice(0, 10);
-    const path = await api.saveBackup(JSON.stringify(data), `Sauvegarde Music Player ${day}`);
+    const path = await api.saveBackup(await backupJson(), `Sauvegarde Music Player ${day}`);
     if (!path) return;
     if (onAndroid) shareFile(path);
     else ui.notify("Sauvegarde enregistrée");
@@ -139,9 +158,16 @@ async function restore() {
       Playlists, titres aimés, historique d'écoute, apparence et réglages dans un fichier (.mpsave), à restaurer ici ou
       sur un autre appareil. La musique n'y est pas : les morceaux sont retrouvés dans la bibliothèque de l'appareil.
     </p>
+    <p class="muted small">
+      PC et téléphone : « Synchroniser » envoie cette sauvegarde à l'autre appareil (même Wi-Fi ou code), qui la
+      fusionne avec la sienne. Faites-le dans les deux sens pour que les deux aient tout.
+    </p>
     <div class="actions">
       <button type="button" class="pill pill-accent" :disabled="saving" @click="save">
         <Icon name="share" :size="15" /> {{ saving ? "Préparation…" : onAndroid ? "Sauvegarder et envoyer…" : "Enregistrer une sauvegarde…" }}
+      </button>
+      <button type="button" class="pill pill-ghost" :disabled="saving" @click="sync">
+        <Icon name="refresh" :size="15" /> Synchroniser avec un autre appareil…
       </button>
       <label class="pill pill-ghost file">
         <Icon name="import" :size="15" /> Restaurer une sauvegarde…

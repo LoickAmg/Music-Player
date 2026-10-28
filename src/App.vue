@@ -286,6 +286,11 @@ onMounted(async () => {
       progress: (p) => share.onProgress(p),
       offer: (id, offer) => share.onOffer(id, offer),
       received: (result) => share.onReceived(result),
+      // Sauvegarde reçue (synchronisation) : proposée à la restauration dans les Réglages.
+      backup: (content) => {
+        ui.backupToRestore = content;
+        ui.go({ name: "settings" });
+      },
     }),
   );
   void share.init(deviceName.value);

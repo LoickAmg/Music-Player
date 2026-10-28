@@ -17,7 +17,12 @@ const offer = computed(() => share.offers[0] ?? null);
 const offerText = computed(() => {
   const o = offer.value?.offer;
   if (!o) return "";
-  const what = o.kind === "playlist" ? `la playlist « ${o.name} » (${o.tracks} morceau${o.tracks > 1 ? "x" : ""})` : `le morceau « ${o.name} »`;
+  const what =
+    o.kind === "sauvegarde"
+      ? "une sauvegarde (playlists, titres aimés, écoute, réglages) à fusionner avec cet appareil"
+      : o.kind === "playlist"
+        ? `la playlist « ${o.name} » (${o.tracks} morceau${o.tracks > 1 ? "x" : ""})`
+        : `le morceau « ${o.name} »`;
   return `${o.from} veut vous envoyer ${what}, ${formatBytes(o.size)}.`;
 });
 

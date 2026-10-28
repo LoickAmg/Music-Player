@@ -20,6 +20,8 @@ use crate::state::AppState;
 pub enum Item {
     Track(String),
     Playlist(String),
+    /// Sauvegarde (contenu JSON du .mpsave) : synchronisation avec un autre appareil.
+    Backup(String),
 }
 
 /// Description d'un envoi, montrée à la personne qui reçoit avant qu'elle accepte.
@@ -91,6 +93,12 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
             sharing::export_playlist(&state, &path, id)?;
             ("playlist", name, count)
         }
+        Item::Backup(json) => {
+            serde_json::from_str::<serde_json::Value>(json).map_err(|_| "Sauvegarde invalide.".to_string())?;
+            std::fs::write(&path, json).map_err(|e| e.to_string())?;
+            let from = if from.trim().is_empty() { "cet appareil" } else { from.trim() };
+            ("sauvegarde", format!("Sauvegarde de {from}"), 0)
+        }
     };
     let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
     let from = if from.trim().is_empty() { "Music Player" } else { from.trim() };
@@ -108,15 +116,34 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
     ))
 }
 
-/// Archive reçue : importée dans la bibliothèque (puis effacée), interface prévenue.
+/// Contenu reçu : archive de partage importée dans la bibliothèque, ou sauvegarde transmise à
+/// l'interface (qui propose de la restaurer). Le fichier reçu est effacé ensuite.
 pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, String> {
     let state = app.state::<AppState>();
+    if is_backup(path) {
+        let content = std::fs::read_to_string(path).map_err(|e| e.to_string());
+        let _ = std::fs::remove_file(path);
+        let _ = app.emit("backup-received", content?);
+        return Ok(ImportResult {
+            name: "Sauvegarde".into(),
+            kind: "sauvegarde".into(),
+            added_tracks: 0,
+            skipped_tracks: 0,
+            playlist_id: None,
+        });
+    }
     let result = sharing::import_bundle(&state, path);
     let _ = std::fs::remove_file(path);
     let result = result?;
     let _ = app.emit("library-updated", state.library.lock().unwrap().clone());
     let _ = app.emit("share-received", &result);
     Ok(result)
+}
+
+/// Sauvegarde (JSON) plutôt qu'archive de partage (zip, « PK » en tête).
+fn is_backup(path: &Path) -> bool {
+    let mut head = [0u8; 1];
+    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && head[0] == b'{'
 }
 
 static CANCEL: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = LazyLock::new(Default::default);
@@ -209,4 +236,27 @@ pub fn copy_exact(
         progress(done);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_received_backup_is_told_apart_from_a_share_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        let backup = dir.path().join("a");
+        std::fs::write(&backup, br#"{"format":"music-player-sauvegarde"}"#).unwrap();
+        let archive = dir.path().join("b");
+        std::fs::write(&archive, b"PK...").unwrap();
+        assert!(is_backup(&backup));
+        assert!(!is_backup(&archive));
+        assert!(!is_backup(&dir.path().join("absent")));
+    }
+
+    #[test]
+    fn a_backup_item_is_read_from_the_interface() {
+        let item: Item = serde_json::from_str(r#"{"kind":"backup","id":"{}"}"#).unwrap();
+        assert!(matches!(item, Item::Backup(json) if json == "{}"));
+    }
 }

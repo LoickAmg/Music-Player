@@ -162,12 +162,15 @@ export async function onShareEvents(handlers: {
   progress: (p: TransferProgress) => void;
   offer: (id: string, offer: ShareOffer) => void;
   received: (result: ShareImportResult) => void;
+  /** Sauvegarde reçue d'un autre appareil (contenu du .mpsave). */
+  backup: (content: string) => void;
 }): Promise<UnlistenFn> {
   try {
     const offs = await Promise.all([
       listen<TransferProgress>("share-progress", (e) => handlers.progress(e.payload)),
       listen<{ id: string; offer: ShareOffer }>("nearby-offer", (e) => handlers.offer(e.payload.id, e.payload.offer)),
       listen<ShareImportResult>("share-received", (e) => handlers.received(e.payload)),
+      listen<string>("backup-received", (e) => handlers.backup(e.payload)),
     ]);
     return () => offs.forEach((off) => off());
   } catch {
