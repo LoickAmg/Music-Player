@@ -26,6 +26,7 @@ import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
 import ShareActivity from "@/components/ShareActivity.vue";
 import ShareDialog from "@/components/ShareDialog.vue";
+import FeedbackDialog from "@/components/FeedbackDialog.vue";
 import SidePanel from "@/components/SidePanel.vue";
 import Sidebar from "@/components/Sidebar.vue";
 import TrackMenu from "@/components/TrackMenu.vue";
@@ -420,6 +421,7 @@ onBeforeUnmount(() => {
     <MobileBar v-if="ui.isMobile" />
     <UpdateDialog />
     <ShareDialog />
+    <FeedbackDialog />
     <ShareActivity />
     <TrackMenu />
     <TrackPicker />

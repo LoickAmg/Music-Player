@@ -66,6 +66,8 @@ export const useUiStore = defineStore("ui", {
     toast: null as string | null,
     menu: null as TrackMenu | null,
     playlistDialog: null as PlaylistDialog | null,
+    /** Fenêtre « Un avis ? » ouverte. */
+    feedback: false,
     /** Playlist dans laquelle on choisit des morceaux à ajouter (sélecteur plein écran). */
     trackPicker: null as string | null,
     /** Recherche manuelle de paroles ouverte (pour le morceau en cours). */

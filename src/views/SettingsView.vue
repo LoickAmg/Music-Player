@@ -114,6 +114,15 @@ const shortcuts = [
   <div class="page settings">
     <h1 class="page-title">Réglages</h1>
 
+    <button type="button" class="feedback-card" @click="ui.feedback = true">
+      <Icon name="lyrics" :size="20" />
+      <span>
+        <strong>Un avis ?</strong>
+        <small>Un problème, une idée, une suggestion : écrivez-moi, captures d'écran comprises.</small>
+      </span>
+      <span class="chev" aria-hidden="true">›</span>
+    </button>
+
     <section class="card custom-card">
       <h2><Icon name="brush" :size="17" /> Personnalisation</h2>
       <p class="muted">Thèmes et couleurs, polices de l'interface, des titres et des paroles, taille des paroles. Jaquettes de playlists : bouton « Personnaliser » de chaque playlist.</p>
@@ -333,6 +342,36 @@ const shortcuts = [
 </template>
 
 <style scoped>
+.feedback-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  padding: 12px 14px;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--accent-soft);
+  color: var(--text);
+  text-align: left;
+}
+.feedback-card > :first-child {
+  color: var(--accent);
+}
+.feedback-card span:not(.chev) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.feedback-card small {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.feedback-card .chev {
+  font-size: 20px;
+  color: var(--text-2);
+}
 .settings {
   max-width: 760px;
 }

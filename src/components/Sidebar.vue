@@ -138,6 +138,10 @@ function newPlaylist() {
           Analyse de la bibliothèque<span v-if="progress !== null"> · {{ progress }} %</span>
         </span>
       </div>
+      <button type="button" class="nav-item feedback" @click="ui.feedback = true">
+        <Icon name="lyrics" :size="17" class="ico" />
+        Un avis ?
+      </button>
       <div class="foot-row">
         <button
           type="button"
