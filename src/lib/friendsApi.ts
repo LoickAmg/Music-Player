@@ -64,6 +64,22 @@ export interface Word {
   at: number;
 }
 
+/** Entrée écrite par un appareil du propriétaire (plusieurs appareils sur un même profil). */
+export interface SelfEntry {
+  type: "ami" | "oubli" | "attente" | "envoye";
+  moi: true;
+  code: string;
+  nom: string;
+  avatar: string | null;
+  token: string | null;
+  texte: string;
+  piece: Piece | null;
+  at: number;
+}
+
+/** Journal du profil : messages reçus et entrées des appareils du propriétaire. */
+export type JournalEntry = ((Message | Word) & { id: string; moi?: undefined }) | (SelfEntry & { id: string });
+
 /** Avis reçu (« Un avis ? »), lu par l'administrateur. */
 export interface AvisItem {
   id: string;
@@ -129,6 +145,10 @@ export const relay = {
   /** Mot à un proche : `token` est celui qu'il nous a donné (preuve qu'on est son ami). */
   word: (base: string, to: string, word: { de: string; token: string; texte: string; piece: Piece | null }) =>
     call<{ ok: true }>(base, `/v1/profil/${to}/message`, { type: "mot", ...word }),
+  journal: (base: string, code: string, secret: string, depuis: number) =>
+    call<{ entrees: JournalEntry[] }>(base, `/v1/profil/${code}/journal`, { secret, depuis }),
+  note: (base: string, code: string, secret: string, entree: Partial<SelfEntry>) =>
+    call<{ ok: true }>(base, `/v1/profil/${code}/ecrire`, { secret, entree }),
   inbox: (base: string, code: string, secret: string) =>
     call<{ messages: (Message | Word)[] }>(base, `/v1/profil/${code}/boite`, { secret }),
   friends: (base: string, lecteur: string, amis: { code: string; token: string }[]) =>

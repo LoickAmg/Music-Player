@@ -28,7 +28,7 @@ export interface Backup {
 }
 
 /** Réglages recopiés d'un appareil à l'autre (les autres dépendent de l'appareil). */
-const PREF_KEYS = ["mp:visuels", "mp:lyrics-online-auto", "mp:lyrics-align", "mp:separate-voices", "mp:proches"];
+const PREF_KEYS = ["mp:visuels", "mp:lyrics-online-auto", "mp:lyrics-align", "mp:separate-voices", "mp:proches", "mp:proches-mots"];
 
 function describe(t: Track): BackupTrack {
   return { title: t.title, artist: t.artist, album: t.album, duration: Math.round(t.duration_secs) };
@@ -140,4 +140,41 @@ export function restorePrefs(prefs: Record<string, string>) {
       // stockage indisponible
     }
   }
+}
+
+/** Même morceau d'une sauvegarde à l'autre (titre et artiste, sans tenir compte de la casse). */
+function trackKey(t: BackupTrack): string {
+  return `${t.artist.toLowerCase()}\u0000${t.title.toLowerCase()}`;
+}
+
+function unionTracks(a: BackupTrack[], b: BackupTrack[]): BackupTrack[] {
+  const seen = new Set(a.map(trackKey));
+  return [...a, ...b.filter((t) => !seen.has(trackKey(t)))];
+}
+
+/**
+ * Sauvegarde du compte partagée par plusieurs appareils : celle de cet appareil (`mine`) est
+ * fusionnée avec celle déjà en ligne (`online`) au lieu de la remplacer. Playlists réunies par
+ * nom, titres aimés et écoutes additionnés ; apparence et réglages de cet appareil, identité
+ * des Proches gardée si cet appareil n'en a pas.
+ */
+export function mergeBackups(mine: Backup, online: Backup): Backup {
+  const playlists = mine.playlists.map((p) => {
+    const other = online.playlists.find((o) => o.name.toLowerCase() === p.name.toLowerCase());
+    return other ? { ...p, tracks: unionTracks(p.tracks, other.tracks) } : p;
+  });
+  for (const o of online.playlists) {
+    if (!playlists.some((p) => p.name.toLowerCase() === o.name.toLowerCase())) playlists.push(o);
+  }
+  const listenKey = (l: Listen) => `${l.started}\u0000${l.title}`;
+  const known = new Set(mine.listens.map(listenKey));
+  const prefs = { ...online.prefs, ...mine.prefs };
+  if (!mine.prefs["mp:proches"] && online.prefs["mp:proches"]) prefs["mp:proches"] = online.prefs["mp:proches"];
+  return {
+    ...mine,
+    playlists,
+    favorites: unionTracks(mine.favorites, online.favorites),
+    listens: [...mine.listens, ...online.listens.filter((l) => !known.has(listenKey(l)))],
+    prefs,
+  };
 }

@@ -92,7 +92,10 @@ const photoStyle = computed(() => {
 }
 .photo-img {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -103,7 +106,10 @@ const photoStyle = computed(() => {
 /* Voile sous le nom : lisible quelle que soit l'image. */
 .shade {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: -1;
   background: linear-gradient(to top, rgba(0, 0, 0, var(--dim)) 0%, rgba(0, 0, 0, calc(var(--dim) * 0.4)) 45%, transparent 75%);
 }
@@ -135,7 +141,10 @@ const photoStyle = computed(() => {
 }
 .motif {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: -1;
   mix-blend-mode: soft-light;
 }
@@ -214,7 +223,10 @@ const photoStyle = computed(() => {
 }
 .initial {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   place-items: center;
   font-family: var(--font-display);

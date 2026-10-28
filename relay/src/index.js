@@ -342,28 +342,54 @@ export class Profil {
           const texte = clean(body.texte, 1000);
           const piece = cleanPiece(body.piece);
           if (!texte && !piece) return json({ erreur: "Message vide" }, 400);
-          const inbox = (await storage.get("boite")) ?? [];
-          if (inbox.filter((m) => m.type === "mot").length >= MAX_WORDS) return json({ erreur: "Boîte pleine" }, 429);
-          inbox.push({ type: "mot", de: body.de, texte, piece, at: Date.now() });
-          await storage.put("boite", inbox);
+          const entry = { type: "mot", de: body.de, texte, piece, at: Date.now() };
+          await this.toInbox(entry, MAX_WORDS);
+          await this.toJournal(entry);
           return json({ ok: true });
         }
         if (!["demande", "accord", "retrait"].includes(body.type)) return json({ erreur: "Message inconnu" }, 400);
         if (body.type !== "retrait" && !TOKEN.test(body.token ?? "")) return json({ erreur: "Jeton invalide" }, 400);
-        const inbox = ((await storage.get("boite")) ?? []).filter((m) => !(m.de === body.de && m.type === body.type));
-        if (inbox.length >= MAX_INBOX) return json({ erreur: "Boîte pleine" }, 429);
-        inbox.push({
+        const entry = {
           type: body.type,
           de: body.de,
           nom: clean(body.nom, 40),
           avatar: cleanAvatar(body.avatar),
           token: body.type === "retrait" ? null : body.token,
           at: Date.now(),
-        });
-        await storage.put("boite", inbox);
+        };
+        await this.toInbox(entry, MAX_INBOX, (m) => !(m.de === body.de && m.type === body.type));
+        await this.toJournal(entry);
         return json({ ok: true });
       }
-      // Messages reçus (lus puis effacés par le propriétaire).
+      // Journal (plusieurs appareils sur un même profil) : messages reçus et ce que font les
+      // appareils du propriétaire, lus par chacun à son rythme (rien n'est effacé à la lecture).
+      case "journal": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        const depuis = Number(body.depuis) || 0;
+        const journal = (await storage.get("journal")) ?? [];
+        return json({ entrees: journal.filter((e) => e.at >= depuis).slice(0, 500) });
+      }
+      // Entrée écrite par un appareil du propriétaire : ami ajouté ou oublié, demande envoyée,
+      // mot envoyé (les autres appareils s'y mettent à jour).
+      case "ecrire": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        const e = body.entree ?? {};
+        if (!["ami", "oubli", "attente", "envoye"].includes(e.type) || !CODE.test(e.code ?? "")) return json({ erreur: "Entrée invalide" }, 400);
+        if (["ami", "attente"].includes(e.type) && !TOKEN.test(e.token ?? "")) return json({ erreur: "Jeton invalide" }, 400);
+        await this.toJournal({
+          type: e.type,
+          moi: true,
+          code: e.code,
+          nom: clean(e.nom, 40),
+          avatar: cleanAvatar(e.avatar),
+          token: e.token ?? null,
+          texte: clean(e.texte, 1000),
+          piece: cleanPiece(e.piece),
+          at: Date.now(),
+        });
+        return json({ ok: true });
+      }
+      // Messages reçus (lus puis effacés par le propriétaire) : versions 0.5.12 et antérieures.
       case "boite": {
         if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
         const inbox = (await storage.get("boite")) ?? [];
@@ -419,6 +445,24 @@ export class Profil {
       default:
         return json({ erreur: "Introuvable" }, 404);
     }
+  }
+
+  /** Ancienne boîte (0.5.12 et avant) : jamais pleine, les plus anciens messages partent. */
+  async toInbox(entry, max, keep = () => true) {
+    const inbox = ((await this.state.storage.get("boite")) ?? []).filter(keep);
+    inbox.push(entry);
+    await this.state.storage.put("boite", inbox.slice(-max));
+  }
+
+  /** Journal du profil : 60 jours, 2 000 entrées au plus. */
+  async toJournal(entry) {
+    const now = Date.now();
+    const journal = ((await this.state.storage.get("journal")) ?? []).filter((e) => now - e.at < 60 * 24 * 3600_000);
+    // Photos laissées à la carte du profil ; 1,5 Mo au plus (une valeur en a 2 chez Cloudflare).
+    journal.push({ id: crypto.randomUUID(), ...entry, avatar: null });
+    let kept = journal.slice(-2000);
+    while (kept.length > 1 && JSON.stringify(kept).length > 1_500_000) kept = kept.slice(1);
+    await this.state.storage.put("journal", kept);
   }
 
   /** Mot de passe du compte prouvé par `cle` ; `counted` : essai décompté (10 ratés par heure). */

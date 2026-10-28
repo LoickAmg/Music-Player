@@ -13,6 +13,7 @@ export const DISC_DESIGNS: { id: DiscDesign; label: string }[] = [
 ];
 
 const KEY = "mp:visuels";
+const MODERN_CSS = typeof CSS !== "undefined" && CSS.supports("aspect-ratio", "1") && CSS.supports("inset", "0");
 
 /** Couleur des visuels (visualiseur, vinyle, CD, barre) : celle de la pochette ou du thème. */
 export type VisualColors = "pochette" | "theme";
@@ -49,6 +50,8 @@ export const useVisualsStore = defineStore("visuals", {
     },
     /** Style réellement affiché : « auto » = vinyle sur téléphone, CD sur grand écran. */
     resolved(narrow: boolean): Exclude<ArtStyle, "auto"> {
+      // Vue web trop ancienne (aspect-ratio, inset…) : vinyle et CD ne s'y dessinent pas.
+      if (!MODERN_CSS) return "cover";
       if (this.artStyle !== "auto") return this.artStyle;
       return narrow ? "vinyl" : "cd";
     },

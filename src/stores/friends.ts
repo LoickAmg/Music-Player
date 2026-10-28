@@ -10,6 +10,8 @@ import {
   RelayError,
   relayBase,
   smallAvatar,
+  type JournalEntry,
+  type SelfEntry,
   type Word,
 } from "@/lib/friendsApi";
 import { useAppearanceStore } from "./appearance";
@@ -28,6 +30,8 @@ const WORDS_KEY = "mp:proches-mots";
 const MAX_LINES = 300;
 
 export interface ChatLine {
+  /** Identifiant de l'entrée du journal (mots reçus) : pas de doublon d'un appareil à l'autre. */
+  id?: string;
   mine: boolean;
   texte: string;
   piece: Piece | null;
@@ -86,10 +90,23 @@ interface Saved {
   friends: Friend[];
   outgoing: Outgoing[];
   incoming: Incoming[];
+  /** Journal du profil déjà lu (date) et dernières entrées vues (plusieurs appareils). */
+  cursor: number;
+  seen: string[];
 }
 
 function load(): Saved {
-  const empty: Saved = { me: null, enabled: false, shareListening: true, zoneVisible: false, friends: [], outgoing: [], incoming: [] };
+  const empty: Saved = {
+    me: null,
+    enabled: false,
+    shareListening: true,
+    zoneVisible: false,
+    friends: [],
+    outgoing: [],
+    incoming: [],
+    cursor: 0,
+    seen: [],
+  };
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? { ...empty, ...(JSON.parse(raw) as Partial<Saved>) } : empty;
@@ -144,6 +161,8 @@ export const useFriendsStore = defineStore("friends", {
         friends: this.friends,
         outgoing: this.outgoing,
         incoming: this.incoming,
+        cursor: this.cursor,
+        seen: this.seen,
       };
       try {
         localStorage.setItem(KEY, JSON.stringify(saved));
@@ -171,6 +190,32 @@ export const useFriendsStore = defineStore("friends", {
       }
     },
 
+    /** Note pour mes autres appareils (même profil) : ils s'y mettent à jour. */
+    note(entree: Partial<SelfEntry>) {
+      if (!this.me || !this.base) return;
+      void relay.note(this.base, this.me.code, this.me.secret, entree).catch(() => {});
+    },
+    /** Compte retrouvé sur cet appareil : même profil, mêmes proches et conversations que
+     *  l'appareil d'origine ; le journal du relais complète ce qui a changé depuis. */
+    adopt(saved: Partial<Saved>, words?: { conversations?: Record<string, ChatLine[]>; unread?: Record<string, number> }) {
+      if (!saved.me) return;
+      this.stop();
+      this.me = saved.me;
+      this.enabled = true;
+      this.shareListening = saved.shareListening ?? true;
+      this.zoneVisible = false;
+      this.friends = saved.friends ?? [];
+      this.outgoing = saved.outgoing ?? [];
+      this.incoming = saved.incoming ?? [];
+      this.cursor = 0;
+      this.seen = [];
+      if (words?.conversations) this.conversations = words.conversations;
+      if (words?.unread) this.unread = words.unread;
+      this.save();
+      this.saveWords();
+      this.start();
+      useShareStore().setFriendCode(saved.me.code);
+    },
     /** Active les Proches : crée le profil sur le relais (code d'ami nouveau si déjà pris). */
     async enable() {
       if (!this.base) {
@@ -234,6 +279,7 @@ export const useFriendsStore = defineStore("friends", {
         const mine = await this.myCard();
         await relay.send(base, card.code, { type: "demande", de: code, nom: mine.nom, avatar: mine.avatar, token });
         if (!existing) this.outgoing.push({ code: card.code, name: card.nom, avatar: card.avatar, token, at: Date.now() });
+        this.note({ type: "attente", code: card.code, nom: card.nom, avatar: card.avatar, token });
         // Demande croisée : l'autre m'avait déjà demandé, on s'accepte tout de suite.
         const crossed = this.incoming.find((i) => i.code === card.code);
         if (crossed) await this.accept(crossed);
@@ -249,6 +295,7 @@ export const useFriendsStore = defineStore("friends", {
         await relay.send(base, req.code, { type: "accord", de: code, nom: mine.nom, avatar: mine.avatar, token });
         this.addFriend({ code: req.code, name: req.name, avatar: req.avatar, readToken: req.token, since: Date.now() });
         this.incoming = this.incoming.filter((i) => i.code !== req.code);
+        this.note({ type: "ami", code: req.code, nom: req.name, avatar: req.avatar, token: req.token });
         this.save();
         lastFriends = 0;
       });
@@ -260,12 +307,14 @@ export const useFriendsStore = defineStore("friends", {
     async cancelRequest(code: string) {
       this.outgoing = this.outgoing.filter((o) => o.code !== code);
       this.save();
+      this.note({ type: "oubli", code });
       if (this.me && this.base) await relay.revoke(this.base, this.me.code, this.me.secret, code).catch(() => {});
     },
     async remove(friendCode: string) {
       this.friends = this.friends.filter((f) => f.code !== friendCode);
       delete this.live[friendCode];
       this.save();
+      this.note({ type: "oubli", code: friendCode });
       if (this.me && this.base) {
         await relay.revoke(this.base, this.me.code, this.me.secret, friendCode).catch(() => {});
         await relay.send(this.base, friendCode, { type: "retrait", de: this.me.code, nom: "", avatar: null, token: null }).catch(() => {});
@@ -289,9 +338,10 @@ export const useFriendsStore = defineStore("friends", {
       const lines = [...(this.conversations[code] ?? []), line].slice(-MAX_LINES);
       this.conversations = { ...this.conversations, [code]: lines };
     },
-    onWord(w: Word) {
+    onWord(w: Word & { id?: string }) {
       if (!this.isFriend(w.de)) return;
-      this.addLine(w.de, { mine: false, texte: w.texte, piece: w.piece, at: w.at });
+      if (w.id && (this.conversations[w.de] ?? []).some((l) => l.id === w.id)) return;
+      this.addLine(w.de, { id: w.id, mine: false, texte: w.texte, piece: w.piece, at: w.at });
       if (this.chatWith !== w.de) this.unread = { ...this.unread, [w.de]: (this.unread[w.de] ?? 0) + 1 };
       this.saveWords();
     },
@@ -304,6 +354,7 @@ export const useFriendsStore = defineStore("friends", {
         await relay.word(base, code, { de: me, token: friend.readToken, texte: texte.trim(), piece });
         this.addLine(code, { mine: true, texte: texte.trim(), piece, at: Date.now() });
         this.saveWords();
+        this.note({ type: "envoye", code, texte: texte.trim(), piece });
         return true;
       });
       return !!ok;
@@ -335,15 +386,64 @@ export const useFriendsStore = defineStore("friends", {
         return;
       }
       // Demande : d'un ami déjà connu (il a réinstallé l'appli) ou croisée → acceptée d'office.
+      // Une demande plus ancienne que l'amitié (journal relu sur un autre appareil) est réglée.
       const req: Incoming = { code: m.de, name: m.nom, avatar: m.avatar, token: m.token, at: m.at };
-      if (this.isFriend(m.de) || this.outgoing.some((o) => o.code === m.de)) {
+      const known = this.friends.find((f) => f.code === m.de);
+      if (known && m.at <= known.since) return;
+      if (known || this.outgoing.some((o) => o.code === m.de)) {
         void this.accept(req);
         return;
       }
       this.incoming = [...this.incoming.filter((i) => i.code !== m.de), req];
     },
+    /** Ce qu'un autre de mes appareils a fait (même profil). */
+    onSelf(e: SelfEntry) {
+      if (e.type === "ami" && e.token) {
+        this.addFriend({ code: e.code, name: e.nom, avatar: e.avatar, readToken: e.token, since: e.at });
+        this.incoming = this.incoming.filter((i) => i.code !== e.code);
+      } else if (e.type === "attente" && e.token && !this.isFriend(e.code) && !this.isPending(e.code)) {
+        this.outgoing.push({ code: e.code, name: e.nom, avatar: e.avatar, token: e.token, at: e.at });
+      } else if (e.type === "oubli") {
+        this.friends = this.friends.filter((f) => f.code !== e.code);
+        this.outgoing = this.outgoing.filter((o) => o.code !== e.code);
+        delete this.live[e.code];
+      } else if (e.type === "envoye") {
+        // Mot envoyé depuis un autre appareil (celui-ci l'a déjà, à quelques secondes près).
+        const lines = this.conversations[e.code] ?? [];
+        if (!lines.some((l) => l.mine && l.texte === e.texte && Math.abs(l.at - e.at) < 120_000)) {
+          this.addLine(e.code, { mine: true, texte: e.texte, piece: e.piece, at: e.at });
+          this.saveWords();
+        }
+      }
+    },
+    /** Journal du profil : partagé par tous mes appareils, chacun le lit à son rythme. */
+    async pollJournal(): Promise<boolean> {
+      if (!this.me || !this.base) return false;
+      let entrees: JournalEntry[];
+      try {
+        ({ entrees } = await relay.journal(this.base, this.me.code, this.me.secret, this.cursor));
+      } catch (e) {
+        if (e instanceof RelayError && e.status === 404) return false; // relais d'avant le journal
+        return true;
+      }
+      const seen = new Set(this.seen);
+      for (const e of entrees.sort((a, b) => a.at - b.at)) {
+        if (seen.has(e.id)) continue;
+        seen.add(e.id);
+        this.cursor = Math.max(this.cursor, e.at);
+        if (e.moi) this.onSelf(e);
+        else if (e.type === "mot") this.onWord(e);
+        else this.onMessage(e);
+      }
+      if (entrees.length) {
+        this.seen = [...seen].slice(-300);
+        this.save();
+      }
+      return true;
+    },
     async pollInbox() {
       if (!this.enabled || !this.me || !this.base) return;
+      if (await this.pollJournal()) return;
       try {
         const { messages } = await relay.inbox(this.base, this.me.code, this.me.secret);
         for (const m of messages) {

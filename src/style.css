@@ -226,6 +226,17 @@ select {
   font-weight: 700;
   letter-spacing: -0.02em;
 }
+/* Vues web anciennes (Chrome < 88, certains Huawei sans services Google) : sans
+   « aspect-ratio », pochettes et jaquettes carrées tombaient à une hauteur nulle. */
+@supports not (aspect-ratio: 1) {
+  .pl-cover::before,
+  .art::before {
+    content: "";
+    display: block;
+    padding-top: 100%;
+  }
+}
+
 /* Carte d'une section de réglages (Réglages, fichiers illisibles, sauvegarde…). */
 .section-card {
   margin-bottom: 16px;

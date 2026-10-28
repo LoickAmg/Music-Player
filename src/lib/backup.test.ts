@@ -51,3 +51,35 @@ describe("sauvegarde", () => {
     expect(() => parseBackup("pas du json")).toThrow();
   });
 });
+
+describe("sauvegarde partagée par deux appareils", () => {
+  it("fusionne au lieu d'écraser", async () => {
+    const { mergeBackups } = await import("./backup");
+    const base = { format: "music-player-sauvegarde" as const, version: 1 as const, created: "", device: "", appearance: null };
+    const t = (title: string, artist = "A") => ({ title, artist, album: "", duration: 200 });
+    const phone = {
+      ...base,
+      device: "Téléphone",
+      playlists: [{ name: "J-Pop", theme: "ocean", style: null, tracks: [t("Lemon")] }, { name: "Funk", theme: "sunset", style: null, tracks: [t("Montagem")] }],
+      favorites: [t("Lemon")],
+      listens: [{ track_id: "a", title: "Lemon", artist: "A", album: "", started: 1, secs: 100, duration_secs: 200 }],
+      prefs: { "mp:proches": '{"me":{"code":"K7QM-2D9X"}}' },
+    };
+    const pc = {
+      ...base,
+      device: "PC",
+      playlists: [{ name: "funk", theme: "sunset", style: null, tracks: [t("Montagem"), t("Bota")] }, { name: "Re:Zero", theme: "aurora", style: null, tracks: [t("Redo")] }],
+      favorites: [t("Redo")],
+      listens: [
+        { track_id: "b", title: "Lemon", artist: "A", album: "", started: 1, secs: 100, duration_secs: 200 },
+        { track_id: "c", title: "Redo", artist: "A", album: "", started: 2, secs: 90, duration_secs: 200 },
+      ],
+      prefs: {},
+    };
+    const merged = mergeBackups(pc, phone);
+    expect(merged.playlists.map((p) => `${p.name}:${p.tracks.length}`).sort()).toEqual(["J-Pop:1", "Re:Zero:1", "funk:2"]);
+    expect(merged.favorites.map((f) => f.title).sort()).toEqual(["Lemon", "Redo"]);
+    expect(merged.listens).toHaveLength(2);
+    expect(merged.prefs["mp:proches"]).toContain("K7QM-2D9X");
+  });
+});

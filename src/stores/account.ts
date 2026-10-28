@@ -1,7 +1,8 @@
 import { defineStore } from "pinia";
 import { type AccountKeys, deriveKeys, downloadBackup, uploadBackup } from "@/lib/account";
 import { currentBackupJson } from "@/lib/backupNow";
-import { relay } from "@/lib/friendsApi";
+import { mergeBackups, parseBackup } from "@/lib/backup";
+import { relay, RelayError } from "@/lib/friendsApi";
 import { useFriendsStore } from "./friends";
 
 // Compte Music Player : code d'ami des Proches + mot de passe ; sauvegarde chiffrée en ligne,
@@ -69,15 +70,41 @@ export const useAccountStore = defineStore("account", {
         await this.upload();
       });
     },
+    /** Envoie la sauvegarde de cet appareil, fusionnée avec celle déjà en ligne (déposée par
+     *  un autre appareil du compte) : rien n'est perdu d'un appareil à l'autre. */
     async upload() {
       const friends = useFriendsStore();
       if (!this.saved || !friends.base) return;
-      await uploadBackup(friends.base, this.saved.code, this.saved.keys, await currentBackupJson());
+      let json = await currentBackupJson();
+      try {
+        const online = await downloadBackup(friends.base, this.saved.code, this.saved.keys);
+        json = JSON.stringify(mergeBackups(parseBackup(json), parseBackup(online.json)));
+      } catch (e) {
+        // Pas encore de sauvegarde en ligne : la première est celle-ci. Sinon (mot de passe
+        // changé ailleurs, relais injoignable), on n'écrase rien.
+        if (!(e instanceof RelayError && e.status === 404)) throw e;
+      }
+      await uploadBackup(friends.base, this.saved.code, this.saved.keys, json);
       this.saved = { ...this.saved, lastUpload: Date.now() };
       this.persist();
     },
     async uploadNow(): Promise<boolean> {
       return this.run(() => this.upload());
+    },
+    /** Appareil connecté au compte sans les Proches (connexion avec la 0.5.12) : identité
+     *  reprise depuis la sauvegarde en ligne. */
+    async adoptIfNeeded() {
+      const friends = useFriendsStore();
+      if (!this.saved || friends.enabled || !friends.base) return;
+      try {
+        const { json } = await downloadBackup(friends.base, this.saved.code, this.saved.keys);
+        const prefs = (JSON.parse(json) as { prefs?: Record<string, string> }).prefs ?? {};
+        if (prefs["mp:proches"]) {
+          friends.adopt(JSON.parse(prefs["mp:proches"]), prefs["mp:proches-mots"] ? JSON.parse(prefs["mp:proches-mots"]) : undefined);
+        }
+      } catch {
+        // hors ligne : au prochain lancement
+      }
     },
     /** Sauvegarde automatique : une fois par jour, au lancement. */
     async autoUpload() {
@@ -97,6 +124,16 @@ export const useAccountStore = defineStore("account", {
         const keys = await deriveKeys(code, password);
         const backup = await downloadBackup(friends.base, code, keys);
         json = backup.json;
+        // Le compte, c'est aussi l'identité des Proches : reprise tout de suite (amis,
+        // conversations), sans attendre la restauration du reste.
+        try {
+          const prefs = (JSON.parse(backup.json) as { prefs?: Record<string, string> }).prefs ?? {};
+          if (prefs["mp:proches"]) {
+            friends.adopt(JSON.parse(prefs["mp:proches"]), prefs["mp:proches-mots"] ? JSON.parse(prefs["mp:proches-mots"]) : undefined);
+          }
+        } catch {
+          // sauvegarde sans Proches : rien à reprendre
+        }
         this.saved = { code, keys, lastUpload: backup.at };
         this.persist();
       });

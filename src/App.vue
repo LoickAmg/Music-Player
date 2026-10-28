@@ -301,7 +301,10 @@ onMounted(async () => {
   // Proches : statut des amis et de ce que j'écoute (si activé).
   friends.start();
   // Compte : sauvegarde en ligne une fois par jour (quelques secondes après l'ouverture).
-  setTimeout(() => void useAccountStore().autoUpload(), 20_000);
+  // (D'abord l'identité des Proches, pour ne jamais envoyer une sauvegarde qui en serait privée.)
+  void useAccountStore()
+    .adoptIfNeeded()
+    .then(() => setTimeout(() => void useAccountStore().autoUpload(), 20_000));
   // Administrateur : nouveaux avis vérifiés toutes les 3 minutes (notification du système).
   useAvisStore().start();
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.

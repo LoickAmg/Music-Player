@@ -35,7 +35,10 @@ function present(p: Playlist): number {
     </div>
     <div class="grid">
       <button type="button" class="card" @click="ui.go({ name: 'favorites' })">
-        <span class="liked-cover"><Icon name="heart" :size="44" style="--icon-fill: currentColor" /></span>
+        <span class="liked-cover">
+          <PlaylistCover name="Titres aimés" theme="aurora" :styling="{ showName: false, pattern: 'none' }" :radius="10" />
+          <Icon name="heart" :size="44" class="heart" style="--icon-fill: currentColor" />
+        </span>
         <span class="name">Titres aimés</span>
         <span class="count">{{ liked }} morceau{{ liked > 1 ? "x" : "" }}</span>
       </button>
@@ -81,13 +84,15 @@ function present(p: Playlist): number {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 .liked-cover {
-  display: grid;
-  place-items: center;
-  aspect-ratio: 1;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #5b2bd6, var(--like) 70%, #ffb38a);
+  position: relative;
+  display: block;
   color: #fff;
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+}
+.liked-cover .heart {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 .name {
   margin-top: 6px;
