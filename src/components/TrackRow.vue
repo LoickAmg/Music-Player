@@ -231,7 +231,7 @@ async function toggleLike() {
   opacity: 1;
 }
 .like.on {
-  color: #ff5a7a;
+  color: var(--like);
 }
 .bars {
   display: inline-flex;

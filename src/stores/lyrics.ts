@@ -67,6 +67,9 @@ export function needsTiming(lyrics: Lyrics | null): boolean {
   return !!lyrics && !lyrics.synced && !lyrics.instrumental && !!lyrics.plain?.trim();
 }
 
+/** Morceau dont la synchronisation attend la fin (ou l'arrêt) du calcul en cours. */
+let pendingAlign: string | null = null;
+
 export const useLyricsStore = defineStore("lyrics", {
   state: () => ({
     trackId: null as string | null,
@@ -87,7 +90,8 @@ export const useLyricsStore = defineStore("lyrics", {
     installing: null as number | null,
     installError: null as string | null,
     /** Synchronisation automatique en cours : morceau et avancement (0 à 1). */
-    aligning: null as { trackId: string; fraction: number } | null,
+    /** Synchronisation en cours : morceau, avancement (0 à 1), début (ms, Date.now). */
+    aligning: null as { trackId: string; fraction: number; startedAt: number } | null,
     /** Échec de la synchronisation automatique pour le morceau affiché. */
     alignError: null as string | null,
   }),
@@ -143,12 +147,20 @@ export const useLyricsStore = defineStore("lyrics", {
       if (this.installing !== null && total > 0) this.installing = done / total;
     },
     onAlignProgress(trackId: string, fraction: number) {
-      this.aligning = { trackId, fraction };
+      this.aligning = { trackId, fraction, startedAt: this.aligning?.startedAt ?? Date.now() };
     },
     /** Synchronisation automatique des paroles affichées sans minutage (calcul local). */
     async align(trackId: string) {
-      if (this.aligning) return;
-      this.aligning = { trackId, fraction: 0 };
+      if (this.aligning) {
+        // Calcul en cours pour un autre morceau : arrêté, celui-ci passe juste après (avant,
+        // la demande était ignorée et la synchronisation du morceau affiché ne partait jamais).
+        if (this.aligning.trackId !== trackId) {
+          pendingAlign = trackId;
+          void api.cancelAlign().catch(() => {});
+        }
+        return;
+      }
+      this.aligning = { trackId, fraction: 0, startedAt: Date.now() };
       this.alignError = null;
       try {
         const synced = await api.alignLyrics(trackId);
@@ -157,6 +169,9 @@ export const useLyricsStore = defineStore("lyrics", {
         if (this.trackId === trackId) this.alignError = String(e);
       } finally {
         this.aligning = null;
+        const next = pendingAlign;
+        pendingAlign = null;
+        if (next && next === this.trackId && needsTiming(this.lyrics)) void this.align(next);
       }
     },
     /** Dernier recours pour des paroles sans minutage : la synchronisation automatique, si

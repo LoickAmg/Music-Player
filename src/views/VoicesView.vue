@@ -43,7 +43,7 @@ function openMenu(event: MouseEvent, t: Track) {
 <template>
   <div class="page">
     <h1 class="page-title">Vocaux</h1>
-    <p class="muted count">{{ formatCollection(rows.length, totalDuration).replace(/morceaux?/, rows.length > 1 ? "fichiers" : "fichier") }}</p>
+    <p class="page-sub">{{ formatCollection(rows.length, totalDuration).replace(/morceaux?/, rows.length > 1 ? "fichiers" : "fichier") }}</p>
 
     <div class="chips" role="tablist" aria-label="Type">
       <button type="button" role="tab" :aria-selected="filter === 'tout'" :class="{ on: filter === 'tout' }" @click="filter = 'tout'">
@@ -99,10 +99,6 @@ function openMenu(event: MouseEvent, t: Track) {
 </template>
 
 <style scoped>
-.count {
-  margin: -16px 0 14px;
-  font-size: 12.5px;
-}
 .chips {
   display: flex;
   flex-wrap: wrap;

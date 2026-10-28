@@ -488,7 +488,15 @@ impl Recognizer {
 
     /// Fenêtre de 30 s au plus : décodage glouton, avec les règles d'horodatage de Whisper
     /// (paires de bornes, bornes croissantes, première borne au début de la fenêtre).
-    fn decode_window(&mut self, mel: &Tensor, language: u32, offset: f64) -> candle::Result<Vec<Segment>> {
+    /// `on_step(jetons produits, maximum)` : avancement à l'intérieur de la fenêtre (le
+    /// décodage d'une fenêtre chantée prend jusqu'à une minute sur un téléphone).
+    fn decode_window(
+        &mut self,
+        mel: &Tensor,
+        language: u32,
+        offset: f64,
+        mut on_step: impl FnMut(usize, usize),
+    ) -> candle::Result<Vec<Segment>> {
         let audio = self.model.encode(mel)?;
         let mut tokens = vec![self.sot, language, self.transcribe];
         let prefix = tokens.len();
@@ -545,6 +553,7 @@ impl Recognizer {
             let total: f32 = logits.iter().filter(|v| v.is_finite()).map(|v| (v - best).exp()).sum();
             logprob_sum += -(total.ln() as f64);
             generated += 1;
+            on_step(generated, max_len);
             tokens.push(next);
             if next == self.eot || looping(&tokens[prefix..]) {
                 break;
@@ -590,6 +599,18 @@ fn looping(tokens: &[u32]) -> bool {
     })
 }
 
+/// Synchronisation en cours devenue inutile (autre morceau à l'écran) : arrêtée à la fin de
+/// la fenêtre de 30 s en cours, pour laisser la place au nouveau morceau.
+static CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn cancel() {
+    CANCEL.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+pub fn reset_cancel() {
+    CANCEL.store(false, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Reconnaît le morceau entier, fenêtre par fenêtre. `progress` va de 0 à 1.
 fn transcribe(data_dir: &Path, samples: &[f32], mut progress: impl FnMut(f32)) -> Result<Vec<Segment>, String> {
     let err = |e: candle::Error| format!("Reconnaissance impossible : {e}");
@@ -605,6 +626,9 @@ fn transcribe(data_dir: &Path, samples: &[f32], mut progress: impl FnMut(f32)) -
     let mut segments = Vec::new();
     let mut seek = 0;
     while seek < frames {
+        if CANCEL.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err("Synchronisation interrompue.".into());
+        }
         let size = (frames - seek).min(m::N_FRAMES);
         // Dernière fenêtre trop courte pour contenir une ligne : ignorée.
         if size < 100 {
@@ -612,7 +636,15 @@ fn transcribe(data_dir: &Path, samples: &[f32], mut progress: impl FnMut(f32)) -
         }
         let window = mel.narrow(2, seek, size).map_err(err)?;
         let offset = (seek * m::HOP_LENGTH) as f64 / m::SAMPLE_RATE as f64;
-        segments.extend(recognizer.decode_window(&window, language, offset).map_err(err)?);
+        // Une fenêtre chantée produit rarement plus de ~120 jetons : avancement estimé sur
+        // cette base (plafonné), puis exact à la fin de la fenêtre.
+        let (start, span) = (seek as f32, size as f32);
+        let found = recognizer
+            .decode_window(&window, language, offset, |step, _| {
+                progress((start + span * (step as f32 / 120.0).min(0.95)) / frames as f32);
+            })
+            .map_err(err)?;
+        segments.extend(found);
         seek += size;
         progress(seek as f32 / frames as f32);
     }
@@ -898,6 +930,25 @@ mod tests {
         for w in lines.windows(2) {
             assert!(w[1].time_ms >= w[0].time_ms + 3_500, "{} puis {}", w[0].time_ms, w[1].time_ms);
         }
+    }
+
+    /// Durée réelle sur un vrai morceau (MP_ALIGN_SONG, paroles texte dans MP_ALIGN_TEXT),
+    /// modèle déjà installé dans MP_ALIGN_DATA. Affiche l'avancement et le temps total.
+    #[test]
+    #[ignore = "vrai morceau : à lancer en --release avec MP_ALIGN_DATA, MP_ALIGN_SONG et MP_ALIGN_TEXT"]
+    fn timing_on_a_real_song() {
+        let data = PathBuf::from(std::env::var("MP_ALIGN_DATA").expect("MP_ALIGN_DATA"));
+        let song = std::env::var("MP_ALIGN_SONG").expect("MP_ALIGN_SONG");
+        let plain = std::fs::read_to_string(std::env::var("MP_ALIGN_TEXT").expect("MP_ALIGN_TEXT")).unwrap();
+        let started = std::time::Instant::now();
+        let mut last = -1.0;
+        let result = synchronize(&data, Path::new(&song), 0.0, &plain, |f| {
+            if f - last >= 0.1 {
+                last = f;
+                eprintln!("{:>3.0} % après {:.1} s", f * 100.0, started.elapsed().as_secs_f64());
+            }
+        });
+        eprintln!("terminé en {:.1} s : {:?}", started.elapsed().as_secs_f64(), result.as_ref().map(|l| l.len()));
     }
 
     #[test]

@@ -665,7 +665,7 @@ h2 {
 .warn {
   margin: 6px 0 10px;
   font-size: 12.5px;
-  color: #ffb454;
+  color: var(--warning);
 }
 .slider {
   display: flex;

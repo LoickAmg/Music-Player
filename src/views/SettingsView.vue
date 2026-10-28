@@ -372,7 +372,7 @@ h2 :deep(svg) {
   color: var(--danger);
 }
 .warn {
-  color: #ffb454;
+  color: var(--warning);
   text-decoration: none;
 }
 .warn:hover {

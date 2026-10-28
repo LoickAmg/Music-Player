@@ -120,13 +120,13 @@ h2 {
   font-size: 15px;
 }
 h2 svg {
-  color: #ffb454;
+  color: var(--warning);
 }
 .count {
   padding: 1px 8px;
   border-radius: 999px;
   background: rgba(255, 180, 84, 0.16);
-  color: #ffb454;
+  color: var(--warning);
   font-size: 12px;
 }
 .intro {

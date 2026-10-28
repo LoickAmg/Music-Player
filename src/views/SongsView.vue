@@ -11,7 +11,7 @@ import VirtualList from "@/components/VirtualList.vue";
 const library = useLibraryStore();
 const player = usePlayerStore();
 
-type Key = "title" | "artist" | "album" | "duration";
+type Key = "title" | "artist" | "album" | "duration" | "added";
 const sortKey = ref<Key>("title");
 const ascending = ref(true);
 
@@ -20,7 +20,28 @@ const comparators: Record<Key, (a: Track, b: Track) => number> = {
   artist: (a, b) => collator.compare(a.artist, b.artist) || collator.compare(a.title, b.title),
   album: (a, b) => collator.compare(a.album, b.album) || (a.track_no ?? 0) - (b.track_no ?? 0),
   duration: (a, b) => a.duration_secs - b.duration_secs,
+  added: (a, b) => a.added_secs - b.added_secs || collator.compare(a.title, b.title),
 };
+
+// Tris proposés dans le menu (téléphone compris, où les en-têtes de colonnes sont masqués).
+const SORTS: { id: string; label: string; key: Key; ascending: boolean }[] = [
+  { id: "title", label: "Titre (A-Z)", key: "title", ascending: true },
+  { id: "title-desc", label: "Titre (Z-A)", key: "title", ascending: false },
+  { id: "recent", label: "Plus récents", key: "added", ascending: false },
+  { id: "oldest", label: "Plus anciens", key: "added", ascending: true },
+  { id: "artist", label: "Artiste (A-Z)", key: "artist", ascending: true },
+  { id: "album", label: "Album (A-Z)", key: "album", ascending: true },
+  { id: "duration", label: "Durée", key: "duration", ascending: true },
+];
+const sortId = computed({
+  get: () => SORTS.find((s) => s.key === sortKey.value && s.ascending === ascending.value)?.id ?? "",
+  set: (id: string) => {
+    const s = SORTS.find((x) => x.id === id);
+    if (!s) return;
+    sortKey.value = s.key;
+    ascending.value = s.ascending;
+  },
+});
 
 const tracks = computed(() => {
   const sorted = [...library.tracks].sort(comparators[sortKey.value]);
@@ -46,11 +67,20 @@ function play(index: number) {
     <div class="top">
       <div>
         <h1 class="page-title">Morceaux</h1>
-        <p class="muted count">{{ formatCollection(library.tracks.length, library.totalDuration) }}</p>
+        <p class="page-sub">{{ formatCollection(library.tracks.length, library.totalDuration) }}</p>
       </div>
-      <button type="button" class="pill pill-ghost" @click="player.playShuffled(tracks.map((t) => t.id))">
-        <Icon name="shuffle" :size="15" /> Tout en aléatoire
-      </button>
+      <div class="top-actions">
+        <label class="sort">
+          <span class="muted">Trier</span>
+          <select v-model="sortId" class="fieldbox" aria-label="Trier les morceaux">
+            <option v-if="!sortId" value="" disabled>Personnalisé</option>
+            <option v-for="s in SORTS" :key="s.id" :value="s.id">{{ s.label }}</option>
+          </select>
+        </label>
+        <button type="button" class="pill pill-ghost" @click="player.playShuffled(tracks.map((t) => t.id))">
+          <Icon name="shuffle" :size="15" /> Tout en aléatoire
+        </button>
+      </div>
     </div>
     <div class="header" role="row">
       <span />
@@ -69,14 +99,32 @@ function play(index: number) {
 </template>
 
 <style scoped>
+.top-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+.sort {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+}
+.sort select {
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--bg-active);
+  color: var(--text);
+  font-size: 13px;
+}
 .top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-}
-.count {
-  margin: -16px 0 18px;
-  font-size: 12.5px;
 }
 .header {
   position: sticky;
@@ -109,6 +157,14 @@ function play(index: number) {
   margin-left: 3px;
 }
 @media (max-width: 760px), (pointer: coarse) and (max-width: 1100px) {
+  .top {
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+  .top-actions {
+    justify-content: flex-start;
+  }
   .header {
     display: none;
   }

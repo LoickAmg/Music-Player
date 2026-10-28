@@ -12,6 +12,7 @@ pub mod listening;
 pub mod lyrics;
 pub mod nearby;
 pub mod playlists;
+pub mod power;
 pub mod queue;
 pub mod remote;
 pub mod session;
@@ -74,6 +75,7 @@ pub fn run() {
             listening::recover_pending(&data_dir);
             let mut tracker = listening::Tracker::default();
             let mut ticks: u32 = 0;
+            let mut keep_awake = power::KeepAwake::default();
             std::thread::spawn(move || loop {
                 std::thread::sleep(std::time::Duration::from_millis(300));
                 let state = handle.state::<AppState>();
@@ -81,6 +83,7 @@ pub fn run() {
                 {
                     let status = state.audio.status();
                     let playing = status.current_path.is_some() && !status.is_paused && !status.finished;
+                    keep_awake.set(playing);
                     let current = state.queue.lock().unwrap().current().cloned().and_then(|id| state.find_track(&id));
                     let shown = if status.current_path.is_some() { current.as_ref() } else { None };
                     if let Some(done) = tracker.tick(shown, playing) {
@@ -130,6 +133,7 @@ pub fn run() {
             commands::install_alignment_model,
             commands::remove_alignment_model,
             commands::align_lyrics,
+            commands::cancel_align,
             commands::lyrics_query,
             commands::search_lyrics,
             commands::choose_lyrics,

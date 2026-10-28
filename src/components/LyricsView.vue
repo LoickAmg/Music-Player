@@ -26,6 +26,13 @@ let snapTimer: ReturnType<typeof setTimeout> | undefined;
 
 const synced = computed(() => lyricsStore.lyrics?.synced ?? null);
 const aligningHere = computed(() => !!lyricsStore.aligning && lyricsStore.aligning.trackId === player.currentTrack?.id);
+/** « · encore ~2 min », d'après le temps déjà passé (affiché une fois l'estimation fiable). */
+const alignLeft = computed(() => {
+  const a = lyricsStore.aligning;
+  if (!a || a.fraction < 0.12) return "";
+  const left = ((Date.now() - a.startedAt) / a.fraction) * (1 - a.fraction) / 1000;
+  return left < 60 ? " · encore moins d'une minute" : ` · encore ~${Math.round(left / 60)} min`;
+});
 
 /** Proposition de synchronisation automatique (téléchargement du modèle, une fois). */
 async function offerAlign() {
@@ -224,7 +231,7 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <p class="timing" role="status">
-              <template v-if="aligningHere"><span class="dots"><i /><i /><i /></span> Synchronisation automatique… {{ Math.round(lyricsStore.aligning!.fraction * 100) }} %</template>
+              <template v-if="aligningHere"><span class="dots"><i /><i /><i /></span> Synchronisation automatique… {{ Math.round(lyricsStore.aligning!.fraction * 100) }} %{{ alignLeft }}</template>
               <template v-else-if="lyricsStore.upgrading"><span class="dots"><i /><i /><i /></span> Recherche d'une version synchronisée…</template>
               <template v-else-if="lyricsStore.installing !== null"><span class="dots"><i /><i /><i /></span> Téléchargement du modèle de synchronisation… {{ Math.round(lyricsStore.installing * 100) }} %</template>
               <template v-else>
@@ -551,7 +558,7 @@ onBeforeUnmount(() => {
   color: rgb(var(--lyrics-rgb));
 }
 .tools-item.danger {
-  color: #ff8a98;
+  color: var(--danger-text);
 }
 .tools-item.danger:hover {
   color: rgb(var(--lyrics-rgb));

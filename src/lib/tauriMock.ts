@@ -186,6 +186,7 @@ export function installTauriMock() {
     remove_alignment_model: () => {
       alignModel = false;
     },
+    cancel_align: () => undefined,
     align_lyrics: async ({ trackId }) => {
       await new Promise((r) => setTimeout(r, 3000));
       upgraded.add(trackId);

@@ -241,12 +241,21 @@ impl AlignGuard {
         if ALIGN_BUSY.swap(true, Ordering::SeqCst) {
             return Err("Une synchronisation est déjà en cours.".into());
         }
+        crate::align::reset_cancel();
         Ok(Self)
     }
 }
 impl Drop for AlignGuard {
     fn drop(&mut self) {
         ALIGN_BUSY.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Arrête la synchronisation en cours (le morceau affiché a changé).
+#[tauri::command]
+pub fn cancel_align() {
+    if ALIGN_BUSY.load(Ordering::SeqCst) {
+        crate::align::cancel();
     }
 }
 

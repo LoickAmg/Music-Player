@@ -267,7 +267,7 @@ function playTop() {
 }
 .change.down {
   background: var(--danger-soft);
-  color: #ff8a98;
+  color: var(--danger-text);
 }
 .figures {
   display: grid;

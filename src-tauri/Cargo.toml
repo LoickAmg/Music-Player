@@ -69,7 +69,7 @@ tauri-plugin-single-instance = "2"
 
 # Rafraîchir les icônes de l'Explorateur après avoir changé celle des raccourcis.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_UI_Shell"] }
+windows-sys = { version = "0.59", features = ["Win32_UI_Shell", "Win32_System_Power"] }
 # Inscription comme lecteur par défaut (Paramètres → Applications par défaut).
 winreg = "0.55"
 

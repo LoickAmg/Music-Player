@@ -28,7 +28,7 @@ function play(index: number) {
     <div class="top">
       <div>
         <h1 class="page-title">Titres aimés</h1>
-        <p class="muted count">{{ formatCollection(tracks.length, totalDuration) }}</p>
+        <p class="page-sub">{{ formatCollection(tracks.length, totalDuration) }}</p>
       </div>
       <button v-if="tracks.length" type="button" class="pill pill-ghost" @click="player.playShuffled(tracks.map((t) => t.id))">
         <Icon name="shuffle" :size="15" /> Tout en aléatoire
@@ -50,10 +50,6 @@ function play(index: number) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-}
-.count {
-  margin: -16px 0 18px;
-  font-size: 12.5px;
 }
 .empty {
   margin-top: 8px;

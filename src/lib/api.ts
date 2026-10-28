@@ -52,6 +52,8 @@ export const api = {
   removeAlignmentModel: () => invoke<void>("remove_alignment_model"),
   /** Synchronisation automatique (reconnaissance vocale locale) des paroles sans minutage. */
   alignLyrics: (trackId: string) => invoke<Lyrics | null>("align_lyrics", { trackId }),
+  /** Arrête la synchronisation en cours (le morceau affiché a changé). */
+  cancelAlign: () => invoke<void>("cancel_align"),
   lyricsQuery: (trackId: string) => invoke<string>("lyrics_query", { trackId }),
   searchLyrics: (trackId: string, query: string) =>
     invoke<LyricsCandidate[]>("search_lyrics", { trackId, query }),
