@@ -632,6 +632,12 @@ onBeforeUnmount(() => {
 .page-slot {
   min-height: 100%;
 }
+/* Page « Artistes » (ordinateur) : liste et fiche défilent chacune de leur côté, dans la
+   hauteur de la fenêtre ; sans hauteur fixée ici, la fiche restait tout en haut d'une page
+   de plusieurs milliers de pixels, hors de vue quand on cliquait un artiste plus bas. */
+.content.flush > .page-slot {
+  height: 100%;
+}
 .page-enter-active {
   transition: opacity 0.22s ease, transform 0.26s var(--ease);
 }
