@@ -3088,7 +3088,7 @@ dependencies = [
 
 [[package]]
 name = "music-player"
-version = "0.5.12"
+version = "0.5.13"
 dependencies = [
  "base64 0.22.1",
  "candle-core",
