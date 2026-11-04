@@ -10,6 +10,7 @@
 
 use crate::eq::{EqGains, EqSource};
 use crate::ffmpeg;
+use crate::opus;
 use rodio::{Decoder, DeviceSinkBuilder, Player, Source};
 use std::fs::File;
 use std::io::{BufReader, Cursor, Read, Seek, SeekFrom};
@@ -196,7 +197,14 @@ fn native_decoder(path: &Path) -> Result<BoxedSource, String> {
 }
 
 fn ffmpeg_decoder(path: &Path) -> Result<BoxedSource, String> {
-    let wav = ffmpeg::decode_to_wav(path)?;
+    wav_decoder(ffmpeg::decode_to_wav(path)?)
+}
+
+fn opus_decoder(path: &Path) -> Result<BoxedSource, String> {
+    wav_decoder(opus::decode_to_wav(path)?)
+}
+
+fn wav_decoder(wav: Vec<u8>) -> Result<BoxedSource, String> {
     let len = wav.len() as u64;
     let decoder = Decoder::builder()
         .with_data(Cursor::new(wav))
@@ -216,6 +224,15 @@ pub fn open_decoder(path: &str) -> Result<BoxedSource, String> {
         let direct = panic::catch_unwind(|| native_decoder(file_path))
             .unwrap_or_else(|_| Err("le décodeur intégré a échoué sur ce fichier".to_string()));
         match direct {
+            Ok(decoder) => return Ok(decoder),
+            Err(error) if !opus::is_ogg_opus(file_path) && !ffmpeg::ffmpeg_available() => return Err(error),
+            Err(_) => {}
+        }
+    }
+    // Opus : décodé ici, sans ffmpeg (absent d'Android). Sous panique ou échec, ffmpeg s'il existe.
+    if opus::is_ogg_opus(file_path) {
+        let decoded = panic::catch_unwind(|| opus_decoder(file_path)).unwrap_or_else(|_| Err("décodeur Opus en échec".to_string()));
+        match decoded {
             Ok(decoder) => return Ok(decoder),
             Err(error) if !ffmpeg::ffmpeg_available() => return Err(error),
             Err(_) => {}

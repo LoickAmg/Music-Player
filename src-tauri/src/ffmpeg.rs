@@ -1,6 +1,6 @@
-//! Formats que le lecteur intégré ne sait pas décoder (Opus, WMA, AC3/E-AC3 « Dolby »,
-//! APE, WavPack, DSD…) : on les confie à `ffmpeg` s'il est installé, qui les convertit à
-//! la volée en WAV, lu ensuite comme n'importe quel autre fichier.
+//! Formats que le lecteur intégré ne sait pas décoder (WMA, AC3/E-AC3 « Dolby », APE, WavPack,
+//! DSD…) : on les confie à `ffmpeg` s'il est installé, qui les convertit à la volée en WAV, lu
+//! ensuite comme n'importe quel autre fichier. (Opus a son propre décodeur : opus.rs.)
 //!
 //! `ffmpeg` n'est pas livré avec l'application (taille et licence) : il est cherché dans
 //! `FFMPEG_PATH`, à côté de l'exécutable, puis dans le `PATH`. Sous Windows :
@@ -87,6 +87,9 @@ fn quiet(command: &mut Command) -> &mut Command {
 
 /// Message affiché quand un format demande `ffmpeg` et qu'il est absent.
 pub fn missing_ffmpeg_message(path: &Path) -> String {
+    if cfg!(target_os = "android") {
+        return format!("Le format .{} n'est pas pris en charge sur Android.", extension_of(path));
+    }
     format!(
         "Le format .{} demande ffmpeg, introuvable sur cet ordinateur. Installez-le \
          (Windows : winget install ffmpeg), puis relancez l'application.",

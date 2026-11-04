@@ -11,6 +11,7 @@ pub mod library;
 pub mod listening;
 pub mod lyrics;
 pub mod nearby;
+pub mod opus;
 pub mod playlists;
 pub mod power;
 pub mod queue;

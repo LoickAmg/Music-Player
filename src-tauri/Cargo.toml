@@ -60,6 +60,8 @@ hkdf = "0.12"
 rustfft = "6"
 # Icône choisie appliquée aux raccourcis Windows : PNG → .ico multi-tailles.
 image = { version = "0.25", default-features = false, features = ["png", "ico"] }
+opus-decoder = "0.1"
+ogg = "0.9"
 
 # Mise à jour automatique depuis les versions GitHub (ordinateur seulement).
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
