@@ -28,6 +28,8 @@ export interface Card {
   code: string;
   nom: string;
   avatar: string | null;
+  /** Clé publique (messages chiffrés de bout en bout) ; absente des profils d'avant 0.5.14. */
+  cle?: string | null;
 }
 
 /** Ce qu'écoute un ami (à l'instant `at`, ms). */
@@ -61,6 +63,8 @@ export interface Word {
   de: string;
   texte: string;
   piece: Piece | null;
+  /** Message chiffré de bout en bout (texte et pièce jointe y sont). */
+  chiffre?: string | null;
   at: number;
 }
 
@@ -74,6 +78,7 @@ export interface SelfEntry {
   token: string | null;
   texte: string;
   piece: Piece | null;
+  chiffre?: string | null;
   at: number;
 }
 
@@ -131,8 +136,10 @@ async function call<T>(base: string, path: string, body?: unknown): Promise<T> {
 }
 
 export const relay = {
-  saveProfile: (base: string, code: string, secret: string, nom: string, avatar: string | null) =>
-    call<Card>(base, `/v1/profil/${code}/profil`, { secret, nom, avatar }),
+  saveProfile: (base: string, code: string, secret: string, nom: string, avatar: string | null, cle: string) =>
+    call<Card>(base, `/v1/profil/${code}/profil`, { secret, nom, avatar, cle }),
+  /** Efface tout ce que le relais garde de ce profil. */
+  erase: (base: string, code: string, secret: string) => call<{ ok: true }>(base, `/v1/profil/${code}/effacer`, { secret }),
   card: (base: string, code: string) => call<Card>(base, `/v1/profil/${code}/carte`),
   setStatus: (base: string, code: string, secret: string, statut: Omit<Presence, "at"> | null) =>
     call<{ ok: true }>(base, `/v1/profil/${code}/statut`, { secret, statut }),
@@ -140,9 +147,11 @@ export const relay = {
     call<{ ok: true }>(base, `/v1/profil/${code}/autoriser`, { secret, lecteur, token }),
   revoke: (base: string, code: string, secret: string, lecteur: string) =>
     call<{ ok: true }>(base, `/v1/profil/${code}/retirer`, { secret, lecteur }),
-  send: (base: string, to: string, message: Omit<Message, "at">) => call<{ ok: true }>(base, `/v1/profil/${to}/message`, message),
+  /** `preuve` : le secret de l'expéditeur, vérifié par le relais et jamais transmis au destinataire. */
+  send: (base: string, to: string, message: Omit<Message, "at">, preuve: string) =>
+    call<{ ok: true }>(base, `/v1/profil/${to}/message`, { ...message, preuve }),
   /** Mot à un proche : `token` est celui qu'il nous a donné (preuve qu'on est son ami). */
-  word: (base: string, to: string, word: { de: string; token: string; texte: string; piece: Piece | null }) =>
+  word: (base: string, to: string, word: { de: string; token: string; texte: string; piece: Piece | null; chiffre?: string | null }) =>
     call<{ ok: true }>(base, `/v1/profil/${to}/message`, { type: "mot", ...word }),
   journal: (base: string, code: string, secret: string, depuis: number) =>
     call<{ entrees: JournalEntry[] }>(base, `/v1/profil/${code}/journal`, { secret, depuis }),

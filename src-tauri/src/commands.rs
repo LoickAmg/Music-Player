@@ -1088,6 +1088,10 @@ pub fn nearby_send(
     from: String,
     transfer_id: String,
 ) -> Result<(), String> {
+    // Le partage à proximité n'est pas chiffré : jamais le lien entre appareils par ce chemin.
+    if matches!(item, crate::transfer::Item::Backup(_)) {
+        return Err("Ce contenu ne passe que par un code de partage.".into());
+    }
     let cancel = crate::transfer::cancel_flag(&transfer_id);
     let result = crate::transfer::prepare(&app, &item, &from).and_then(|(path, offer)| {
         let sent = crate::nearby::send_to(&peer.addresses, &path, &offer, &cancel, report(&app, &transfer_id));

@@ -216,6 +216,19 @@ export const useSyncStore = defineStore("sync", {
       lastVersion = null;
     },
 
+    /** Efface le profil, les proches et l'état commun du relais, puis de cet appareil. */
+    async eraseEverything(): Promise<boolean> {
+      this.error = null;
+      try {
+        await useFriendsStore().erase();
+        this.unlink();
+        return true;
+      } catch (e) {
+        this.error = e instanceof Error ? e.message : String(e);
+        return false;
+      }
+    },
+
     /** Mise à jour depuis le compte (0.5.13) : mêmes appareils, sans mot de passe. La clé du
      *  compte, identique sur tous ses appareils, devient la clé de synchronisation : ils restent
      *  reliés sans rien refaire. La sauvegarde en ligne est fusionnée une fois, puis effacée. */

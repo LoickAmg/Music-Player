@@ -14,6 +14,7 @@ import {
   type SelfEntry,
   type Word,
 } from "@/lib/friendsApi";
+import { conversationKey, openWord, publicKey, sealWord } from "@/lib/e2e";
 import { useAppearanceStore } from "./appearance";
 import { useLibraryStore } from "./library";
 import { usePlayerStore } from "./player";
@@ -55,6 +56,8 @@ export interface Friend {
   /** Jeton reçu de l'ami : permet de lire son statut. */
   readToken: string;
   since: number;
+  /** Sa clé publique : ses messages sont alors chiffrés de bout en bout. */
+  pubKey?: string | null;
 }
 
 /** Demande envoyée, en attente d'accord (avec le jeton déjà donné). */
@@ -214,7 +217,6 @@ export const useFriendsStore = defineStore("friends", {
       this.save();
       this.saveWords();
       this.start();
-      if (this.enabled) useShareStore().setFriendCode(saved.me.code);
     },
     /** Cet appareil quitte le groupe de ses appareils liés : plus aucune trace du profil ici. */
     forget() {
@@ -241,7 +243,7 @@ export const useFriendsStore = defineStore("friends", {
       for (let attempt = 0; ; attempt++) {
         const me = this.me ?? { code: newCode(), secret: hex(32) };
         try {
-          await relay.saveProfile(this.base, me.code, me.secret, card.nom, card.avatar);
+          await relay.saveProfile(this.base, me.code, me.secret, card.nom, card.avatar, await publicKey(me.secret));
           this.me = me;
           this.save();
           return me;
@@ -266,7 +268,7 @@ export const useFriendsStore = defineStore("friends", {
         this.enabled = true;
         this.save();
         this.start();
-        useShareStore().setFriendCode(this.me!.code);
+        if (this.watching) useShareStore().setFriendCode(this.me!.code);
       });
       this.busy = false;
     },
@@ -285,7 +287,7 @@ export const useFriendsStore = defineStore("friends", {
     async refreshCard() {
       if (!this.enabled || !this.me || !this.base) return;
       const card = await this.myCard();
-      await relay.saveProfile(this.base, this.me.code, this.me.secret, card.nom, card.avatar).catch(() => {});
+      await relay.saveProfile(this.base, this.me.code, this.me.secret, card.nom, card.avatar, await publicKey(this.me.secret)).catch(() => {});
     },
 
     async findProfile(code: string): Promise<Card | null> {
@@ -301,7 +303,7 @@ export const useFriendsStore = defineStore("friends", {
         const token = existing?.token ?? hex(16);
         await relay.grant(base, code, secret, card.code, token);
         const mine = await this.myCard();
-        await relay.send(base, card.code, { type: "demande", de: code, nom: mine.nom, avatar: mine.avatar, token });
+        await relay.send(base, card.code, { type: "demande", de: code, nom: mine.nom, avatar: mine.avatar, token }, secret);
         if (!existing) this.outgoing.push({ code: card.code, name: card.nom, avatar: card.avatar, token, at: Date.now() });
         this.note({ type: "attente", code: card.code, nom: card.nom, avatar: card.avatar, token });
         // Demande croisée : l'autre m'avait déjà demandé, on s'accepte tout de suite.
@@ -316,7 +318,7 @@ export const useFriendsStore = defineStore("friends", {
         const token = this.outgoing.find((o) => o.code === req.code)?.token ?? hex(16);
         await relay.grant(base, code, secret, req.code, token);
         const mine = await this.myCard();
-        await relay.send(base, req.code, { type: "accord", de: code, nom: mine.nom, avatar: mine.avatar, token });
+        await relay.send(base, req.code, { type: "accord", de: code, nom: mine.nom, avatar: mine.avatar, token }, secret);
         this.addFriend({ code: req.code, name: req.name, avatar: req.avatar, readToken: req.token, since: Date.now() });
         this.incoming = this.incoming.filter((i) => i.code !== req.code);
         this.note({ type: "ami", code: req.code, nom: req.name, avatar: req.avatar, token: req.token });
@@ -341,7 +343,39 @@ export const useFriendsStore = defineStore("friends", {
       this.note({ type: "oubli", code: friendCode });
       if (this.me && this.base) {
         await relay.revoke(this.base, this.me.code, this.me.secret, friendCode).catch(() => {});
-        await relay.send(this.base, friendCode, { type: "retrait", de: this.me.code, nom: "", avatar: null, token: null }).catch(() => {});
+        await relay.send(this.base, friendCode, { type: "retrait", de: this.me.code, nom: "", avatar: null, token: null }, this.me.secret).catch(() => {});
+      }
+    },
+    /** Efface le profil du relais (mes proches en sont prévenus), puis de cet appareil. */
+    async erase() {
+      const { me, base } = this;
+      if (me && base) {
+        for (const f of this.friends) {
+          await relay.send(base, f.code, { type: "retrait", de: me.code, nom: "", avatar: null, token: null }, me.secret).catch(() => {});
+        }
+        await relay.erase(base, me.code, me.secret);
+      }
+      this.forget();
+    },
+    /** Clé publique d'un proche : connue, ou lue sur sa carte. Null s'il n'en a pas encore. */
+    async peerKey(code: string): Promise<string | null> {
+      const friend = this.friends.find((f) => f.code === code);
+      if (friend?.pubKey) return friend.pubKey;
+      if (!this.base) return null;
+      const card = await relay.card(this.base, code).catch(() => null);
+      if (friend && card?.cle) {
+        friend.pubKey = card.cle;
+        this.save();
+      }
+      return card?.cle ?? null;
+    },
+    /** Message chiffré d'une conversation avec `peer`, en clair (texte et pièce jointe). */
+    async readSealed(peer: string | null, sealed: string): Promise<{ texte: string; piece: Piece | null }> {
+      try {
+        if (!this.me || !peer) throw new Error();
+        return await openWord(await conversationKey(this.me.secret, peer), sealed);
+      } catch {
+        return { texte: "Message illisible sur cet appareil.", piece: null };
       }
     },
     addFriend(friend: Friend) {
@@ -362,10 +396,11 @@ export const useFriendsStore = defineStore("friends", {
       const lines = [...(this.conversations[code] ?? []), line].slice(-MAX_LINES);
       this.conversations = { ...this.conversations, [code]: lines };
     },
-    onWord(w: Word & { id?: string }) {
+    async onWord(w: Word & { id?: string }) {
       if (!this.isFriend(w.de)) return;
       if (w.id && (this.conversations[w.de] ?? []).some((l) => l.id === w.id)) return;
-      this.addLine(w.de, { id: w.id, mine: false, texte: w.texte, piece: w.piece, at: w.at });
+      const { texte, piece } = w.chiffre ? await this.readSealed(await this.peerKey(w.de), w.chiffre) : w;
+      this.addLine(w.de, { id: w.id, mine: false, texte, piece, at: w.at });
       if (this.chatWith !== w.de) this.unread = { ...this.unread, [w.de]: (this.unread[w.de] ?? 0) + 1 };
       this.saveWords();
     },
@@ -374,11 +409,20 @@ export const useFriendsStore = defineStore("friends", {
       const friend = this.friends.find((f) => f.code === code);
       if (!friend) return false;
       const ok = await this.run(async () => {
-        const { base, code: me } = this.need();
-        await relay.word(base, code, { de: me, token: friend.readToken, texte: texte.trim(), piece });
-        this.addLine(code, { mine: true, texte: texte.trim(), piece, at: Date.now() });
+        const { base, code: me, secret } = this.need();
+        const words = { texte: texte.trim(), piece };
+        // Proche à jour : ni le relais ni personne d'autre ne peut lire le message.
+        const peer = await this.peerKey(code);
+        if (peer) {
+          const chiffre = await sealWord(await conversationKey(secret, peer), words);
+          await relay.word(base, code, { de: me, token: friend.readToken, texte: "", piece: null, chiffre });
+          this.note({ type: "envoye", code, chiffre: await sealWord(await conversationKey(secret, await publicKey(secret)), words) });
+        } else {
+          await relay.word(base, code, { de: me, token: friend.readToken, ...words });
+          this.note({ type: "envoye", code, ...words });
+        }
+        this.addLine(code, { mine: true, ...words, at: Date.now() });
         this.saveWords();
-        this.note({ type: "envoye", code, texte: texte.trim(), piece });
         return true;
       });
       return !!ok;
@@ -421,7 +465,7 @@ export const useFriendsStore = defineStore("friends", {
       this.incoming = [...this.incoming.filter((i) => i.code !== m.de), req];
     },
     /** Ce qu'un autre de mes appareils a fait (même profil). */
-    onSelf(e: SelfEntry) {
+    async onSelf(e: SelfEntry) {
       if (e.type === "ami" && e.token) {
         this.addFriend({ code: e.code, name: e.nom, avatar: e.avatar, readToken: e.token, since: e.at });
         this.incoming = this.incoming.filter((i) => i.code !== e.code);
@@ -433,9 +477,10 @@ export const useFriendsStore = defineStore("friends", {
         delete this.live[e.code];
       } else if (e.type === "envoye") {
         // Mot envoyé depuis un autre appareil (celui-ci l'a déjà, à quelques secondes près).
+        const { texte, piece } = e.chiffre && this.me ? await this.readSealed(await publicKey(this.me.secret), e.chiffre) : e;
         const lines = this.conversations[e.code] ?? [];
-        if (!lines.some((l) => l.mine && l.texte === e.texte && Math.abs(l.at - e.at) < 120_000)) {
-          this.addLine(e.code, { mine: true, texte: e.texte, piece: e.piece, at: e.at });
+        if (!lines.some((l) => l.mine && l.texte === texte && Math.abs(l.at - e.at) < 120_000)) {
+          this.addLine(e.code, { mine: true, texte, piece, at: e.at });
           this.saveWords();
         }
       }
@@ -455,8 +500,8 @@ export const useFriendsStore = defineStore("friends", {
         if (seen.has(e.id)) continue;
         seen.add(e.id);
         this.cursor = Math.max(this.cursor, e.at);
-        if (e.moi) this.onSelf(e);
-        else if (e.type === "mot") this.onWord(e);
+        if (e.moi) await this.onSelf(e);
+        else if (e.type === "mot") await this.onWord(e);
         else this.onMessage(e);
       }
       if (entrees.length) {
@@ -471,7 +516,7 @@ export const useFriendsStore = defineStore("friends", {
       try {
         const { messages } = await relay.inbox(this.base, this.me.code, this.me.secret);
         for (const m of messages) {
-          if (m.type === "mot") this.onWord(m);
+          if (m.type === "mot") await this.onWord(m);
           else this.onMessage(m);
         }
         if (messages.length) this.save();
@@ -491,9 +536,10 @@ export const useFriendsStore = defineStore("friends", {
         for (const a of amis) {
           this.live[a.code] = { status: a.statut ?? null, refused: !!a.refuse, checkedAt: now };
           const f = this.friends.find((x) => x.code === a.code);
-          if (f && a.carte && (f.name !== a.carte.nom || f.avatar !== a.carte.avatar)) {
+          if (f && a.carte && (f.name !== a.carte.nom || f.avatar !== a.carte.avatar || f.pubKey !== (a.carte.cle ?? null))) {
             f.name = a.carte.nom;
             f.avatar = a.carte.avatar;
+            f.pubKey = a.carte.cle ?? null;
             this.save();
           }
         }
@@ -575,7 +621,8 @@ export const useFriendsStore = defineStore("friends", {
       lastFriends = lastInbox = 0;
       timer = setInterval(() => this.tick(), 4_000);
       this.tick();
-      if (this.me) useShareStore().setFriendCode(this.me.code);
+      // Profils d'avant le chiffrement : la clé publique rejoint la carte d'ami.
+      void this.refreshCard();
     },
     stop() {
       if (timer) clearInterval(timer);
@@ -584,6 +631,8 @@ export const useFriendsStore = defineStore("friends", {
     /** Page « Proches » ouverte : tout de suite à jour. */
     setWatching(on: boolean) {
       this.watching = on;
+      // Le code d'ami n'est annoncé sur le Wi-Fi que page Proches ouverte (réseaux publics).
+      void useShareStore().setFriendCode(on && this.enabled ? (this.me?.code ?? null) : null);
       if (on) {
         lastFriends = lastInbox = 0;
         this.tick();

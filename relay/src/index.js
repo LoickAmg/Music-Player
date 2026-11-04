@@ -7,8 +7,10 @@
 //
 // 2. Proches (profils) : chaque appareil qui l'active a un code d'ami (« K7QM-2D9X »). On
 //    s'ajoute par ce code ; l'ajout n'aboutit que si l'autre accepte. Le relais garde pour
-//    chaque profil son nom, ce qu'il écoute en ce moment (effacé au bout de 6 heures), les
-//    demandes en attente et la liste des amis autorisés à lire ce statut, rien d'autre.
+//    chaque profil son nom, ce qu'il écoute en ce moment (effacé au bout d'une heure), les
+//    demandes en attente, les messages chiffrés (60 jours) et la liste des amis autorisés à lire
+//    ce statut, rien d'autre. Un profil sans activité pendant un an est effacé, et son
+//    propriétaire peut l'effacer à tout moment.
 //
 // 3. Zone (sur option) : annuaire des profils qui ont choisi d'être visibles des personnes de
 //    leur ville, d'après l'adresse IP vue par Cloudflare (jamais de position GPS). Une
@@ -21,7 +23,18 @@ const LIFETIME_MS = 15 * 60 * 1000;
 const CODE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 const SECRET = /^[0-9a-f]{64}$/;
 const TOKEN = /^[0-9a-f]{32,64}$/;
-const PRESENCE_TTL_MS = 6 * 60 * 60 * 1000;
+const PRESENCE_TTL_MS = 60 * 60 * 1000;
+const JOURNAL_TTL_MS = 60 * 24 * 3600_000;
+/** Ancienne boîte (appareils en 0.5.12 et avant). */
+const BOX_TTL_MS = 7 * 24 * 3600_000;
+const IDLE_TTL_MS = 365 * 24 * 3600_000;
+/** Demandes, accords et retraits acceptés d'un même expéditeur, par heure. */
+const MESSAGES_PER_HOUR = 30;
+/** Clé publique du profil (messages chiffrés de bout en bout). */
+const PUBLIC_KEY = /^[0-9a-f]{64}$/;
+/** Message chiffré sur l'appareil : le relais n'en voit rien. */
+const SEALED_MAX = 96 * 1024;
+const BASE64 = /^[A-Za-z0-9+/=]+$/;
 const ZONE_TTL_MS = 10 * 60 * 1000;
 const MAX_INBOX = 50;
 /** Mots (messagerie entre proches) en attente de lecture, en plus des demandes. */
@@ -147,7 +160,21 @@ export default {
       const profil = url.pathname.match(/^\/v1\/profil\/([^/]+)\/([a-z]+)$/);
       if (profil) {
         if (!CODE.test(profil[1])) return json({ erreur: "Code inconnu" }, 404);
-        return profile(env, profil[1]).fetch(request);
+        // Demande, accord ou retrait : l'expéditeur prouve qu'il est bien le propriétaire du
+        // profil qu'il annonce, sans quoi n'importe qui pourrait agir en son nom.
+        if (profil[2] === "message" && request.method === "POST") {
+          const body = await readJson(request);
+          if (body.type !== "mot") {
+            if (!CODE.test(body.de ?? "") || !SECRET.test(body.preuve ?? "")) return json({ erreur: "Mettez Music Player à jour pour ajouter des proches." }, 403);
+            const check = await profile(env, body.de).fetch(
+              new Request(`https://profil/v1/profil/${body.de}/verifier`, { method: "POST", body: JSON.stringify({ secret: body.preuve }) }),
+            );
+            if (!check.ok) return json({ erreur: "Expéditeur non reconnu" }, 403);
+            delete body.preuve;
+          }
+          return await profile(env, profil[1]).fetch(new Request(request.url, { method: "POST", body: JSON.stringify(body) }));
+        }
+        return await profile(env, profil[1]).fetch(request);
       }
 
       // Statut de plusieurs amis d'un coup : { amis: [{ code, token }], lecteur }.
@@ -266,7 +293,51 @@ export class Profil {
 
   async owner(secret) {
     const hash = await this.state.storage.get("secret");
-    return !!hash && SECRET.test(secret ?? "") && hash === (await sha256(secret));
+    const ok = !!hash && SECRET.test(secret ?? "") && hash === (await sha256(secret));
+    if (ok) {
+      // Dernière activité (une écriture par jour au plus) : voir `alarm`.
+      const now = Date.now();
+      if (now - ((await this.state.storage.get("vu")) ?? 0) > 24 * 3600_000) {
+        await this.state.storage.put("vu", now);
+        await this.planPurge();
+      }
+    }
+    return ok;
+  }
+
+  /** Prochain effacement programmé : statut, journal, ancienne boîte, profil inactif. */
+  async planPurge() {
+    const storage = this.state.storage;
+    const now = Date.now();
+    const times = [((await storage.get("vu")) ?? now) + IDLE_TTL_MS];
+    const statut = await storage.get("statut");
+    if (statut) times.push(statut.at + PRESENCE_TTL_MS);
+    const journal = (await storage.get("journal")) ?? [];
+    if (journal.length) times.push(journal[0].at + JOURNAL_TTL_MS);
+    const inbox = (await storage.get("boite")) ?? [];
+    if (inbox.length) times.push(inbox[0].at + BOX_TTL_MS);
+    const next = Math.max(Math.min(...times), now + 60_000);
+    const planned = await storage.getAlarm();
+    if (planned === null || planned > next || planned < now) await storage.setAlarm(next);
+  }
+
+  /** Ce qui a dépassé sa durée de conservation est réellement effacé. */
+  async alarm() {
+    const storage = this.state.storage;
+    const now = Date.now();
+    const seen = await storage.get("vu");
+    if (seen !== undefined && now - seen >= IDLE_TTL_MS) {
+      await storage.deleteAll();
+      return;
+    }
+    const statut = await storage.get("statut");
+    if (statut && now - statut.at >= PRESENCE_TTL_MS) await storage.delete("statut");
+    const journal = await storage.get("journal");
+    if (journal) await storage.put("journal", journal.filter((e) => now - e.at < JOURNAL_TTL_MS));
+    const inbox = await storage.get("boite");
+    if (inbox) await storage.put("boite", inbox.filter((e) => now - e.at < BOX_TTL_MS));
+    await storage.delete("limites");
+    await this.planPurge();
   }
 
   async card() {
@@ -294,8 +365,10 @@ export class Profil {
         if (!SECRET.test(body.secret ?? "")) return json({ erreur: "Secret invalide" }, 400);
         if (hash && hash !== (await sha256(body.secret))) return json({ erreur: "Code déjà pris" }, 409);
         if (!hash) await storage.put("secret", await sha256(body.secret));
-        const card = { code, nom: clean(body.nom, 40) || "Music Player", avatar: cleanAvatar(body.avatar) };
+        const card = { code, nom: clean(body.nom, 40) || "Music Player", avatar: cleanAvatar(body.avatar), cle: PUBLIC_KEY.test(body.cle ?? "") ? body.cle : null };
         await storage.put("carte", card);
+        if (!hash) await storage.put("vu", Date.now());
+        await this.planPurge();
         return json(card);
       }
       case "verifier": {
@@ -306,8 +379,12 @@ export class Profil {
       case "statut": {
         if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
         const presence = cleanPresence(body.statut);
-        if (presence) await storage.put("statut", presence);
-        else await storage.delete("statut");
+        if (presence) {
+          await storage.put("statut", presence);
+          await this.planPurge();
+        } else {
+          await storage.delete("statut");
+        }
         return json({ ok: true });
       }
       // Lecture du statut par un ami autorisé.
@@ -347,16 +424,25 @@ export class Profil {
           if (!grants[body.de] || !TOKEN.test(body.token ?? "") || grants[body.de] !== (await sha256(body.token))) {
             return json({ erreur: "Réservé à vos proches" }, 403);
           }
-          const texte = cleanText(body.texte, 1000);
-          const piece = cleanPiece(body.piece);
-          if (!texte && !piece) return json({ erreur: "Message vide" }, 400);
-          const entry = { type: "mot", de: body.de, texte, piece, at: Date.now() };
+          const chiffre = typeof body.chiffre === "string" && body.chiffre.length <= SEALED_MAX && BASE64.test(body.chiffre) ? body.chiffre : null;
+          const texte = chiffre ? "" : cleanText(body.texte, 1000);
+          const piece = chiffre ? null : cleanPiece(body.piece);
+          if (!chiffre && !texte && !piece) return json({ erreur: "Message vide" }, 400);
+          const entry = { type: "mot", de: body.de, texte, piece, chiffre, at: Date.now() };
           await this.toInbox(entry, MAX_WORDS);
           await this.toJournal(entry);
           return json({ ok: true });
         }
         if (!["demande", "accord", "retrait"].includes(body.type)) return json({ erreur: "Message inconnu" }, 400);
         if (body.type !== "retrait" && !TOKEN.test(body.token ?? "")) return json({ erreur: "Jeton invalide" }, 400);
+        // Pas d'inondation : un expéditeur ne remplit pas le journal d'un autre.
+        const limits = (await storage.get("limites")) ?? {};
+        const now = Date.now();
+        for (const [k, v] of Object.entries(limits)) if (now - v.since > 3600_000) delete limits[k];
+        const sent = limits[body.de] ?? { n: 0, since: now };
+        if (sent.n >= MESSAGES_PER_HOUR) return json({ erreur: "Trop de demandes : réessayez dans une heure." }, 429);
+        limits[body.de] = { n: sent.n + 1, since: sent.since };
+        await storage.put("limites", limits);
         const entry = {
           type: body.type,
           de: body.de,
@@ -393,6 +479,7 @@ export class Profil {
           token: e.token ?? null,
           texte: cleanText(e.texte, 1000),
           piece: cleanPiece(e.piece),
+          chiffre: typeof e.chiffre === "string" && e.chiffre.length <= SEALED_MAX && BASE64.test(e.chiffre) ? e.chiffre : null,
           at: Date.now(),
         });
         return json({ ok: true });
@@ -449,6 +536,13 @@ export class Profil {
         const n = Number(body.n ?? 0);
         if (!Number.isInteger(n) || n < 0 || n >= meta.total) return json({ erreur: "Morceau inconnu" }, 400);
         return json({ total: meta.total, at: meta.at, data: (await storage.get(`sauvegarde:${n}`)) ?? "" });
+      }
+      // Tout ce que le relais garde de ce profil est effacé, tout de suite.
+      case "effacer": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        await storage.deleteAlarm();
+        await storage.deleteAll();
+        return json({ ok: true });
       }
       // Ancien compte abandonné (0.5.14) : mot de passe et sauvegarde en ligne effacés.
       case "sanscompte": {
@@ -527,6 +621,7 @@ export class Profil {
     let kept = journal.slice(-2000);
     while (kept.length > 1 && JSON.stringify(kept).length > 1_500_000) kept = kept.slice(1);
     await this.state.storage.put("journal", kept);
+    await this.planPurge();
   }
 
   /** Mot de passe du compte prouvé par `cle` ; `counted` : essai décompté (10 ratés par heure). */

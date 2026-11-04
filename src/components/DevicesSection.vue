@@ -13,7 +13,7 @@ const friends = useFriendsStore();
 const share = useShareStore();
 const ui = useUiStore();
 
-const mode = ref<"idle" | "give" | "enter" | "leave">("idle");
+const mode = ref<"idle" | "give" | "enter" | "leave" | "erase">("idle");
 const code = ref("");
 
 const last = computed(() => {
@@ -46,6 +46,12 @@ async function copy() {
     ui.notify("Code copié");
   } catch {
     ui.notify("Copie impossible : notez le code à la main.");
+  }
+}
+async function erase() {
+  if (await sync.eraseEverything()) {
+    mode.value = "idle";
+    ui.notify("Vos données ont été effacées du relais");
   }
 }
 function leave() {
@@ -132,6 +138,17 @@ function leave() {
       </div>
     </div>
 
+    <div v-else-if="mode === 'erase'" class="ask">
+      <p>
+        <strong>Effacer vos données du relais ?</strong> Votre profil, votre code d'ami, vos conversations et l'état synchronisé sont supprimés
+        définitivement, pour tous vos appareils liés. Vos proches sont prévenus. Vos playlists et titres aimés restent sur vos appareils.
+      </p>
+      <div class="actions">
+        <button type="button" class="pill pill-danger" @click="erase">Tout effacer</button>
+        <button type="button" class="pill pill-ghost" @click="mode = 'idle'">Annuler</button>
+      </div>
+    </div>
+
     <div v-else class="actions">
       <button v-if="sync.linked" type="button" class="pill pill-accent" :disabled="sync.running" @click="sync.run()">
         <Icon name="refresh" :size="15" /> {{ sync.running ? "Synchronisation…" : "Synchroniser maintenant" }}
@@ -139,6 +156,7 @@ function leave() {
       <button type="button" class="pill" :class="sync.linked ? 'pill-ghost' : 'pill-accent'" :disabled="sync.linkBusy || !share.relayInUse" @click="give">Lier un autre appareil</button>
       <button v-if="!sync.linked" type="button" class="pill pill-ghost" :disabled="!share.relayInUse" @click="mode = 'enter'">Relier cet appareil</button>
       <button v-if="sync.linked" type="button" class="pill pill-ghost" @click="mode = 'leave'">Délier cet appareil</button>
+      <button v-if="friends.me" type="button" class="pill pill-ghost" @click="mode = 'erase'">Effacer mes données du relais</button>
     </div>
     <p v-if="sync.error" class="error">{{ sync.error }}</p>
   </section>

@@ -87,7 +87,7 @@ async function viaFile() {
               {{ share.scanning ? "Recherche…" : "Actualiser" }}
             </button>
           </div>
-          <p class="hint">Appareils avec Music Player ouvert sur le même Wi-Fi. La personne doit accepter l'envoi.</p>
+          <p class="hint">Appareils avec Music Player ouvert sur le même Wi-Fi. La personne doit accepter l'envoi. Envoi direct, non chiffré : à éviter sur un Wi-Fi public.</p>
           <div class="peers">
             <button v-for="peer in share.peers" :key="peer.id" type="button" class="peer" @click="share.sendNearby(peer)">
               <span class="avatar">{{ initial(peer.name) }}</span>

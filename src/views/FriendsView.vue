@@ -133,8 +133,9 @@ function relation(code: string): "ami" | "attente" | null {
       <h2>Voyez ce qu'écoutent vos proches</h2>
       <p class="muted">
         Activez les Proches pour recevoir un code d'ami. Ajoutez-vous avec vos codes, ou depuis la liste des appareils du
-        même Wi-Fi : une fois la demande acceptée, chacun voit en direct ce que l'autre écoute. Pas de compte, pas d'adresse
-        e-mail ; vos vocaux et enregistrements ne sont jamais partagés.
+        même Wi-Fi : une fois la demande acceptée, chacun voit en direct ce que l'autre écoute. Pas d'adresse e-mail ; vos vocaux
+        et enregistrements ne sont jamais partagés. Le relais garde votre nom, votre photo, ce que vous écoutez (une heure) et vos messages,
+        chiffrés (60 jours).
       </p>
       <button type="button" class="pill pill-accent" :disabled="friends.busy || !friends.base" @click="friends.enable()">
         {{ friends.busy ? "Activation…" : "Activer les Proches" }}

@@ -141,6 +141,9 @@ async function createPlaylist(p: Piece) {
         </div>
 
         <footer>
+          <p class="privacy">
+            {{ friend?.pubKey ? "Messages chiffrés de bout en bout." : "Messages non chiffrés : ce proche doit mettre Music Player à jour." }}
+          </p>
           <div v-if="piece" class="attached">
             <Icon :name="piece.type === 'morceau' ? 'note' : 'playlist'" :size="15" />
             <span>{{ piece.type === "morceau" ? `${piece.titre} · ${piece.artiste}` : `${piece.nom} (${piece.morceaux.length} morceaux)` }}</span>
@@ -238,6 +241,12 @@ header {
 .mine .bubble {
   border-radius: 14px 14px 4px 14px;
   background: var(--accent-soft);
+}
+.privacy {
+  margin: 0 0 6px;
+  color: var(--text-3);
+  font-size: 11.5px;
+  text-align: center;
 }
 .text {
   margin: 0;

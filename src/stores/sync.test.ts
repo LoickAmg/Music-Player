@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
-import worker, { Profil } from "../../relay/src/index.js";
+import { FakeRelay } from "@/lib/relayTestKit";
 import { encrypt, newSyncKey } from "@/lib/sync";
 import type { Playlist, Track } from "@/lib/types";
 
@@ -51,46 +51,25 @@ import { usePlaylistsStore } from "./playlists";
 import { useShareStore } from "./share";
 import { parseLink, useSyncStore } from "./sync";
 
-class Storage {
-  map = new Map<string, unknown>();
-  async get(k: string) {
-    return this.map.get(k);
-  }
-  async put(k: string, v: unknown) {
-    this.map.set(k, v);
-  }
-  async delete(k: string) {
-    this.map.delete(k);
-  }
-}
-let profiles: Map<string, Profil>;
-const env = {
-  PROFILS: {
-    idFromName: (n: string) => n,
-    get: (id: string) => {
-      if (!profiles.has(id)) profiles.set(id, new Profil({ storage: new Storage() }));
-      return profiles.get(id)!;
-    },
-  },
-};
+let relay: FakeRelay;
 const BASE = "https://relais.test";
 const CODE = "K7QM-2D9X";
 const SECRET = "a".repeat(64);
-const post = (action: string, body: unknown) => worker.fetch(new Request(`${BASE}/v1/profil/${CODE}/${action}`, { method: "POST", body: JSON.stringify(body) }), env);
-const stored = () => (profiles.get(CODE) as unknown as { state: { storage: Storage } }).state.storage.map;
+const post = (action: string, body: unknown) => relay.post(CODE, action, body);
+const stored = () => relay.storage(CODE).map;
 
 function track(id: string, title: string): Track {
   return { id, path: `/m/${id}.mp3`, title, artist: "Artiste", album: "Album", album_artist: "Artiste", track_no: null, disc_no: null, year: null, genre: null, duration_secs: 200, has_cover: false, added_secs: 0 };
 }
 
 beforeEach(async () => {
-  profiles = new Map();
+  relay = new FakeRelay();
   localStorage.clear();
   engine.playlists = [];
   engine.favorites = new Set();
   engine.listens = [];
   setActivePinia(createPinia());
-  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => worker.fetch(new Request(url, init), env));
+  vi.stubGlobal("fetch", relay.fetch);
   useShareStore().relay = BASE;
   useLibraryStore().tracks = [track("a", "Lemon"), track("b", "Redo")];
   await post("profil", { secret: SECRET, nom: "A" });

@@ -1,5 +1,6 @@
 // Types pour les tests de l'appli, qui exercent le vrai code du relais.
 export class Profil {
+  alarm(): Promise<void>;
   constructor(state: unknown);
   fetch(request: Request): Promise<Response>;
 }

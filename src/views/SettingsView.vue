@@ -338,7 +338,7 @@ const shortcuts = [
       <h2>À propos</h2>
       <p class="muted small">
         Music Player — lecteur de musique local : la plupart des formats audio (ffmpeg en appoint), paroles
-        synchronisées, égaliseur. Vos fichiers ne quittent jamais votre ordinateur.
+        synchronisées, égaliseur. Vos fichiers ne quittent votre appareil que si vous les partagez.
       </p>
       <button type="button" class="pill pill-ghost" @click="showLegal = true">Mentions légales et confidentialité</button>
     </section>

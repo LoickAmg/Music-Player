@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import worker, { Profil } from "../../relay/src/index.js";
+import { FakeRelay } from "./relayTestKit";
 import type { Listen } from "./recap";
 import {
   asBase,
@@ -172,41 +172,20 @@ describe("synchronisation entre appareils", () => {
 });
 
 describe("état commun sur le relais", () => {
-  class Storage {
-    map = new Map<string, unknown>();
-    async get(k: string) {
-      return this.map.get(k);
-    }
-    async put(k: string, v: unknown) {
-      this.map.set(k, v);
-    }
-    async delete(k: string) {
-      this.map.delete(k);
-    }
-  }
-  let profiles: Map<string, Profil>;
-  const env = {
-    PROFILS: {
-      idFromName: (n: string) => n,
-      get: (id: string) => {
-        if (!profiles.has(id)) profiles.set(id, new Profil({ storage: new Storage() }));
-        return profiles.get(id)!;
-      },
-    },
-  };
+  let relay: FakeRelay;
   const id: SyncIdentity = { base: "https://relais.test", code: "K7QM-2D9X", secret: "a".repeat(64), key: newSyncKey() };
   const doc = (name: string) => ({ ...EMPTY(), playlists: [{ name, theme: "x", style: null, tracks: [] }] });
 
   beforeEach(async () => {
-    profiles = new Map();
-    vi.stubGlobal("fetch", (url: string, init?: RequestInit) => worker.fetch(new Request(url, init), env));
+    relay = new FakeRelay();
+    vi.stubGlobal("fetch", relay.fetch);
     await fetch(`${id.base}/v1/profil/${id.code}/profil`, { method: "POST", body: JSON.stringify({ secret: id.secret, nom: "A" }) });
   });
 
   it("publie et relit un état chiffré que le relais ne peut pas lire", async () => {
     expect(await downloadDoc(id)).toBeNull();
     await uploadDoc(id, doc("Secrète"), null);
-    const stored = JSON.stringify([...(profiles.get(id.code) as unknown as { state: { storage: Storage } }).state.storage.map.entries()]);
+    const stored = JSON.stringify([...relay.storage(id.code).map.entries()]);
     expect(stored).not.toContain("Secrète");
     expect((await downloadDoc(id))!.doc.playlists[0].name).toBe("Secrète");
   });
