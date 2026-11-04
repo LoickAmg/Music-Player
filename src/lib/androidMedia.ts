@@ -54,6 +54,8 @@ declare global {
     AndroidFiles?: AndroidFilesBridge;
     /** Avis reçus : vérification en arrière-plan par Android (administrateur). */
     AndroidAvis?: { watch(base: string, code: string, notified: number): void; stop(): void };
+    /** Proches : messages et demandes signalés appli fermée. */
+    AndroidProches?: { watch(base: string, code: string, secret: string, since: number, names: string): void; stop(): void };
     __mpDeleted?: (ok: boolean) => void;
     __mpSystemDark?: (dark: boolean) => void;
     AndroidMedia?: AndroidMediaBridge;

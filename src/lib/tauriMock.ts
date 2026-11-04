@@ -345,6 +345,10 @@ export function installTauriMock() {
       appearance = value;
     },
     sync_app_icon: () => null,
+    stop_playback: () => {
+      queue = { ...queue, track_ids: [], position: null };
+    },
+    share_image: ({ name }) => `/cache/partages/${name}.png`,
     save_image: ({ name }) => `C:/Users/Moi/Pictures/Music Player/${name}`,
     save_backup: ({ name }) => `C:/Users/Moi/Documents/${name}.mpsave`,
     read_backup: () => {

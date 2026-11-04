@@ -7,6 +7,8 @@ import type { PlaybackStatus, QueueView, RepeatMode, Track } from "@/lib/types";
 // (l'enchaînement des morceaux se fait côté Rust et prévient l'interface).
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let polling = false;
+/** Fin du dernier saut : une réponse du moteur demandée avant est périmée. */
+let seekDoneAt = 0;
 
 export const usePlayerStore = defineStore("player", {
   state: () => ({
@@ -133,6 +135,7 @@ export const usePlayerStore = defineStore("player", {
       this.error = null;
       try {
         await api.seek(positionSecs);
+        seekDoneAt = performance.now();
         this.setPosition(positionSecs);
       } catch (e) {
         this.error = String(e);
@@ -206,7 +209,20 @@ export const usePlayerStore = defineStore("player", {
       this.applyQueue(await api.getQueue());
     },
     async refreshStatus() {
-      this.applyStatus(await api.getPlaybackStatus());
+      const asked = performance.now();
+      const status = await api.getPlaybackStatus();
+      // Partie avant un saut, cette réponse ramènerait la barre à l'ancienne position.
+      if (asked >= seekDoneAt) this.applyStatus(status);
+    },
+    /** Ferme le morceau en cours : plus de son ni de file, le lecteur disparaît. */
+    async close() {
+      this.error = null;
+      try {
+        await api.stopPlayback();
+        await this.afterTrackChange(null);
+      } catch (e) {
+        this.error = String(e);
+      }
     },
     async pollTick() {
       if (this.busy) return;

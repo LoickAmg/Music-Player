@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { useFrame } from "@/lib/clock";
+import { useFriendsStore } from "@/stores/friends";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore, type Route } from "@/stores/ui";
 import Artwork from "./Artwork.vue";
@@ -24,7 +25,11 @@ const TABS: { route: Route; label: string; icon: string }[] = [
   { route: { name: "artists" }, label: "Artistes", icon: "artist" },
   { route: { name: "songs" }, label: "Morceaux", icon: "songs" },
   { route: { name: "playlists" }, label: "Playlists", icon: "playlist" },
+  { route: { name: "friends" }, label: "Proches", icon: "user" },
 ];
+const friends = useFriendsStore();
+/** Messages non lus et demandes reçues, sur l'onglet Proches. */
+const pending = computed(() => friends.unreadTotal + friends.incoming.length);
 
 function active(route: Route) {
   const name = ui.route.name;
@@ -48,12 +53,16 @@ function active(route: Route) {
       <button type="button" class="mini-btn" aria-label="Suivant" @click.stop="player.next()">
         <Icon name="next" :size="22" />
       </button>
+      <button type="button" class="mini-btn mini-close" aria-label="Fermer ce morceau" @click.stop="player.close()">
+        <Icon name="close" :size="16" />
+      </button>
       <span ref="progress" class="mini-progress" />
     </div>
     <nav class="tabs" aria-label="Navigation">
       <button v-for="t in TABS" :key="t.route.name" type="button" class="tab" :class="{ on: active(t.route) }" @click="ui.go(t.route)">
         <Icon :name="t.icon" :size="21" />
         <span>{{ t.label }}</span>
+        <b v-if="t.route.name === 'friends' && pending" class="tab-badge">{{ pending }}</b>
       </button>
     </nav>
   </div>
@@ -116,6 +125,10 @@ function active(route: Route) {
   background: none;
   color: var(--text);
 }
+.mini-close {
+  width: 32px;
+  color: var(--text-2);
+}
 .mini-btn:active {
   background: var(--bg-active);
 }
@@ -130,7 +143,7 @@ function active(route: Route) {
 }
 .tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   padding: 4px 4px 6px;
 }
 .tab {
@@ -145,7 +158,23 @@ function active(route: Route) {
   font-size: 11px;
   font-weight: 600;
 }
+.tab {
+  position: relative;
+}
 .tab.on {
   color: var(--accent);
+}
+.tab-badge {
+  position: absolute;
+  top: 2px;
+  left: calc(50% + 6px);
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger-strong);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
 }
 </style>

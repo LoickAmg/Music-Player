@@ -274,6 +274,7 @@ onBeforeUnmount(() => {
                 <button type="button" title="Les paroles arrivent trop tard" @click="nudge(500)">Plus tôt</button>
               </div>
             </template>
+            <button type="button" role="menuitem" class="tools-item" @click="ui.lyricsShare = true; toolsOpen = false"><Icon name="share" :size="15" /> Partager un extrait</button>
             <button type="button" role="menuitem" class="tools-item" @click="openSearch"><Icon name="search" :size="15" /> Chercher d'autres paroles</button>
             <button type="button" role="menuitem" class="tools-item danger" @click="dismiss"><Icon name="close" :size="15" /> Ce ne sont pas les bonnes</button>
           </div>

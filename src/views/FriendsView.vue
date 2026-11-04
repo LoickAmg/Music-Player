@@ -4,6 +4,7 @@ import { shareText } from "@/lib/androidMedia";
 import { normalize } from "@/lib/duplicates";
 import { type Card, parseCode, type Presence } from "@/lib/friendsApi";
 import { formatDuration } from "@/lib/format";
+import { remembered } from "@/lib/remember";
 import type { Track } from "@/lib/types";
 import { type Friend, isFresh, useFriendsStore } from "@/stores/friends";
 import { useLibraryStore } from "@/stores/library";
@@ -35,6 +36,19 @@ onBeforeUnmount(() => {
   friends.setWatching(false);
   if (clock) clearInterval(clock);
 });
+
+const view = remembered<"discussions" | "proches">("mp:proches-vue", "discussions", ["discussions", "proches"]);
+/** Conversations, la plus récente d'abord. */
+const discussions = computed(() =>
+  friends.friends
+    .map((friend) => {
+      const lines = friends.conversations[friend.code] ?? [];
+      const last = lines[lines.length - 1] ?? null;
+      const what = !last ? "Aucun message pour l'instant" : last.texte || (last.piece?.type === "playlist" ? `Playlist : ${last.piece.nom}` : last.piece ? `Morceau : ${last.piece.titre}` : "");
+      return { friend, last, preview: last?.mine ? `Vous : ${what}` : what };
+    })
+    .sort((a, b) => (b.last?.at ?? 0) - (a.last?.at ?? 0) || a.friend.name.localeCompare(b.friend.name, "fr")),
+);
 
 const ordered = computed(() => {
   const rank = (f: Friend) => {
@@ -145,6 +159,31 @@ function relation(code: string): "ami" | "attente" | null {
     </section>
 
     <template v-else>
+      <div class="chips" role="tablist" aria-label="Sections des Proches">
+        <button type="button" role="tab" :aria-selected="view === 'discussions'" :class="{ on: view === 'discussions' }" @click="view = 'discussions'">
+          Discussions<span v-if="friends.unreadTotal" class="chip-badge">{{ friends.unreadTotal }}</span>
+        </button>
+        <button type="button" role="tab" :aria-selected="view === 'proches'" :class="{ on: view === 'proches' }" @click="view = 'proches'">
+          Proches<span v-if="friends.incoming.length" class="chip-badge">{{ friends.incoming.length }}</span>
+        </button>
+      </div>
+
+      <section v-if="view === 'discussions'" class="block discussions">
+        <p v-if="!friends.friends.length" class="muted">Ajoutez un proche pour discuter avec lui : onglet « Proches ».</p>
+        <button v-for="c in discussions" :key="c.friend.code" type="button" class="discussion" @click="friends.openChat(c.friend.code)">
+          <FriendAvatar :name="c.friend.name" :src="c.friend.avatar" :size="46" :live="statusLine(c.friend).live" />
+          <span class="d-text">
+            <span class="d-top">
+              <strong>{{ c.friend.name }}</strong>
+              <time v-if="c.last">{{ ago(c.last.at) }}</time>
+            </span>
+            <span class="d-preview" :class="{ fresh: friends.unread[c.friend.code] }">{{ c.preview }}</span>
+          </span>
+          <span v-if="friends.unread[c.friend.code]" class="d-count">{{ friends.unread[c.friend.code] }}</span>
+        </button>
+      </section>
+
+      <template v-else>
       <!-- Mon code et mes réglages -->
       <section class="card me">
         <div class="me-head">
@@ -293,11 +332,104 @@ function relation(code: string): "ami" | "attente" | null {
         <button type="button" class="link danger" @click="friends.disable()">Désactiver les Proches</button>
         <span class="muted small">Vos proches ne verront plus votre écoute ; ils restent dans la liste si vous réactivez.</span>
       </p>
+      </template>
     </template>
   </div>
 </template>
 
 <style scoped>
+.chips {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.chips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgba(var(--fg-rgb), 0.08);
+  color: var(--text-2);
+  font-weight: 600;
+}
+.chips button.on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.chip-badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--danger-strong);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+}
+.discussion {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 6px;
+  border: 0;
+  border-bottom: 0.5px solid var(--separator);
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.discussion:hover {
+  background: rgba(var(--fg-rgb), 0.05);
+}
+.d-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.d-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.d-top strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 15px;
+}
+.d-top time {
+  flex: none;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.d-preview {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.d-preview.fresh {
+  color: var(--text);
+  font-weight: 600;
+}
+.d-count {
+  flex: none;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+}
 .chat-btn {
   position: relative;
   color: var(--accent);

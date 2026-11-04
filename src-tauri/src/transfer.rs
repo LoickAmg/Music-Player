@@ -130,6 +130,7 @@ pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, Str
             added_tracks: 0,
             skipped_tracks: 0,
             playlist_id: None,
+            track_ids: Vec::new(),
         });
     }
     let result = sharing::import_bundle(&state, path);

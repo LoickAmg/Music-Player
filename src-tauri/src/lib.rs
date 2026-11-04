@@ -146,6 +146,8 @@ pub fn run() {
             commands::next_track,
             commands::previous_track,
             commands::seek,
+            commands::stop_playback,
+            commands::share_image,
             commands::set_volume,
             commands::set_shuffle,
             commands::set_repeat,

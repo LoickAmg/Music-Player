@@ -5,8 +5,8 @@ import Icon from "@/components/Icon.vue";
 import { coverUrl } from "@/lib/covers";
 import { css, paletteFromImage, type Palette } from "@/lib/palette";
 import { formatListening, minutesLabel, monthName, type Ranked, type Recap } from "@/lib/recap";
-import { canvasToPng, drawRecapCard } from "@/lib/recapCard";
-import { api } from "@/lib/api";
+import { drawRecapCard } from "@/lib/recapCard";
+import { shareCanvas } from "@/lib/shareCard";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
@@ -22,7 +22,6 @@ const emit = defineEmits<{ close: [] }>();
 const library = useLibraryStore();
 const player = usePlayerStore();
 const ui = useUiStore();
-const ON_ANDROID = /Android/i.test(navigator.userAgent);
 const SLIDE_MS = 7000;
 
 const r = computed(() => props.recap);
@@ -183,8 +182,8 @@ async function saveCard() {
   saving.value = true;
   try {
     const canvas = await drawRecapCard(r.value, palette.value, topCover.value);
-    const path = await api.saveImage(await canvasToPng(canvas), `Ma musique ${r.value.label}`);
-    ui.notify(`Image enregistrée : ${path}`);
+    const problem = await shareCanvas(canvas, `Ma musique ${r.value.label}`);
+    if (problem) ui.notify(problem);
   } catch (e) {
     ui.notify(`Enregistrement impossible : ${String(e)}`);
   } finally {
@@ -340,8 +339,7 @@ async function saveCard() {
               </div>
             </div>
             <div class="actions rise d2">
-              <button v-if="!ON_ANDROID" type="button" class="cta" :disabled="saving" @click="saveCard"><Icon name="plus" :size="14" /> {{ saving ? "Enregistrement…" : "Enregistrer l'image" }}</button>
-              <p v-else class="hint">Fais une capture d'écran pour la partager.</p>
+              <button type="button" class="cta" :disabled="saving" @click="saveCard"><Icon name="share" :size="14" /> {{ saving ? "Préparation…" : "Partager ma carte" }}</button>
               <button type="button" class="ghost" @click="index = 0">Revoir</button>
               <button type="button" class="ghost" @click="emit('close')">Terminer</button>
             </div>

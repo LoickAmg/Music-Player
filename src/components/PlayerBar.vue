@@ -80,6 +80,9 @@ function toggleMute() {
           </div>
           <SeekBar variant="lcd" @dragging="dragging = $event" />
         </div>
+        <button type="button" class="lcd-close" title="Fermer ce morceau" aria-label="Fermer ce morceau" @click="player.close()">
+          <Icon name="close" :size="13" />
+        </button>
       </template>
       <div v-else class="lcd-idle"><Icon name="note" :size="22" /></div>
     </div>
@@ -171,6 +174,17 @@ function toggleMute() {
   background: rgba(var(--fg-rgb), 0.06);
   box-shadow: inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.08);
   overflow: hidden;
+}
+.lcd-close {
+  flex: none;
+  width: 26px;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+}
+.lcd-close:hover {
+  color: var(--text);
+  background: rgba(var(--fg-rgb), 0.08);
 }
 .lcd-idle {
   flex: 1;

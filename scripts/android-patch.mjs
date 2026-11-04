@@ -162,6 +162,7 @@ if (!manifest.includes(".UpdateCheckJob")) {
     /<\/application>/,
     `    <service android:name="${pkg}.UpdateCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <service android:name="${pkg}.AvisCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
+        <service android:name="${pkg}.ProchesCheckJob" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <receiver android:name="${pkg}.UpdateNowReceiver" android:exported="false" />
         <receiver android:name="${pkg}.UpdateDownloadedReceiver" android:exported="true">
             <intent-filter>
@@ -325,6 +326,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     webView.addJavascriptInterface(ShareBridge(applicationContext), "AndroidShare")
     webView.addJavascriptInterface(DeleteBridge(this), "AndroidFiles")
     webView.addJavascriptInterface(AvisBridge(applicationContext), "AndroidAvis")
+    webView.addJavascriptInterface(ProchesBridge(applicationContext), "AndroidProches")
     // Retour : page précédente de l'interface ; à la racine, l'appli passe en arrière-plan
     // (comme la touche d'accueil) au lieu de se fermer et de couper la musique.
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -1605,6 +1607,141 @@ class AvisBridge(private val context: Context) {
   @JavascriptInterface
   fun stop() {
     AvisWatch.stop(context)
+  }
+}
+`,
+);
+
+// 3 quinquies. Proches : messages et demandes signalés appli fermée (tâche de fond).
+fs.writeFileSync(
+  path.join(kotlinDir, "ProchesWatch.kt"),
+  `package ${pkg}
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
+import android.content.ComponentName
+import android.content.Context
+import android.webkit.JavascriptInterface
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+
+object ProchesWatch {
+  private const val PREFS = "music-player-proches"
+  private const val CHANNEL = "proches"
+  private const val JOB_ID = 4244
+  private const val NOTIFY = 32
+
+  fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+  fun watch(context: Context, base: String, code: String, secret: String, since: Long, names: String) {
+    prefs(context).edit().putString("base", base).putString("code", code).putString("secret", secret).putLong("since", since).putString("names", names).apply()
+    val scheduler = context.getSystemService(JobScheduler::class.java)
+    if (scheduler.getPendingJob(JOB_ID) != null) return
+    val job = JobInfo.Builder(JOB_ID, ComponentName(context, ProchesCheckJob::class.java))
+      .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+      .setPeriodic(15 * 60 * 1000L)
+      .setPersisted(true)
+      .build()
+    try {
+      scheduler.schedule(job)
+    } catch (e: Exception) {
+      // planification refusée : les messages arrivent à la prochaine ouverture
+    }
+  }
+
+  fun stop(context: Context) {
+    prefs(context).edit().clear().apply()
+    context.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+  }
+
+  /** Nouveautés du journal du profil depuis la dernière fois : une notification. */
+  fun check(context: Context) {
+    val prefs = prefs(context)
+    val base = prefs.getString("base", null) ?: return
+    val code = prefs.getString("code", null) ?: return
+    val secret = prefs.getString("secret", null) ?: return
+    val since = prefs.getLong("since", 0L)
+    val connection = URL(base + "/v1/profil/" + code + "/journal").openConnection() as HttpURLConnection
+    connection.requestMethod = "POST"
+    connection.doOutput = true
+    connection.connectTimeout = 15000
+    connection.readTimeout = 15000
+    connection.outputStream.use { it.write(JSONObject().put("secret", secret).put("depuis", since + 1).toString().toByteArray()) }
+    if (connection.responseCode != 200) return
+    val entries = JSONObject(connection.inputStream.bufferedReader().readText()).optJSONArray("entrees") ?: return
+    val names = try { JSONObject(prefs.getString("names", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+    var latest = since
+    var words = 0
+    var requests = 0
+    var who = ""
+    for (i in 0 until entries.length()) {
+      val e = entries.getJSONObject(i)
+      latest = maxOf(latest, e.optLong("at", 0L))
+      if (e.optBoolean("moi", false)) continue
+      val type = e.optString("type")
+      if (type == "mot") words++ else if (type == "demande") requests++ else continue
+      val from = e.optString("de")
+      who = names.optString(from).ifBlank { e.optString("nom") }
+    }
+    prefs.edit().putLong("since", latest).apply()
+    if (words + requests == 0) return
+    val manager = context.getSystemService(NotificationManager::class.java)
+    if (manager.getNotificationChannel(CHANNEL) == null) {
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Messages et demandes des proches", NotificationManager.IMPORTANCE_DEFAULT))
+    }
+    val open = context.packageManager.getLaunchIntentForPackage(context.packageName)?.let {
+      PendingIntent.getActivity(context, 6, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val title = when {
+      words > 1 -> "" + words + " nouveaux messages"
+      words == 1 -> if (who.isBlank()) "Nouveau message" else "Message de " + who
+      requests > 1 -> "" + requests + " demandes d'ajout"
+      else -> if (who.isBlank()) "Demande d'ajout" else who + " veut vous ajouter"
+    }
+    val notification = Notification.Builder(context, CHANNEL)
+      .setSmallIcon(android.R.drawable.ic_dialog_email)
+      .setContentTitle(title)
+      .setContentText("Music Player · Proches")
+      .setContentIntent(open)
+      .setAutoCancel(true)
+      .build()
+    manager.notify(NOTIFY, notification)
+  }
+}
+
+class ProchesCheckJob : JobService() {
+  override fun onStartJob(params: JobParameters): Boolean {
+    Thread {
+      try {
+        ProchesWatch.check(this)
+      } catch (e: Exception) {
+        // hors ligne : prochaine vérification plus tard
+      }
+      jobFinished(params, false)
+    }.start()
+    return true
+  }
+
+  override fun onStopJob(params: JobParameters): Boolean = true
+}
+
+/** window.AndroidProches : la page transmet le profil et où elle en est du journal. */
+class ProchesBridge(private val context: Context) {
+  @JavascriptInterface
+  fun watch(base: String, code: String, secret: String, since: Double, names: String) {
+    ProchesWatch.watch(context, base, code, secret, since.toLong(), names)
+  }
+
+  @JavascriptInterface
+  fun stop() {
+    ProchesWatch.stop(context)
   }
 }
 `,

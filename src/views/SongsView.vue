@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { collator, formatCollection } from "@/lib/format";
+import { collator, formatCollection, formatDuration } from "@/lib/format";
 import { remembered } from "@/lib/remember";
 import type { Track } from "@/lib/types";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
+import FastScroll from "@/components/FastScroll.vue";
 import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
 import VirtualList from "@/components/VirtualList.vue";
@@ -64,6 +65,16 @@ function sortBy(key: Key) {
   }
 }
 
+// Défilement rapide : repère affiché selon le tri choisi.
+function fastLabel(index: number): string {
+  const t = tracks.value[index];
+  if (!t) return "";
+  if (sortKey.value === "duration") return formatDuration(t.duration_secs);
+  if (sortKey.value === "added") return new Date(t.added_secs * 1000).toLocaleDateString("fr-FR", { month: "short", year: "numeric" });
+  const text = sortKey.value === "artist" ? t.artist : sortKey.value === "album" ? t.album : t.title;
+  return text.trim().charAt(0).toUpperCase();
+}
+
 function play(index: number) {
   const ids = tracks.value.map((t) => t.id);
   void player.playQueue(ids, ids[index]);
@@ -103,6 +114,7 @@ function play(index: number) {
         <TrackRow :track="item" :index="index" striped @play="play(index)" />
       </template>
     </VirtualList>
+    <FastScroll :count="tracks.length" :label="fastLabel" />
   </div>
 </template>
 

@@ -15,6 +15,7 @@ import {
   type Word,
 } from "@/lib/friendsApi";
 import { conversationKey, openWord, publicKey, sealWord } from "@/lib/e2e";
+import { notify } from "@/lib/notify";
 import { useAppearanceStore } from "./appearance";
 import { useLibraryStore } from "./library";
 import { usePlayerStore } from "./player";
@@ -234,6 +235,7 @@ export const useFriendsStore = defineStore("friends", {
       this.seen = [];
       this.save();
       this.saveWords();
+      this.watchInBackground();
       useShareStore().setFriendCode(null);
     },
     /** Profil sur le relais (code d'ami nouveau si déjà pris), sans activer les Proches. */
@@ -281,6 +283,7 @@ export const useFriendsStore = defineStore("friends", {
       this.zoneVisible = false;
       this.save();
       this.stop();
+      this.watchInBackground();
       useShareStore().setFriendCode(null);
     },
     /** Nom ou photo du profil modifiés : carte d'ami mise à jour. */
@@ -403,6 +406,24 @@ export const useFriendsStore = defineStore("friends", {
       this.addLine(w.de, { id: w.id, mine: false, texte, piece, at: w.at });
       if (this.chatWith !== w.de) this.unread = { ...this.unread, [w.de]: (this.unread[w.de] ?? 0) + 1 };
       this.saveWords();
+      this.signal(this.friends.find((f) => f.code === w.de)?.name ?? "Un proche", texte || (piece?.type === "playlist" ? `Playlist : ${piece.nom}` : piece ? `Morceau : ${piece.titre}` : ""), w.at);
+    },
+    /** Appli ouverte mais cachée : notification du système (pas pour l'historique relu). */
+    signal(title: string, body: string, at: number) {
+      if (typeof document !== "undefined" && document.hidden && Date.now() - at < 10 * 60_000) void notify(title, body);
+    },
+    /** Android : messages et demandes signalés aussi appli fermée, à partir d'ici. */
+    watchInBackground() {
+      try {
+        if (this.enabled && this.me && this.base) {
+          const names = Object.fromEntries(this.friends.map((f) => [f.code, f.name]));
+          window.AndroidProches?.watch(this.base, this.me.code, this.me.secret, Math.max(this.cursor, Date.now() - 3600_000), JSON.stringify(names));
+        } else {
+          window.AndroidProches?.stop();
+        }
+      } catch {
+        // ancienne activité Android
+      }
     },
     /** Mot à un proche : texte, et/ou un morceau ou une playlist décrits. */
     async sendWord(code: string, texte: string, piece: Piece | null): Promise<boolean> {
@@ -463,6 +484,7 @@ export const useFriendsStore = defineStore("friends", {
         return;
       }
       this.incoming = [...this.incoming.filter((i) => i.code !== m.de), req];
+      this.signal(m.nom || "Music Player", "Vous demande en proche", m.at);
     },
     /** Ce qu'un autre de mes appareils a fait (même profil). */
     async onSelf(e: SelfEntry) {
@@ -508,6 +530,7 @@ export const useFriendsStore = defineStore("friends", {
         this.seen = [...seen].slice(-300);
         this.save();
       }
+      this.watchInBackground();
       return true;
     },
     async pollInbox() {

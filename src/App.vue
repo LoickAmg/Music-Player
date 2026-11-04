@@ -5,6 +5,7 @@ import { api, onAlignEvents, onScanEvents, onShareEvents } from "@/lib/api";
 import { installAndroidFiles, installAndroidMedia, installInsets } from "@/lib/androidMedia";
 import { nudgeClock, setClockRunning } from "@/lib/clock";
 import type { Track } from "@/lib/types";
+import { restoreIconSize } from "@/lib/profileIcon";
 import { SCROLLER } from "@/lib/virtual";
 import { useAmbienceStore } from "@/stores/ambience";
 import { useAppearanceStore } from "@/stores/appearance";
@@ -22,6 +23,8 @@ import MobileBar from "@/components/MobileBar.vue";
 import MobileTop from "@/components/MobileTop.vue";
 import NowPlaying from "@/components/NowPlaying.vue";
 import LyricsSearch from "@/components/LyricsSearch.vue";
+import LyricsShare from "@/components/LyricsShare.vue";
+import ProfileView from "@/views/ProfileView.vue";
 import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
 import ShareActivity from "@/components/ShareActivity.vue";
@@ -292,6 +295,7 @@ onMounted(async () => {
     queue: initial.queue,
   });
   ready.value = true;
+  restoreIconSize();
   player.startPolling();
   offPlayback.push(
     await onShareEvents({
@@ -441,6 +445,7 @@ onBeforeUnmount(() => {
               <SearchView v-else-if="ui.route.name === 'search'" :query="ui.route.query" />
               <SettingsView v-else-if="ui.route.name === 'settings'" />
               <AppearanceView v-else-if="ui.route.name === 'appearance'" />
+              <ProfileView v-else-if="ui.route.name === 'profile'" />
               <StatsView v-else-if="ui.route.name === 'stats'" />
               <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
             </div>
@@ -465,6 +470,7 @@ onBeforeUnmount(() => {
     <TrackMenu />
     <TrackPicker />
     <LyricsSearch />
+    <LyricsShare />
     <PlaylistDialog />
     <Transition name="fade">
       <div v-if="ui.toast" class="toast" role="status">{{ ui.toast }}</div>

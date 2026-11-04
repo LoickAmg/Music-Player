@@ -3,7 +3,11 @@ import { computed } from "vue";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
+import { normalize } from "@/lib/duplicates";
+import { useFriendsStore } from "@/stores/friends";
 import AlbumCard from "@/components/AlbumCard.vue";
+import FriendAvatar from "@/components/FriendAvatar.vue";
+import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
 
 const props = defineProps<{ query: string }>();
@@ -12,7 +16,13 @@ const player = usePlayerStore();
 const ui = useUiStore();
 
 const results = computed(() => library.search(props.query));
-const empty = computed(() => !results.value.tracks.length && !results.value.albums.length && !results.value.artists.length);
+const friends = useFriendsStore();
+/** Proches dont le nom ou le code correspond à la recherche. */
+const people = computed(() => {
+  const q = normalize(props.query);
+  return q ? friends.friends.filter((f) => normalize(f.name).includes(q) || normalize(f.code).includes(q)) : [];
+});
+const empty = computed(() => !people.value.length && !results.value.tracks.length && !results.value.albums.length && !results.value.artists.length);
 
 function play(index: number) {
   const ids = results.value.tracks.map((t) => t.id);
@@ -24,6 +34,18 @@ function play(index: number) {
   <div class="page">
     <h1 class="page-title">Résultats pour « {{ query }} »</h1>
     <p v-if="empty" class="muted">Aucun résultat dans votre bibliothèque.</p>
+
+    <section v-if="people.length">
+      <h2>Proches</h2>
+      <button v-for="f in people" :key="f.code" type="button" class="person" @click="friends.openChat(f.code)">
+        <FriendAvatar :name="f.name" :src="f.avatar" :size="38" />
+        <span class="person-text">
+          <strong>{{ f.name }}</strong>
+          <small>{{ f.code }}</small>
+        </span>
+        <Icon name="lyrics" :size="17" />
+      </button>
+    </section>
 
     <section v-if="results.artists.length">
       <h2>Artistes</h2>
@@ -56,6 +78,34 @@ h2 {
   margin: 0 0 12px;
   font-family: var(--font-display);
   font-size: 18px;
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+.person:hover {
+  background: rgba(var(--fg-rgb), 0.06);
+}
+.person > svg {
+  color: var(--accent);
+}
+.person-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.person-text small {
+  color: var(--text-2);
+  font-size: 12px;
 }
 .chips {
   display: flex;

@@ -4,6 +4,7 @@ import { coverUrl } from "@/lib/covers";
 import { useNow } from "@/lib/clock";
 import { keepScreenOn } from "@/lib/androidMedia";
 import { useFavoritesStore } from "@/stores/favorites";
+import { useLibraryStore } from "@/stores/library";
 import { useLyricsStore } from "@/stores/lyrics";
 import { formatDuration, hueFor } from "@/lib/format";
 import { usePlayerStore } from "@/stores/player";
@@ -11,6 +12,7 @@ import { useUiStore } from "@/stores/ui";
 import Artwork from "./Artwork.vue";
 import Icon from "./Icon.vue";
 import LyricsView from "./LyricsView.vue";
+import QueueList from "./QueueList.vue";
 import CdCase from "./CdCase.vue";
 import SeekBar from "./SeekBar.vue";
 import SkipButton from "./SkipButton.vue";
@@ -78,8 +80,23 @@ async function cycleRepeat() {
   ui.notify(REPEAT_LABEL[player.repeat]);
 }
 
+function closeTrack() {
+  ui.closeNowPlaying();
+  void player.close();
+}
+
+// À suivre : le prochain morceau, et toute la file à la demande.
+const library = useLibraryStore();
+const nextTrack = computed(() => {
+  const id = player.upNextIds[0];
+  return id ? library.byId(id) : null;
+});
+const showQueue = ref(false);
+
 function onKey(e: KeyboardEvent) {
-  if (e.key === "Escape") ui.closeNowPlaying();
+  if (e.key !== "Escape") return;
+  if (showQueue.value) showQueue.value = false;
+  else ui.closeNowPlaying();
 }
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
@@ -123,6 +140,9 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
         @click="toggleVisualizer"
       >
         <Icon name="eq" :size="18" />
+      </button>
+      <button type="button" class="icon-btn" title="Fermer ce morceau" aria-label="Fermer ce morceau" @click="closeTrack">
+        <Icon name="close" :size="18" />
       </button>
     </div>
 
@@ -171,6 +191,11 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
             <span v-if="player.repeat === 'one'" class="rep-one">1</span>
           </button>
         </div>
+        <button type="button" class="up-next" aria-label="Voir les prochains morceaux" @click="showQueue = true">
+          <Icon name="queue" :size="16" />
+          <span v-if="nextTrack" class="up-next-text"><b>Ensuite</b> {{ nextTrack.title }} · {{ nextTrack.artist }}</span>
+          <span v-else class="up-next-text">Rien d'autre dans la file</span>
+        </button>
         <div v-if="narrow" class="m-extra">
           <button type="button" class="icon-btn" :class="{ on: showLyrics }" aria-label="Paroles" @click="showLyrics = !showLyrics">
             <Icon name="lyrics" :size="22" />
@@ -191,6 +216,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
       </div>
     </div>
     <div v-else class="empty">Aucun morceau en cours.</div>
+
+    <div v-if="showQueue" class="queue-sheet" role="dialog" aria-label="À suivre" @click.self="showQueue = false">
+      <div class="queue-card">
+        <header>
+          <h3>À suivre</h3>
+          <button type="button" class="icon-btn" aria-label="Fermer" @click="showQueue = false"><Icon name="close" :size="18" /></button>
+        </header>
+        <QueueList />
+      </div>
+    </div>
   </section>
 </template>
 
@@ -521,6 +556,59 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
   place-items: center;
   height: 100%;
   color: var(--text-2);
+}
+.up-next {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 13px;
+  text-align: left;
+}
+.up-next-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.up-next b {
+  margin-right: 4px;
+  font-weight: 700;
+}
+.queue-sheet {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(2, 6, 20, 0.55);
+}
+.queue-card {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 560px);
+  height: min(78%, 720px);
+  padding-bottom: var(--safe-bottom);
+  border-radius: 18px 18px 0 0;
+  background: rgba(16, 20, 34, 0.98);
+}
+.queue-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 0 18px;
+}
+.queue-card h3 {
+  margin: 0;
+  font-size: 16px;
 }
 .m-extra {
   display: flex;

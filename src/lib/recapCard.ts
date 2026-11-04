@@ -5,13 +5,13 @@ import { formatListening, minutesLabel, type Recap } from "./recap";
 export const CARD_W = 1080;
 export const CARD_H = 1920;
 
-const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
+export const FONT = '"Segoe UI", system-ui, -apple-system, Roboto, sans-serif';
 
-function rgb([r, g, b]: Rgb, a = 1) {
+export function rgb([r, g, b]: Rgb, a = 1) {
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
-function loadImage(url: string | null): Promise<HTMLImageElement | null> {
+export function loadImage(url: string | null): Promise<HTMLImageElement | null> {
   if (!url) return Promise.resolve(null);
   return new Promise((resolve) => {
     const img = new Image();
@@ -22,7 +22,7 @@ function loadImage(url: string | null): Promise<HTMLImageElement | null> {
   });
 }
 
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -33,7 +33,7 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
 }
 
 /** Texte tronqué avec « … » pour tenir dans `max` pixels. */
-function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+export function fit(ctx: CanvasRenderingContext2D, text: string, max: number): string {
   if (ctx.measureText(text).width <= max) return text;
   let t = text;
   while (t.length > 1 && ctx.measureText(`${t}…`).width > max) t = t.slice(0, -1);

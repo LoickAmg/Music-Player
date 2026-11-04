@@ -452,6 +452,15 @@ pub fn previous_track(state: State<'_, AppState>) -> Result<Option<Track>, Strin
     track_or_stop(&state, prev_id)
 }
 
+/// Ferme le morceau en cours : plus de son ni de file d'attente.
+#[tauri::command]
+pub fn stop_playback(state: State<AppState>) -> Result<(), String> {
+    state.queue.lock().unwrap().set_items(Vec::new(), None);
+    state.audio.stop();
+    *state.resume_at.lock().unwrap() = 0.0;
+    persist_session(&state).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn seek(state: State<AppState>, position_secs: f64) -> Result<(), String> {
     if state.audio.status().current_path.is_none() {
@@ -987,6 +996,21 @@ pub fn save_backup(app: AppHandle, json: String, name: String) -> Result<Option<
 }
 
 /// Contenu d'une sauvegarde ouverte avec l'appli (« Ouvrir avec Music Player »).
+/// Image à partager (carte de paroles, récap) : posée dans le cache de l'appli, où la feuille de
+/// partage d'Android va la chercher. Effacée avec les autres partages au bout d'un jour.
+#[tauri::command(async)]
+pub fn share_image(app: AppHandle, png: String, name: String) -> Result<String, String> {
+    let bytes = crate::appearance::decode_base64(&png)?;
+    if !bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Err("Image invalide.".into());
+    }
+    let dir = share_temp_dir(&app).ok_or("Dossier temporaire indisponible.")?;
+    let stem: String = name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == ' ' { c } else { '-' }).take(80).collect();
+    let path = dir.join(format!("{}.png", stem.trim()));
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().to_string())
+}
+
 #[tauri::command(async)]
 pub fn read_backup(path: String) -> Result<String, String> {
     let path = PathBuf::from(path);

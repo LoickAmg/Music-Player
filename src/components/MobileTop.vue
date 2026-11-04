@@ -11,7 +11,7 @@ const appearance = useAppearanceStore();
 
 <template>
   <header class="mobile-top">
-    <button v-if="ui.canGoBack && !['recent', 'albums', 'artists', 'songs', 'playlists'].includes(ui.route.name)" type="button" class="top-btn" aria-label="Retour" @click="ui.back()">
+    <button v-if="ui.canGoBack && !['recent', 'albums', 'artists', 'songs', 'playlists', 'friends'].includes(ui.route.name)" type="button" class="top-btn" aria-label="Retour" @click="ui.back()">
       <Icon name="back" :size="22" />
     </button>
     <label class="search fieldbox">
@@ -29,8 +29,11 @@ const appearance = useAppearanceStore();
       <Icon :name="appearance.light ? 'moon' : 'sun'" :size="20" />
     </button>
     <button type="button" class="top-btn" :class="{ on: ui.route.name === 'settings' }" aria-label="Réglages" @click="ui.go({ name: 'settings' })">
+      <Icon name="settings" :size="21" />
+    </button>
+    <button type="button" class="top-btn top-me" :class="{ on: ui.route.name === 'profile' }" aria-label="Mon profil" @click="ui.go({ name: 'profile' })">
       <img v-if="appearance.settings.profile.avatar" class="me" :src="appearance.assetUrl(appearance.settings.profile.avatar)" alt="" />
-      <Icon v-else name="settings" :size="21" />
+      <Icon v-else name="user" :size="21" />
     </button>
   </header>
 </template>
@@ -49,6 +52,7 @@ const appearance = useAppearanceStore();
 }
 .search {
   flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -82,9 +86,13 @@ const appearance = useAppearanceStore();
 .top-btn {
   flex: none;
 }
+.top-me {
+  width: auto;
+  min-width: 40px;
+}
 .me {
-  width: 30px;
-  height: 30px;
+  width: var(--me-size, 36px);
+  height: var(--me-size, 36px);
   border-radius: 50%;
   object-fit: cover;
   box-shadow: 0 0 0 2px var(--accent-soft);

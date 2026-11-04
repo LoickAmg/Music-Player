@@ -60,12 +60,8 @@ pub fn decode_to_wav(path: &Path) -> Result<Vec<u8>, String> {
     let mut frame = vec![0i16; decoder.max_frame_size_per_channel() * head.channels];
     let mut pcm: Vec<i16> = Vec::new();
     let mut last_position = 0u64;
-    loop {
-        // Fin de fichier abîmée (enregistrement coupé) : on garde ce qui précède.
-        let packet = match packets.read_packet() {
-            Ok(Some(packet)) => packet,
-            Ok(None) | Err(_) => break,
-        };
+    // Fin de fichier abîmée (enregistrement coupé) : on garde ce qui précède.
+    while let Ok(Some(packet)) = packets.read_packet() {
         if packet.last_in_page() {
             last_position = packet.absgp_page();
         }

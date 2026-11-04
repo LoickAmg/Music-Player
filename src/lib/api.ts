@@ -72,6 +72,8 @@ export const api = {
   setRepeat: (mode: RepeatMode) => invoke<void>("set_repeat", { mode }),
   removeFromQueue: (index: number) => invoke<void>("remove_from_queue", { index }),
   /** Journal d'écoute complet (rétrospective). */
+  stopPlayback: () => invoke<void>("stop_playback"),
+  shareImage: async (png: Uint8Array, name: string) => invoke<string>("share_image", { png: await toBase64(png), name }),
   getListens: () => invoke<import("./recap").Listen[]>("get_listens"),
   /** Enregistre une image (carte de la rétrospective) dans Images ; renvoie son chemin. */
   saveImage: async (png: Uint8Array, name: string) => invoke<string>("save_image", { png: await toBase64(png), name }),

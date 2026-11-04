@@ -17,6 +17,7 @@ export type Route =
   | { name: "playlists" }
   | { name: "settings" }
   | { name: "appearance" }
+  | { name: "profile" }
   | { name: "stats" };
 
 export type SidePanel = "lyrics" | "queue" | null;
@@ -75,6 +76,8 @@ export const useUiStore = defineStore("ui", {
     trackPicker: null as string | null,
     /** Recherche manuelle de paroles ouverte (pour le morceau en cours). */
     lyricsSearch: false,
+    /** Fenêtre « Partager un extrait » des paroles ouverte. */
+    lyricsShare: false,
     /** Écran de téléphone : navigation par onglets en bas, lecteur compact. */
     isMobile: false,
     /** Écran tactile (téléphone, tablette, pliable ouvert) : un appui lance un morceau. */

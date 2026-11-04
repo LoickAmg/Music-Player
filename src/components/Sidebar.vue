@@ -154,16 +154,15 @@ function newPlaylist() {
         <Icon name="lyrics" :size="17" class="ico" />
         Un avis ?
       </button>
+      <button type="button" class="nav-item" :class="{ active: ui.route.name === 'settings' || ui.route.name === 'appearance' }" @click="ui.go({ name: 'settings' })">
+        <Icon name="settings" :size="17" class="ico" />
+        Réglages
+      </button>
       <div class="foot-row">
-        <button
-          type="button"
-          class="nav-item"
-          :class="{ active: ui.route.name === 'settings' || ui.route.name === 'appearance' }"
-          @click="ui.go({ name: 'settings' })"
-        >
+        <button type="button" class="nav-item" :class="{ active: ui.route.name === 'profile' }" @click="ui.go({ name: 'profile' })">
           <span v-if="appearance.settings.profile.avatar" class="me"><img :src="appearance.assetUrl(appearance.settings.profile.avatar)" alt="" /></span>
-          <Icon v-else name="settings" :size="17" class="ico" />
-          <span class="me-name">{{ appearance.settings.profile.name || "Réglages" }}</span>
+          <Icon v-else name="user" :size="17" class="ico" />
+          <span class="me-name">{{ appearance.settings.profile.name || "Mon profil" }}</span>
         </button>
         <button
           type="button"

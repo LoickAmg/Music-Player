@@ -244,7 +244,9 @@ pub fn open_decoder(path: &str) -> Result<BoxedSource, String> {
 struct Engine {
     _device: rodio::MixerDeviceSink,
     mixer: rodio::mixer::Mixer,
-    player: Option<Player>,
+    player: Option<Arc<Player>>,
+    /// Saut demandé alors que la sortie ne répondait pas : à faire à sa réouverture.
+    pending_seek: Option<Duration>,
     eq_gains: EqGains,
     /// Volume courant, réappliqué quand la sortie est rouverte.
     volume: f32,
@@ -267,7 +269,8 @@ impl Engine {
                     player.set_volume(volume);
                     self.volume = volume;
                     player.append(crate::spectrum::Tap::new(EqSource::new(decoder, self.eq_gains.clone())));
-                    self.player = Some(player);
+                    self.player = Some(Arc::new(player));
+                    self.pending_seek = None;
                     let mut st = status.lock().unwrap();
                     st.current_path = Some(path);
                     st.is_paused = false;
@@ -313,7 +316,21 @@ impl Engine {
             }
             AudioCommand::Seek(pos) => {
                 if let Some(p) = &self.player {
-                    let _ = p.try_seek(pos);
+                    // try_seek attend la sortie audio, qui peut être suspendue au retour de
+                    // veille : le fil audio ne l'attend pas, et le saut n'est pas perdu (il
+                    // serait sinon annulé par la reprise à l'ancienne position).
+                    let player = p.clone();
+                    let (done, answer) = mpsc::channel();
+                    thread::spawn(move || {
+                        let _ = done.send(player.try_seek(pos));
+                    });
+                    if answer.recv_timeout(Duration::from_millis(500)).is_err() {
+                        self.pending_seek = Some(pos);
+                        self.lost.store(true, Ordering::SeqCst);
+                    }
+                    let mut st = status.lock().unwrap();
+                    st.position_secs = pos.as_secs_f64();
+                    st.measured_at = Some(std::time::Instant::now());
                 }
             }
             AudioCommand::SetVolume(v) => {
@@ -415,6 +432,7 @@ fn new_engine(eq_gains: &EqGains) -> Result<Engine, String> {
         _device: device,
         mixer,
         player: None,
+        pending_seek: None,
         eq_gains: eq_gains.clone(),
         volume: 1.0,
         lost,
@@ -435,11 +453,13 @@ impl Resume {
         let st = status.lock().unwrap();
         Self {
             path: st.current_path.clone(),
-            position: engine
-                .player
-                .as_ref()
-                .map(|p| p.get_pos())
-                .unwrap_or_default(),
+            position: engine.pending_seek.unwrap_or_else(|| {
+                engine
+                    .player
+                    .as_ref()
+                    .map(|p| p.get_pos())
+                    .unwrap_or_default()
+            }),
             paused: st.is_paused,
             volume: engine.volume,
         }

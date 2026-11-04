@@ -4,6 +4,7 @@ import { formatCollection } from "@/lib/format";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
+import FastScroll from "@/components/FastScroll.vue";
 import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
 import VirtualList from "@/components/VirtualList.vue";
@@ -42,6 +43,7 @@ function play(index: number) {
         <TrackRow :track="item" :index="index" striped @play="play(index)" />
       </template>
     </VirtualList>
+    <FastScroll :count="tracks.length" :label="(i) => tracks[i]?.title.trim().charAt(0).toUpperCase() ?? ''" />
   </div>
 </template>
 
