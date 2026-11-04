@@ -41,6 +41,7 @@ async function importShare() {
     const path = await api.pickShareFile();
     if (!path) return;
     const result = await api.importShareBundle(path);
+    share.noteShared(result.track_ids, "recu");
     await playlists.fetchAll();
     const what = result.kind === "playlist" ? `la playlist « ${result.name} »` : `« ${result.name} »`;
     ui.notify(`${what} importée (${result.added_tracks} morceau${result.added_tracks > 1 ? "x" : ""}).`);

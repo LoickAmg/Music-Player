@@ -205,6 +205,7 @@ export interface ShareImportResult {
   added_tracks: number;
   skipped_tracks: number;
   playlist_id: string | null;
+  track_ids: string[];
 }
 
 /** Nouvelle version proposée par la mise à jour automatique (ordinateur). */

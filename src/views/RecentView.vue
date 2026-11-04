@@ -8,15 +8,32 @@ import Icon from "@/components/Icon.vue";
 import FriendAvatar from "@/components/FriendAvatar.vue";
 import { useFriendsStore } from "@/stores/friends";
 import TrackRow from "@/components/TrackRow.vue";
+import { type SharedTrack, useShareStore } from "@/stores/share";
+import type { Track } from "@/lib/types";
 
 const library = useLibraryStore();
 const player = usePlayerStore();
 const ui = useUiStore();
 const friends = useFriendsStore();
+const share = useShareStore();
 
 // Les vrais ajouts récents, piste par piste : un album bucketé par sa piste la plus
 // récente montrait tout un album ancien dès qu'un seul morceau y était ajouté ou retouché.
 const recentTracks = computed(() => [...library.tracks].sort((a, b) => b.added_secs - a.added_secs).slice(0, 60));
+
+// Sons reçus ou envoyés : à portée de main, sans avoir à les chercher.
+function sharedTracks(direction: SharedTrack["direction"]) {
+  return share.shared
+    .filter((s) => s.direction === direction)
+    .map((s) => library.byId(s.id))
+    .filter((t): t is NonNullable<typeof t> => !!t)
+    .slice(0, 6);
+}
+const received = computed(() => sharedTracks("recu"));
+const sent = computed(() => sharedTracks("envoye"));
+function playFrom(tracks: Track[], id: string) {
+  void player.playQueue(tracks.map((t) => t.id), id);
+}
 
 function play(index: number) {
   const ids = recentTracks.value.map((t) => t.id);
@@ -55,6 +72,23 @@ function play(index: number) {
       </span>
       <span class="chev" aria-hidden="true">›</span>
     </button>
+
+    <section v-if="received.length">
+      <div class="head"><h2>Reçus récemment</h2></div>
+      <div class="list">
+        <div v-for="(track, i) in received" :key="track.id" class="row">
+          <TrackRow :track="track" :index="i" striped @play="playFrom(received, track.id)" />
+        </div>
+      </div>
+    </section>
+    <section v-if="sent.length">
+      <div class="head"><h2>Envoyés récemment</h2></div>
+      <div class="list">
+        <div v-for="(track, i) in sent" :key="track.id" class="row">
+          <TrackRow :track="track" :index="i" striped @play="playFrom(sent, track.id)" />
+        </div>
+      </div>
+    </section>
 
     <section>
       <div class="head">

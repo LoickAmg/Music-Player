@@ -1,11 +1,30 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
 import { transferNotice, transferNoticeDone } from "@/lib/androidMedia";
+import { usePlaylistsStore } from "./playlists";
 import type { NearbyPeer, ShareImportResult, ShareItem, ShareOffer, TransferProgress } from "@/lib/types";
 
 // Réglages du partage (par appareil).
 const VISIBLE_KEY = "mp:share-visible";
 const RELAY_KEY = "mp:share-relay";
+/** Morceaux reçus et envoyés récemment, à retrouver sans les chercher (page d'accueil). */
+const SHARED_KEY = "mp:partages-recents";
+const MAX_SHARED = 60;
+
+export interface SharedTrack {
+  id: string;
+  direction: "recu" | "envoye";
+  at: number;
+}
+
+function readShared(): SharedTrack[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(SHARED_KEY) ?? "[]") as SharedTrack[];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
 
 function read(key: string): string | null {
   try {
@@ -46,6 +65,8 @@ export interface Transfer {
   /** Dernière mesure : instant (ms) et octets transférés. */
   sampleAt: number;
   sampleDone: number;
+  /** Morceaux concernés, notés comme envoyés une fois l'envoi fini. */
+  trackIds?: string[];
 }
 
 /** Transfert encore en cours (pas fini, refusé ni en échec). */
@@ -74,6 +95,7 @@ export const useShareStore = defineStore("share", {
     deviceName: "",
     /** Code d'ami (Proches) annoncé aux voisins, s'il est activé. */
     friendCode: null as string | null,
+    shared: readShared(),
   }),
   getters: {
     relayInUse: (s): string | null => s.relay.trim() || s.defaultRelay,
@@ -114,6 +136,20 @@ export const useShareStore = defineStore("share", {
     setRelay(url: string) {
       this.relay = url.trim();
       write(RELAY_KEY, this.relay || null);
+    },
+
+    /** Ces morceaux viennent d'être reçus ou envoyés : en tête de la page d'accueil. */
+    noteShared(ids: string[], direction: SharedTrack["direction"]) {
+      if (!ids.length) return;
+      const at = Date.now();
+      const kept = this.shared.filter((s) => !(s.direction === direction && ids.includes(s.id)));
+      this.shared = [...ids.map((id) => ({ id, direction, at })), ...kept].slice(0, MAX_SHARED);
+      write(SHARED_KEY, JSON.stringify(this.shared));
+    },
+    /** Morceaux d'un élément partagé. */
+    idsOf(item: ShareItem): string[] {
+      if (item.kind === "track") return [item.id];
+      return item.kind === "playlist" ? (usePlaylistsStore().byId(item.id)?.track_ids ?? []) : [];
     },
 
     open(item: ShareItem, name: string) {
@@ -173,12 +209,19 @@ export const useShareStore = defineStore("share", {
         t.sampleDone = p.done;
       }
       t.progress = { ...p, message: p.message ?? null };
+      if (p.stage === "fini") this.noteSent(t);
       this.syncBackground();
     },
     finish(id: string, stage: TransferProgress["stage"], message: string | null) {
       const t = this.byId(id);
       if (t) t.progress = { ...t.progress, stage, message };
+      if (t && stage === "fini") this.noteSent(t);
       this.syncBackground();
+    },
+    noteSent(t: Transfer) {
+      if (t.direction !== "envoi" || !t.trackIds) return;
+      this.noteShared(t.trackIds, "envoye");
+      t.trackIds = undefined;
     },
     /** Android : notification du partage en cours (garde l'appli en vie en arrière-plan). */
     syncBackground() {
@@ -213,6 +256,7 @@ export const useShareStore = defineStore("share", {
         peer: peer.name,
         code: null,
       });
+      t.trackIds = this.idsOf(item);
       try {
         await api.nearbySend(peer, item, this.deviceName, t.id);
         this.finish(t.id, "fini", null);
@@ -234,6 +278,7 @@ export const useShareStore = defineStore("share", {
         peer: null,
         code: null,
       });
+      t.trackIds = this.idsOf(item);
       try {
         const { code } = await api.remoteSendStart(item, this.deviceName, this.relay.trim() || null, t.id);
         t.code = code;
@@ -255,6 +300,7 @@ export const useShareStore = defineStore("share", {
       try {
         t.result = await api.remoteReceive(code, this.relay.trim() || null, t.id);
         t.label = t.result.name;
+        this.noteShared(t.result.track_ids, "recu");
         this.finish(t.id, "fini", null);
       } catch (e) {
         this.finish(t.id, "erreur", String(e));
@@ -281,6 +327,7 @@ export const useShareStore = defineStore("share", {
       }
     },
     onReceived(result: ShareImportResult) {
+      this.noteShared(result.track_ids, "recu");
       const t = this.transfers.find((x) => x.direction === "reception" && !x.result && x.label === result.name);
       if (t) t.result = result;
     },

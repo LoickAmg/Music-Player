@@ -447,7 +447,7 @@ export function installTauriMock() {
     remote_send_start: () => ({ code: "4821-soleil-guitare" }),
     remote_receive: async () => {
       await new Promise((r) => setTimeout(r, 2000));
-      return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2" };
+      return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2", track_ids: [] };
     },
     transfer_cancel: () => undefined,
     // Visualiseur : spectre de démonstration qui « bat » à 120 BPM pendant la lecture.

@@ -73,6 +73,13 @@ function clean(text, max) {
   return [...text].filter((c) => c.charCodeAt(0) >= 0x20).join("").trim().slice(0, max);
 }
 
+/** Texte d'un message : les retours à la ligne restent (trois au plus d'affilée). */
+function cleanText(text, max) {
+  if (typeof text !== "string") return "";
+  const kept = [...text.replace(/\r\n?/g, "\n")].filter((c) => c === "\n" || c.charCodeAt(0) >= 0x20).join("");
+  return kept.replace(/\n{4,}/g, "\n\n\n").trim().slice(0, max);
+}
+
 /** Petite photo de profil (data URL JPEG/PNG/WebP, 24 Ko au plus). */
 function cleanAvatar(value) {
   return typeof value === "string" && value.length <= 24 * 1024 && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(value)
@@ -340,7 +347,7 @@ export class Profil {
           if (!grants[body.de] || !TOKEN.test(body.token ?? "") || grants[body.de] !== (await sha256(body.token))) {
             return json({ erreur: "Réservé à vos proches" }, 403);
           }
-          const texte = clean(body.texte, 1000);
+          const texte = cleanText(body.texte, 1000);
           const piece = cleanPiece(body.piece);
           if (!texte && !piece) return json({ erreur: "Message vide" }, 400);
           const entry = { type: "mot", de: body.de, texte, piece, at: Date.now() };
@@ -384,7 +391,7 @@ export class Profil {
           nom: clean(e.nom, 40),
           avatar: cleanAvatar(e.avatar),
           token: e.token ?? null,
-          texte: clean(e.texte, 1000),
+          texte: cleanText(e.texte, 1000),
           piece: cleanPiece(e.piece),
           at: Date.now(),
         });
@@ -565,7 +572,7 @@ export class Avis {
         return json({ erreur: "Requête invalide" }, 400);
       }
       const kind = AVIS_KINDS.includes(body.kind) ? body.kind : null;
-      const message = clean(String(body.message ?? "").replace(/\r\n/g, "\n"), 3000);
+      const message = cleanText(String(body.message ?? ""), 3000);
       if (!kind) return json({ erreur: "Choisissez le type de retour.", field: "kind" }, 400);
       if (message.length < 5) return json({ erreur: "Écrivez au moins quelques mots.", field: "message" }, 400);
       const contact = clean(body.contact, 160).toLowerCase();
@@ -588,7 +595,7 @@ export class Avis {
         contact,
         screen: clean(body.screen, 40),
         version: clean(body.version, 20),
-        platform: clean(body.platform, 40),
+        platform: clean(body.platform, 80),
         images: images.length,
         statut: "nouveau",
         at: now,

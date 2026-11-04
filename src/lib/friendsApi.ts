@@ -113,15 +113,14 @@ async function call<T>(base: string, path: string, body?: unknown): Promise<T> {
   try {
     response = await fetch(base + path, body === undefined ? undefined : { method: "POST", body: JSON.stringify(body) });
   } catch {
-    // Le relais répond-il ? Un relais d'avant les Proches refuse ces requêtes d'une façon que
-    // le navigateur présente comme une coupure réseau : on distingue les deux cas.
+    // Coupure de notre côté, ou réponse du relais refusée en route : on distingue les deux cas.
     const reachable = await fetch(`${base}/`, { mode: "no-cors" }).then(
       () => true,
       () => false,
     );
     throw new RelayError(
       reachable
-        ? "Le relais de partage ne prend pas encore en charge les Proches (mise à jour du relais nécessaire)."
+        ? "Le relais n'a pas pu répondre : réessayez dans un instant."
         : "Relais injoignable : vérifiez la connexion Internet.",
       0,
     );

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { collator, formatDuration } from "@/lib/format";
+import { remembered } from "@/lib/remember";
 import type { Album, Track } from "@/lib/types";
 import { SCROLLER } from "@/lib/virtual";
 import { useLibraryStore } from "@/stores/library";
@@ -25,7 +26,7 @@ const inPlaylist = computed(() => new Set(playlist.value?.track_ids ?? []));
 
 const query = ref("");
 const tab = ref<Tab>("tracks");
-const sort = ref<"az" | "recent">("az");
+const sort = remembered<"az" | "recent">("mp:tri-selecteur", "az", ["az", "recent"]);
 const selected = ref(new Set<string>());
 const onlySelected = ref(false);
 const busy = ref(false);

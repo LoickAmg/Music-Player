@@ -65,9 +65,13 @@ const fallback = computed(() => {
 </template>
 
 <style scoped>
+.art::before {
+  content: "";
+  display: block;
+  padding-top: 100%;
+}
 .art {
   position: relative;
-  aspect-ratio: 1;
   overflow: hidden;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
 }

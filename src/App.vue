@@ -211,6 +211,7 @@ async function openFile(path: string) {
       // déjà écouté plus bas : un nouveau scan du dossier de la bibliothèque passerait à côté
       // des fichiers importés, qui vivent hors de ce dossier.
       const result = await api.importShareBundle(path);
+      share.noteShared(result.track_ids, "recu");
       await playlists.fetchAll();
       ui.notify(shareImportMessage(result));
     } catch (e) {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { collator } from "@/lib/format";
+import { remembered } from "@/lib/remember";
 import { useLibraryStore } from "@/stores/library";
 import AlbumCard from "@/components/AlbumCard.vue";
 import VirtualGrid from "@/components/VirtualGrid.vue";
@@ -8,7 +9,7 @@ import { useUiStore } from "@/stores/ui";
 
 const library = useLibraryStore();
 type Sort = "artist" | "title" | "recent" | "year";
-const sort = ref<Sort>("artist");
+const sort = remembered<Sort>("mp:tri-albums", "artist", ["artist", "title", "recent", "year"]);
 const sorts: { id: Sort; label: string }[] = [
   { id: "artist", label: "Artiste" },
   { id: "title", label: "Titre" },

@@ -489,15 +489,26 @@ async function saveCard() {
   white-space: nowrap;
   font-size: clamp(44px, calc((min(100vw, 640px) - 56px) / 5.6), 120px);
 }
+/* Titres de vidéos, noms à rallonge : limités à quelques lignes, jamais hors du cadre. */
+.big,
+.lead {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
 .big {
   margin: 0;
-  font-size: clamp(38px, 8vw, 72px);
+  flex: none;
+  font-size: clamp(32px, 8vw, 72px);
   font-weight: 900;
   letter-spacing: -0.03em;
-  line-height: 1;
+  line-height: 1.05;
 }
 .lead {
   margin: 0;
+  flex: none;
   font-size: clamp(18px, 3vw, 24px);
   font-weight: 600;
   line-height: 1.35;
@@ -529,7 +540,8 @@ async function saveCard() {
   font-weight: 700;
 }
 .cover {
-  width: min(62vw, 300px);
+  flex: none;
+  width: min(62vw, 300px, 34vh);
   aspect-ratio: 1;
   box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
   border-radius: 14px;
@@ -578,14 +590,16 @@ async function saveCard() {
   height: 100%;
 }
 .name {
-  display: flex;
-  flex-direction: column;
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: 15px;
   font-weight: 600;
   opacity: 0.7;
@@ -650,14 +664,19 @@ async function saveCard() {
   width: 100%;
   height: 100%;
 }
+.card-head > div:last-child {
+  min-width: 0;
+}
 .card-title {
   margin: 4px 0 0;
-  font-size: 34px;
+  font-size: clamp(20px, 6.2vw, 34px);
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 .card-cols {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …) : un nom long est coupé par « … » au lieu d'élargir la colonne hors du cadre. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
 .card-label {
@@ -681,11 +700,25 @@ async function saveCard() {
 }
 .card-big {
   margin: 0;
-  font-size: 34px;
+  font-size: clamp(24px, 8vw, 34px);
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 .card-big.small {
-  font-size: 24px;
+  font-size: clamp(18px, 6vw, 24px);
+}
+/* Dernière carte : sur un petit écran, elle défile plutôt que de sortir du cadre. */
+.s-summary {
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+.s-summary .card {
+  flex: none;
+  margin-top: auto;
+}
+.s-summary .actions {
+  flex: none;
+  margin-bottom: auto;
 }
 .actions {
   display: flex;

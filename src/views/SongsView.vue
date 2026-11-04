@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { collator, formatCollection } from "@/lib/format";
+import { remembered } from "@/lib/remember";
 import type { Track } from "@/lib/types";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
@@ -12,8 +13,15 @@ const library = useLibraryStore();
 const player = usePlayerStore();
 
 type Key = "title" | "artist" | "album" | "duration" | "added";
-const sortKey = ref<Key>("title");
-const ascending = ref(true);
+// Le tri choisi reste d'une visite à l'autre.
+const sortKey = remembered<Key>("mp:tri-morceaux", "title", ["title", "artist", "album", "duration", "added"]);
+const order = remembered<"asc" | "desc">("mp:tri-morceaux-sens", "asc", ["asc", "desc"]);
+const ascending = computed({
+  get: () => order.value === "asc",
+  set: (on: boolean) => {
+    order.value = on ? "asc" : "desc";
+  },
+});
 
 const comparators: Record<Key, (a: Track, b: Track) => number> = {
   title: (a, b) => collator.compare(a.title, b.title),

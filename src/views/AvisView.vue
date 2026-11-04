@@ -10,6 +10,7 @@ const avis = useAvisStore();
 const ui = useUiStore();
 const filter = ref<"nouveau" | "tous">("nouveau");
 const shots = reactive<Record<string, (string | null)[]>>({});
+const zoomed = ref<string | null>(null);
 
 onMounted(() => void avis.load());
 
@@ -63,10 +64,10 @@ async function remove(a: AvisItem) {
           <Icon name="image" :size="14" /> Voir {{ a.images > 1 ? `les ${a.images} captures` : "la capture" }}
         </button>
         <template v-else>
-          <a v-for="(src, n) in shots[a.id]" :key="n" :href="src ?? undefined" target="_blank" rel="noopener" class="shot">
+          <button v-for="(src, n) in shots[a.id]" :key="n" type="button" class="shot" :disabled="!src" aria-label="Voir la capture en grand" @click="zoomed = src">
             <img v-if="src" :src="src" :alt="`Capture ${n + 1}`" />
             <span v-else class="muted">Capture illisible</span>
-          </a>
+          </button>
         </template>
       </div>
       <div class="actions">
@@ -78,6 +79,13 @@ async function remove(a: AvisItem) {
         <button type="button" class="pill pill-ghost danger" @click="remove(a)"><Icon name="trash" :size="14" /> Supprimer</button>
       </div>
     </article>
+
+    <Teleport to="body">
+      <div v-if="zoomed" class="zoom" role="dialog" aria-modal="true" aria-label="Capture en grand" @click="zoomed = null">
+        <button type="button" class="zoom-close" aria-label="Fermer"><Icon name="close" :size="18" /></button>
+        <img :src="zoomed" alt="Capture envoyée avec l'avis" />
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -158,11 +166,43 @@ time {
   gap: var(--space-2);
   margin-top: var(--space-3);
 }
+.shot {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
 .shot img {
   display: block;
   max-width: 220px;
-  max-height: 160px;
+  max-height: 240px;
   border-radius: var(--radius-sm);
+}
+.zoom {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px);
+  background: rgba(2, 6, 20, 0.88);
+  cursor: zoom-out;
+}
+.zoom img {
+  max-width: 100%;
+  max-height: calc(100vh - 32px - var(--safe-top) - var(--safe-bottom));
+  border-radius: var(--radius-sm);
+}
+.zoom-close {
+  position: absolute;
+  top: calc(var(--safe-top) + 12px);
+  right: 12px;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
 }
 .link {
   display: inline-flex;

@@ -81,9 +81,15 @@ const photoStyle = computed(() => {
 </template>
 
 <style scoped>
+/* Carré par le remplissage : tient sur toutes les vues web, même celles qui gèrent mal
+   aspect-ratio dans une carte (tout le contenu est en position absolue). */
+.pl-cover::before {
+  content: "";
+  display: block;
+  padding-top: 100%;
+}
 .pl-cover {
   position: relative;
-  aspect-ratio: 1;
   overflow: hidden;
   container-type: inline-size;
   isolation: isolate;
@@ -236,5 +242,22 @@ const photoStyle = computed(() => {
 .mini .motif,
 .mini .o2 {
   display: none;
+}
+/* Sans unités de conteneur (Chrome < 105) : tailles fixes, nom bien en bas de la jaquette. */
+@supports not (width: 1cqw) {
+  .kicker {
+    top: 8%;
+    left: 8%;
+    font-size: 10px;
+  }
+  .name {
+    left: 8%;
+    right: 8%;
+    bottom: 7%;
+    font-size: 17px;
+  }
+  .initial {
+    font-size: 16px;
+  }
 }
 </style>

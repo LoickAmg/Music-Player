@@ -48,6 +48,8 @@ pub struct ImportResult {
     pub added_tracks: usize,
     pub skipped_tracks: usize,
     pub playlist_id: Option<String>,
+    /// Morceaux de l'archive dans la bibliothèque de cet appareil (« Reçus récemment »).
+    pub track_ids: Vec<String>,
 }
 
 /// Remplace les caractères interdits dans un nom de fichier par `_`, et tronque.
@@ -290,6 +292,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
         added_tracks: imported_ids.len(),
         skipped_tracks: skipped,
         playlist_id,
+        track_ids: imported_ids,
     })
 }
 

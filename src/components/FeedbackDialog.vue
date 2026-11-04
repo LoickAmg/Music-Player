@@ -43,7 +43,13 @@ watch(
 
 const platform = computed(() => {
   const ua = navigator.userAgent;
-  if (/Android/i.test(ua)) return "Android";
+  // Téléphone : modèle et version de la vue web, sans quoi un bug d'affichage reste inexpliqué.
+  if (/Android/i.test(ua)) {
+    const system = ua.match(/Android [\d.]+/)?.[0] ?? "Android";
+    const model = ua.match(/Android [^;)]*; ([^;)]+)/)?.[1]?.replace(/ Build.*/, "");
+    const web = ua.match(/Chrome\/(\d+)/)?.[1];
+    return [system, model, web && `Chrome ${web}`].filter(Boolean).join(" · ");
+  }
   if (/Windows/i.test(ua)) return "Windows";
   if (/Mac/i.test(ua)) return "macOS";
   return "Linux";

@@ -57,6 +57,7 @@ async function viaFile() {
   try {
     const path =
       item.value.kind === "track" ? await api.exportTrack(item.value.id) : await api.exportPlaylist(item.value.id);
+    if (path) share.noteShared(share.idsOf(item.value), "envoye");
     const problem = path ? await revealOrShare(path) : null;
     if (problem) ui.notify(problem);
   } catch (e) {
