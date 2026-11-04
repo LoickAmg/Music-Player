@@ -9,7 +9,19 @@ use crate::playlists::PlaylistStore;
 use crate::queue::Queue;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, PoisonError};
+
+/// Prend un verrou même si un autre fil a planté en le tenant : les données restent utilisables,
+/// et une erreur isolée ne fait pas tomber toute l'application en chaîne.
+pub trait Locked<T> {
+    fn locked(&self) -> MutexGuard<'_, T>;
+}
+
+impl<T> Locked<T> for Mutex<T> {
+    fn locked(&self) -> MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
 
 pub struct AppState {
     pub audio: AudioHandle,
@@ -78,8 +90,7 @@ impl AppState {
 
     pub fn find_track(&self, id: &str) -> Option<Track> {
         self.library
-            .lock()
-            .unwrap()
+            .locked()
             .iter()
             .find(|t| t.id == id)
             .cloned()

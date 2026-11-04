@@ -2,6 +2,7 @@
 //! audio (`Tap`), et l'interface demande le spectre quand elle l'affiche : 32 bandes de
 //! fréquence en échelle logarithmique (40 Hz à 16 kHz), de 0 à 255.
 
+use crate::state::Locked;
 use rodio::source::SeekError;
 use rodio::{ChannelCount, SampleRate, Source};
 use rustfft::num_complex::Complex;
@@ -102,7 +103,7 @@ impl<I: Source<Item = f32>> Source for Tap<I> {
 /// Spectre des derniers échantillons ; vide si rien n'a été joué depuis la dernière demande.
 pub fn bands() -> Vec<u8> {
     let (window, sample_rate) = {
-        let mut ring = RING.lock().unwrap();
+        let mut ring = RING.locked();
         if !ring.fresh {
             return Vec::new();
         }

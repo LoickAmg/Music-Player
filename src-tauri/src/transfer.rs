@@ -3,6 +3,7 @@
 //! l'interface, archive reçue importée. Les deux modes échangent la même archive `.mpshare`
 //! (sharing.rs), qui contient les fichiers audio : le destinataire n'a pas besoin de les avoir.
 
+use crate::state::Locked;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -86,7 +87,7 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
         }
         Item::Playlist(id) => {
             let (name, count) = {
-                let store = state.playlists.lock().unwrap();
+                let store = state.playlists.locked();
                 let playlist = store.get(id).ok_or("Playlist introuvable.")?;
                 (playlist.name.clone(), playlist.track_ids.len())
             };
@@ -136,7 +137,7 @@ pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, Str
     let result = sharing::import_bundle(&state, path);
     let _ = std::fs::remove_file(path);
     let result = result?;
-    let _ = app.emit("library-updated", state.library.lock().unwrap().clone());
+    let _ = app.emit("library-updated", state.library.locked().clone());
     let _ = app.emit("share-received", &result);
     Ok(result)
 }
@@ -151,13 +152,13 @@ static CANCEL: LazyLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = LazyLock::new
 
 /// Drapeau d'annulation d'un transfert (créé au premier appel).
 pub fn cancel_flag(id: &str) -> Arc<AtomicBool> {
-    CANCEL.lock().unwrap().entry(id.to_string()).or_default().clone()
+    CANCEL.locked().entry(id.to_string()).or_default().clone()
 }
 
 /// Associe un drapeau d'annulation existant à l'identifiant montré à l'interface (déjà
 /// demandé : le transfert s'arrête aussitôt).
 pub fn link_cancel(id: &str, flag: Arc<AtomicBool>) {
-    let mut map = CANCEL.lock().unwrap();
+    let mut map = CANCEL.locked();
     if map.get(id).is_some_and(|f| f.load(Ordering::SeqCst)) {
         flag.store(true, Ordering::SeqCst);
     }
@@ -165,13 +166,13 @@ pub fn link_cancel(id: &str, flag: Arc<AtomicBool>) {
 }
 
 pub fn cancel(id: &str) {
-    if let Some(flag) = CANCEL.lock().unwrap().get(id) {
+    if let Some(flag) = CANCEL.locked().get(id) {
         flag.store(true, Ordering::SeqCst);
     }
 }
 
 pub fn forget(id: &str) {
-    CANCEL.lock().unwrap().remove(id);
+    CANCEL.locked().remove(id);
 }
 
 pub fn cancelled(flag: &AtomicBool) -> Result<(), String> {

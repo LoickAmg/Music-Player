@@ -5,6 +5,7 @@
 //! pouvoir être ajustés en direct pendant la lecture, sans reconstruire
 //! le pipeline audio.
 
+use crate::state::Locked;
 use rodio::source::SeekError;
 use rodio::{ChannelCount, SampleRate, Source};
 use std::sync::{Arc, Mutex};
@@ -112,7 +113,7 @@ where
     pub fn new(input: I, gains: EqGains) -> Self {
         let channels = input.channels();
         let sample_rate = input.sample_rate();
-        let cached_gains = *gains.lock().unwrap();
+        let cached_gains = *gains.locked();
         let coeffs = compute_all_coeffs(sample_rate.get() as f32, &cached_gains);
         let state = vec![[BiquadState::default(); 3]; channels.get() as usize];
         Self {
@@ -306,7 +307,7 @@ mod tests {
         }
         // ...puis change le gain "en direct" comme le ferait une commande
         // Tauri pendant la lecture.
-        *gains_handle.lock().unwrap() = [6.0, 0.0, 0.0];
+        *gains_handle.locked() = [6.0, 0.0, 0.0];
 
         let rest: Vec<f32> = eq.collect();
         assert!(rest.iter().all(|s| s.is_finite()));

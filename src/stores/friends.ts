@@ -623,8 +623,10 @@ export const useFriendsStore = defineStore("friends", {
       if (!this.enabled) return;
       const now = Date.now();
       const hidden = typeof document !== "undefined" && document.hidden;
-      const friendsEvery = this.watching ? 8_000 : hidden ? 120_000 : 20_000;
-      const inboxEvery = this.chatWith ? 4_000 : this.watching ? 10_000 : hidden ? 180_000 : 45_000;
+      // Chaque proche lu compte pour le relais (offre gratuite) : rythme soutenu seulement quand
+      // on regarde.
+      const friendsEvery = this.watching ? 15_000 : hidden ? 300_000 : 60_000;
+      const inboxEvery = this.chatWith ? 5_000 : this.watching ? 15_000 : hidden ? 300_000 : 90_000;
       if (now - lastFriends >= friendsEvery) {
         lastFriends = now;
         void this.pollFriends();

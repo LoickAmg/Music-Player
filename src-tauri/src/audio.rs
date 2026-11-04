@@ -8,6 +8,7 @@
 //! silence) : chaque commande est exécutée sous `catch_unwind`, et un fichier que le décodeur
 //! intégré refuse — ou sur lequel il panique — est retenté via `ffmpeg`.
 
+use crate::state::Locked;
 use crate::eq::{EqGains, EqSource};
 use crate::ffmpeg;
 use crate::opus;
@@ -85,7 +86,7 @@ impl AudioHandle {
     }
 
     fn send(&self, cmd: AudioCommand) {
-        let _ = self.tx.lock().unwrap().send(cmd);
+        let _ = self.tx.locked().send(cmd);
     }
 
     /// Lance une piste et attend que son décodage ait démarré, pour pouvoir signaler une
@@ -124,11 +125,11 @@ impl AudioHandle {
     }
 
     pub fn status(&self) -> AudioStatus {
-        self.status.lock().unwrap().clone()
+        self.status.locked().clone()
     }
 
     pub fn clear_finished(&self) {
-        self.status.lock().unwrap().finished = false;
+        self.status.locked().finished = false;
     }
 }
 
@@ -271,7 +272,7 @@ impl Engine {
                     player.append(crate::spectrum::Tap::new(EqSource::new(decoder, self.eq_gains.clone())));
                     self.player = Some(Arc::new(player));
                     self.pending_seek = None;
-                    let mut st = status.lock().unwrap();
+                    let mut st = status.locked();
                     st.current_path = Some(path);
                     st.is_paused = false;
                     st.finished = false;
@@ -285,7 +286,7 @@ impl Engine {
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or(path);
                     let message = format!("Lecture impossible de « {name} » : {e}");
-                    status.lock().unwrap().device_error = Some(message.clone());
+                    status.locked().device_error = Some(message.clone());
                     if let Some(reply) = reply {
                         let _ = reply.send(Err(message));
                     }
@@ -294,20 +295,20 @@ impl Engine {
             AudioCommand::Pause => {
                 if let Some(p) = &self.player {
                     p.pause();
-                    status.lock().unwrap().is_paused = true;
+                    status.locked().is_paused = true;
                 }
             }
             AudioCommand::Resume => {
                 if let Some(p) = &self.player {
                     p.play();
-                    status.lock().unwrap().is_paused = false;
+                    status.locked().is_paused = false;
                 }
             }
             AudioCommand::Stop => {
                 if let Some(p) = self.player.take() {
                     p.stop();
                 }
-                let mut st = status.lock().unwrap();
+                let mut st = status.locked();
                 st.current_path = None;
                 st.is_paused = true;
                 st.position_secs = 0.0;
@@ -328,7 +329,7 @@ impl Engine {
                         self.pending_seek = Some(pos);
                         self.lost.store(true, Ordering::SeqCst);
                     }
-                    let mut st = status.lock().unwrap();
+                    let mut st = status.locked();
                     st.position_secs = pos.as_secs_f64();
                     st.measured_at = Some(std::time::Instant::now());
                 }
@@ -450,7 +451,7 @@ struct Resume {
 
 impl Resume {
     fn of(engine: &Engine, status: &Mutex<AudioStatus>) -> Self {
-        let st = status.lock().unwrap();
+        let st = status.locked();
         Self {
             path: st.current_path.clone(),
             position: engine.pending_seek.unwrap_or_else(|| {
@@ -496,7 +497,7 @@ fn audio_thread_main(
     let mut engine = match new_engine(&eq_gains) {
         Ok(engine) => Some(engine),
         Err(e) => {
-            status.lock().unwrap().device_error =
+            status.locked().device_error =
                 Some(format!("Aucune sortie audio disponible : {e}"));
             None
         }
@@ -511,11 +512,11 @@ fn audio_thread_main(
                         match new_engine(&eq_gains) {
                             Ok(e) => {
                                 engine = Some(e);
-                                status.lock().unwrap().device_error = None;
+                                status.locked().device_error = None;
                             }
                             Err(e) => {
                                 let message = format!("Aucune sortie audio disponible : {e}");
-                                status.lock().unwrap().device_error = Some(message.clone());
+                                status.locked().device_error = Some(message.clone());
                                 if let Some(reply) = reply {
                                     let _ = reply.send(Err(message));
                                 }
@@ -532,7 +533,7 @@ fn audio_thread_main(
                 let outcome = panic::catch_unwind(AssertUnwindSafe(|| active.handle(cmd, &status)));
                 if let Err(p) = outcome {
                     active.player = None;
-                    status.lock().unwrap().device_error = Some(format!(
+                    status.locked().device_error = Some(format!(
                         "Le moteur audio a rencontré une erreur sur ce fichier : {}",
                         panic_text(p)
                     ));
@@ -543,7 +544,7 @@ fn audio_thread_main(
         }
 
         if let Some(p) = engine.as_ref().and_then(|e| e.player.as_ref()) {
-            let mut st = status.lock().unwrap();
+            let mut st = status.locked();
             let position = p.get_pos();
             st.position_secs = position.as_secs_f64();
             st.measured_at = Some(std::time::Instant::now());
@@ -594,7 +595,7 @@ fn audio_thread_main(
                     watch.pending = None;
                 }
                 None => {
-                    status.lock().unwrap().device_error =
+                    status.locked().device_error =
                         Some("La sortie audio a été coupée par le système ; nouvel essai…".into());
                 }
             }

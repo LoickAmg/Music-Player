@@ -24,6 +24,7 @@ pub mod shortcut_icon;
 pub mod state;
 pub mod updater;
 
+use crate::state::Locked;
 use state::AppState;
 use tauri::{Emitter, Manager};
 
@@ -86,8 +87,9 @@ pub fn run() {
                     let status = state.audio.status();
                     let playing = status.current_path.is_some() && !status.is_paused && !status.finished;
                     keep_awake.set(playing);
-                    let current = state.queue.lock().unwrap().current().cloned().and_then(|id| state.find_track(&id));
-                    let shown = if status.current_path.is_some() { current.as_ref() } else { None };
+                    // Rien de chargé : pas de recherche dans la bibliothèque 3 fois par seconde.
+                    let current = status.current_path.as_ref().and_then(|_| state.queue.locked().current().cloned()).and_then(|id| state.find_track(&id));
+                    let shown = current.as_ref();
                     if let Some(done) = tracker.tick(shown, playing) {
                         let _ = listening::record(&state.data_dir, &done);
                         listening::save_pending(&state.data_dir, None);

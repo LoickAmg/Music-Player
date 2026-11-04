@@ -3,6 +3,7 @@
 //! l'archive directement, sans passer par Internet. Rien n'est reçu sans l'accord de la
 //! personne qui reçoit (90 secondes pour répondre).
 
+use crate::state::Locked;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -22,6 +23,8 @@ use crate::transfer::{self, Failure, Offer, Progress, MAX_SIZE};
 const SERVICE: &str = "_mpshare._tcp.local.";
 /// Temps laissé à la personne qui reçoit pour accepter ou refuser.
 const DECISION: Duration = Duration::from_secs(90);
+/// Attente de l'expéditeur après une coupure, avant d'abandonner la réception.
+const GIVE_UP: Duration = Duration::from_secs(5 * 60);
 
 /// Appareil trouvé sur le réseau.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -251,7 +254,7 @@ struct IncomingOffer {
 /// Rend l'appareil visible sous le nom `name` (avec son code d'ami s'il en a un) et prêt à
 /// recevoir ; relancé si le nom ou le code change.
 pub fn start(app: &AppHandle, name: &str, code: Option<&str>) -> Result<(), String> {
-    let mut running = RUNNING.lock().unwrap();
+    let mut running = RUNNING.locked();
     if running.as_ref().is_some_and(|r| r.name == name && r.code.as_deref() == code) {
         return Ok(());
     }
@@ -291,7 +294,7 @@ fn shutdown(running: Running) {
 
 /// L'appareil n'est plus visible (réglage désactivé, appli en arrière-plan sur Android).
 pub fn stop() {
-    if let Some(running) = RUNNING.lock().unwrap().take() {
+    if let Some(running) = RUNNING.locked().take() {
         shutdown(running);
     }
 }
@@ -327,7 +330,7 @@ fn handle(app: AppHandle, stream: TcpStream) {
     let result = serve(
         stream,
         |offer| {
-            if let Some((known, path)) = PARTIALS.lock().unwrap().get(&offer.id).cloned() {
+            if let Some((known, path)) = PARTIALS.locked().get(&offer.id).cloned() {
                 *id.borrow_mut() = known;
                 transfer::link_cancel(&id.borrow(), cancel.clone());
                 resumed_offer = Some(offer.id.clone());
@@ -336,17 +339,17 @@ fn handle(app: AppHandle, stream: TcpStream) {
             }
             let id = id.borrow().clone();
             let (tx, rx) = mpsc::channel();
-            ANSWERS.lock().unwrap().insert(id.clone(), tx);
+            ANSWERS.locked().insert(id.clone(), tx);
             let _ = app.emit("nearby-offer", IncomingOffer { id: id.clone(), offer: offer.clone() });
             let accepted = rx.recv_timeout(DECISION).unwrap_or(false);
-            ANSWERS.lock().unwrap().remove(&id);
+            ANSWERS.locked().remove(&id);
             if !accepted {
                 return Decision::Refuse;
             }
             transfer::link_cancel(&id, cancel.clone());
             let dest = dir.join(format!("{id}.{}", crate::sharing::EXTENSION));
             if !offer.id.is_empty() {
-                PARTIALS.lock().unwrap().insert(offer.id.clone(), (id, dest.clone()));
+                PARTIALS.locked().insert(offer.id.clone(), (id, dest.clone()));
                 resumed_offer = Some(offer.id.clone());
             }
             Decision::Accept { dest, from: 0 }
@@ -362,7 +365,7 @@ fn handle(app: AppHandle, stream: TcpStream) {
     };
     let forget_partial = || {
         if let Some(offer_id) = &resumed_offer {
-            PARTIALS.lock().unwrap().remove(offer_id);
+            PARTIALS.locked().remove(offer_id);
         }
     };
     match result {
@@ -388,14 +391,38 @@ fn handle(app: AppHandle, stream: TcpStream) {
             let mut p = Progress::new(&id, "reprise", 0, 0);
             p.message = Some("Connexion perdue : reprise dès que l'expéditeur se reconnecte…".into());
             transfer::emit(&app, p);
+            give_up_later(app.clone(), id.clone(), resumed_offer.clone().unwrap_or_default());
         }
         Err(e) => end("erreur", Some(e)),
     }
 }
 
+/// L'expéditeur n'est pas revenu au bout de quelques minutes : le fichier partiel est retiré et
+/// l'interface prévenue, au lieu d'afficher une reprise sans fin.
+fn give_up_later(app: AppHandle, id: String, offer_id: String) {
+    let size = |offer_id: &str| {
+        PARTIALS.locked().get(offer_id).and_then(|(_, path)| std::fs::metadata(path).ok()).map(|m| m.len())
+    };
+    let before = size(&offer_id);
+    std::thread::spawn(move || {
+        std::thread::sleep(GIVE_UP);
+        // Le fichier a grandi : l'envoi a repris (une nouvelle coupure relancera ce délai).
+        if before.is_none() || size(&offer_id) != before {
+            return;
+        }
+        if let Some((_, path)) = PARTIALS.locked().remove(&offer_id) {
+            let _ = std::fs::remove_file(path);
+            let mut p = Progress::new(&id, "erreur", 0, 0);
+            p.message = Some("L'expéditeur ne s'est pas reconnecté.".into());
+            transfer::emit(&app, p);
+            transfer::forget(&id);
+        }
+    });
+}
+
 /// Réponse de l'utilisateur à une offre reçue.
 pub fn answer(id: &str, accept: bool) {
-    if let Some(tx) = ANSWERS.lock().unwrap().remove(id) {
+    if let Some(tx) = ANSWERS.locked().remove(id) {
         let _ = tx.send(accept);
     }
 }
@@ -405,7 +432,7 @@ pub fn scan(app: &AppHandle, wait: Duration) -> Result<Vec<Peer>, String> {
     let own = device_id(&app.state::<AppState>().data_dir);
     // Le service de l'appli s'il tourne, sinon un service le temps de la recherche.
     let temporary;
-    let guard = RUNNING.lock().unwrap();
+    let guard = RUNNING.locked();
     let daemon = match guard.as_ref() {
         Some(running) => &running.daemon,
         None => {

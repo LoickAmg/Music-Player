@@ -57,7 +57,7 @@ pub fn track_id_for_path(path: &Path) -> String {
     Uuid::new_v5(&NAMESPACE, path.to_string_lossy().as_bytes()).to_string()
 }
 
-fn is_supported(path: &Path) -> bool {
+pub fn is_supported(path: &Path) -> bool {
     ffmpeg::is_native(path) || ffmpeg::needs_ffmpeg(path)
 }
 
@@ -600,6 +600,7 @@ pub fn embedded_lyrics(path: &Path) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use crate::state::Locked;
     use super::*;
     use std::fs;
     use std::io::Write;
@@ -735,9 +736,9 @@ mod tests {
         fs::write(dir.path().join("readme.txt"), b"pas de la musique").unwrap();
 
         let last = std::sync::Mutex::new((0, 0));
-        let tracks = scan_library_with_progress(dir.path(), |d, t| *last.lock().unwrap() = (d, t));
+        let tracks = scan_library_with_progress(dir.path(), |d, t| *last.locked() = (d, t));
         assert_eq!(tracks.len(), 2);
-        assert_eq!(*last.lock().unwrap(), (2, 2));
+        assert_eq!(*last.locked(), (2, 2));
         let nested = tracks.iter().find(|t| t.title == "nested").unwrap();
         let root = tracks.iter().find(|t| t.title == "root").unwrap();
         assert!(

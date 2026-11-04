@@ -3,6 +3,7 @@
 //! à exporter depuis un appareil puis importer sur un autre (fichier transmis par
 //! messagerie, câble, Bluetooth… ou la feuille de partage du système sur Android).
 
+use crate::state::Locked;
 use crate::library::{self, Track};
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
@@ -14,6 +15,8 @@ use zip::write::SimpleFileOptions;
 
 /// Extension des archives de partage (sans le point).
 pub const EXTENSION: &str = "mpshare";
+/// Manifeste d'une archive : largement assez pour des milliers de morceaux.
+const MAX_MANIFEST: u64 = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ManifestTrack {
@@ -136,16 +139,16 @@ pub fn export_track(state: &AppState, dest: &Path, track_id: &str) -> Result<(),
 
 /// Exporte une playlist entière (ses morceaux encore présents dans la bibliothèque).
 pub fn export_playlist(state: &AppState, dest: &Path, playlist_id: &str) -> Result<(), String> {
-    let (name, theme, tracks) = {
-        let store = state.playlists.lock().unwrap();
+    // Un verrou à la fois : tenir celui des playlists en prenant celui de la bibliothèque pourrait
+    // bloquer l'appli face à la suppression des doublons, qui les prend dans l'autre ordre.
+    let (name, theme, ids) = {
+        let store = state.playlists.locked();
         let playlist = store.get(playlist_id).ok_or("Playlist introuvable.")?;
-        let library = state.library.lock().unwrap();
-        let tracks: Vec<Track> = playlist
-            .track_ids
-            .iter()
-            .filter_map(|id| library.iter().find(|t| &t.id == id).cloned())
-            .collect();
-        (playlist.name.clone(), Some(playlist.theme.clone()), tracks)
+        (playlist.name.clone(), Some(playlist.theme.clone()), playlist.track_ids.clone())
+    };
+    let tracks: Vec<Track> = {
+        let library = state.library.locked();
+        ids.iter().filter_map(|id| library.iter().find(|t| &t.id == id).cloned()).collect()
     };
     if tracks.is_empty() {
         return Err("Cette playlist est vide (ou ses morceaux ne sont plus dans la bibliothèque).".to_string());
@@ -171,7 +174,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
             .by_name("manifest.json")
             .map_err(|_| "Archive de partage invalide (manifeste manquant).".to_string())?;
         let mut content = String::new();
-        entry.read_to_string(&mut content).map_err(|e| e.to_string())?;
+        entry.by_ref().take(MAX_MANIFEST).read_to_string(&mut content).map_err(|e| e.to_string())?;
         serde_json::from_str(&content).map_err(|e| e.to_string())?
     };
     drop(archive);
@@ -189,8 +192,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
     // étiquettes (fréquent) ne sont jamais fusionnés entre eux.
     let before: Vec<(String, String, String, f64, String)> = state
         .library
-        .lock()
-        .unwrap()
+        .locked()
         .iter()
         .map(|t| (t.title.clone(), t.artist.clone(), t.album.clone(), t.duration_secs, t.id.clone()))
         .collect();
@@ -212,19 +214,14 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
             continue;
         }
 
-        let bytes = match archive.by_name(&format!("pistes/{}", entry.file)) {
-            Ok(mut zip_file) => {
-                let mut bytes = Vec::new();
-                if zip_file.read_to_end(&mut bytes).is_err() {
-                    skipped += 1;
-                    continue;
-                }
-                bytes
-            }
-            Err(_) => {
-                skipped += 1;
-                continue;
-            }
+        // Seuls des fichiers audio entrent dans la bibliothèque, quoi que dise l'archive.
+        if !library::is_supported(Path::new(&entry.file)) {
+            skipped += 1;
+            continue;
+        }
+        let Ok(mut zip_file) = archive.by_name(&format!("pistes/{}", entry.file)) else {
+            skipped += 1;
+            continue;
         };
 
         let safe_name = sanitize_filename(&format!("{} - {}", entry.artist, entry.title));
@@ -235,7 +232,10 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
             local_path = dest_dir.join(format!("{safe_name} ({n}).{ext}"));
             n += 1;
         }
-        if fs::write(&local_path, &bytes).is_err() {
+        let written = fs::File::create(&local_path).and_then(|mut out| std::io::copy(&mut zip_file.by_ref().take(crate::transfer::MAX_SIZE), &mut out));
+        drop(zip_file);
+        if written.is_err() {
+            let _ = fs::remove_file(&local_path);
             skipped += 1;
             continue;
         }
@@ -244,7 +244,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
         // pas d'une relecture des étiquettes du fichier copié, qui se rabattrait sur le nom de
         // fichier local (différent de l'original) si elles manquent.
         let track_id = library::track_id_for_path(&local_path);
-        let already_known = state.library.lock().unwrap().iter().any(|t| t.id == track_id);
+        let already_known = state.library.locked().iter().any(|t| t.id == track_id);
         if !already_known {
             let track = Track {
                 id: track_id.clone(),
@@ -262,7 +262,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
                 added_secs: library::modified_secs(&local_path),
                 damage: None,
             };
-            state.library.lock().unwrap().push(track);
+            state.library.locked().push(track);
         }
         imported_ids.push(track_id);
     }
@@ -271,13 +271,13 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
         return Err("Aucune piste n'a pu être importée depuis cette archive.".to_string());
     }
 
-    if let Some(root) = state.library_root.lock().unwrap().clone() {
-        let tracks = state.library.lock().unwrap().clone();
+    if let Some(root) = state.library_root.locked().clone() {
+        let tracks = state.library.locked().clone();
         let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
     }
 
     let playlist_id = if manifest.kind == "playlist" {
-        let mut store = state.playlists.lock().unwrap();
+        let mut store = state.playlists.locked();
         let id = store.create(manifest.name.clone(), manifest.theme.clone());
         let _ = store.add_tracks(&id, imported_ids.clone());
         let _ = store.save(&state.playlists_path());
@@ -332,6 +332,41 @@ mod tests {
     }
 
     #[test]
+    fn an_archive_only_brings_audio_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = make_state(dir.path());
+        let archive = dir.path().join("piege.mpshare");
+        let entry = |file: &str, title: &str| {
+            serde_json::json!({
+                "title": title, "artist": "A", "album": "B", "album_artist": "A", "track_no": null, "disc_no": null,
+                "year": null, "genre": null, "duration_secs": 10.0, "has_cover": false, "file": file,
+            })
+        };
+        let manifest = serde_json::json!({
+            "kind": "track",
+            "name": "Piège",
+            "tracks": [entry("virus.exe", "Virus"), entry("vrai.mp3", "Vrai")],
+        });
+        let mut zip = zip::ZipWriter::new(fs::File::create(&archive).unwrap());
+        let options = SimpleFileOptions::default();
+        for (name, content) in [("pistes/virus.exe", b"MZ".as_slice()), ("pistes/vrai.mp3", b"son".as_slice())] {
+            zip.start_file(name, options).unwrap();
+            zip.write_all(content).unwrap();
+        }
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(manifest.to_string().as_bytes()).unwrap();
+        zip.finish().unwrap();
+
+        let result = import_bundle(&state, &archive).unwrap();
+        assert_eq!(result.added_tracks, 1);
+        assert_eq!(result.skipped_tracks, 1);
+        assert_eq!(result.track_ids.len(), 1);
+        let names: Vec<String> = fs::read_dir(imports_dir(dir.path())).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+        assert_eq!(names.len(), 1);
+        assert!(names[0].ends_with(".mp3"));
+    }
+
+    #[test]
     fn export_then_import_single_track_roundtrip() {
         let source_dir = tempfile::tempdir().unwrap();
         let path = write_audio(source_dir.path(), "chanson.mp3");
@@ -339,7 +374,7 @@ mod tests {
 
         let state_dir = tempfile::tempdir().unwrap();
         let state = make_state(state_dir.path());
-        *state.library.lock().unwrap() = vec![track.clone()];
+        *state.library.locked() = vec![track.clone()];
 
         let bundle_dir = tempfile::tempdir().unwrap();
         let bundle_path = bundle_dir.path().join("partage.mpshare");
@@ -354,8 +389,8 @@ mod tests {
         assert_eq!(result.skipped_tracks, 0);
         assert_eq!(result.kind, "track");
         assert!(result.playlist_id.is_none());
-        assert_eq!(other_state.library.lock().unwrap().len(), 1);
-        assert_eq!(other_state.library.lock().unwrap()[0].title, "Une chanson");
+        assert_eq!(other_state.library.locked().len(), 1);
+        assert_eq!(other_state.library.locked()[0].title, "Une chanson");
     }
 
     #[test]
@@ -368,17 +403,17 @@ mod tests {
 
         let state_dir = tempfile::tempdir().unwrap();
         let state = make_state(state_dir.path());
-        *state.library.lock().unwrap() = vec![t1.clone(), t2.clone()];
+        *state.library.locked() = vec![t1.clone(), t2.clone()];
         {
             let mut store = PlaylistStore::default();
             let id = store.create("Ma Playlist".to_string(), Some("ocean".to_string()));
             store.add_tracks(&id, vec![t1.id.clone(), t2.id.clone()]).unwrap();
-            *state.playlists.lock().unwrap() = store;
+            *state.playlists.locked() = store;
         }
 
         let bundle_dir = tempfile::tempdir().unwrap();
         let bundle_path = bundle_dir.path().join("playlist.mpshare");
-        let playlist_id = state.playlists.lock().unwrap().playlists[0].id.clone();
+        let playlist_id = state.playlists.locked().playlists[0].id.clone();
         export_playlist(&state, &bundle_path, &playlist_id).unwrap();
 
         let other_dir = tempfile::tempdir().unwrap();
@@ -388,7 +423,7 @@ mod tests {
         assert_eq!(result.kind, "playlist");
         assert_eq!(result.name, "Ma Playlist");
         let new_id = result.playlist_id.unwrap();
-        let store = other_state.playlists.lock().unwrap();
+        let store = other_state.playlists.locked();
         let playlist = store.get(&new_id).unwrap();
         assert_eq!(playlist.name, "Ma Playlist");
         assert_eq!(playlist.theme, "ocean");
@@ -404,9 +439,9 @@ mod tests {
         let t2 = track_at(write_audio(source_dir.path(), "deux.mp3"), "Même titre", "Artiste");
         let state_dir = tempfile::tempdir().unwrap();
         let state = make_state(state_dir.path());
-        *state.library.lock().unwrap() = vec![t1.clone(), t2.clone()];
-        let playlist_id = state.playlists.lock().unwrap().create("J-Pop".to_string(), None);
-        state.playlists.lock().unwrap().add_tracks(&playlist_id, vec![t1.id.clone(), t2.id.clone()]).unwrap();
+        *state.library.locked() = vec![t1.clone(), t2.clone()];
+        let playlist_id = state.playlists.locked().create("J-Pop".to_string(), None);
+        state.playlists.locked().add_tracks(&playlist_id, vec![t1.id.clone(), t2.id.clone()]).unwrap();
         let bundle_dir = tempfile::tempdir().unwrap();
         let bundle_path = bundle_dir.path().join("playlist.mpshare");
         export_playlist(&state, &bundle_path, &playlist_id).unwrap();
@@ -414,12 +449,12 @@ mod tests {
         let other_dir = tempfile::tempdir().unwrap();
         let other_state = make_state(other_dir.path());
         let result = import_bundle(&other_state, &bundle_path).unwrap();
-        let ids = other_state.playlists.lock().unwrap().get(&result.playlist_id.unwrap()).unwrap().track_ids.clone();
+        let ids = other_state.playlists.locked().get(&result.playlist_id.unwrap()).unwrap().track_ids.clone();
         assert_eq!(ids.len(), 2);
 
         // Rescan d'un dossier de musique sans rapport : les morceaux reçus restent.
         let music = tempfile::tempdir().unwrap();
-        let previous = other_state.library.lock().unwrap().clone();
+        let previous = other_state.library.locked().clone();
         let rescanned =
             library::scan_library_with_extras(music.path(), &[imports_dir(other_dir.path())], &previous, |_, _| {});
         for id in &ids {
@@ -431,7 +466,7 @@ mod tests {
     fn export_empty_playlist_fails() {
         let state_dir = tempfile::tempdir().unwrap();
         let state = make_state(state_dir.path());
-        let id = state.playlists.lock().unwrap().create("Vide".to_string(), None);
+        let id = state.playlists.locked().create("Vide".to_string(), None);
 
         let bundle_dir = tempfile::tempdir().unwrap();
         let bundle_path = bundle_dir.path().join("vide.mpshare");
@@ -446,7 +481,7 @@ mod tests {
 
         let state_dir = tempfile::tempdir().unwrap();
         let state = make_state(state_dir.path());
-        *state.library.lock().unwrap() = vec![track.clone()];
+        *state.library.locked() = vec![track.clone()];
 
         let bundle_dir = tempfile::tempdir().unwrap();
         let bundle_path = bundle_dir.path().join("partage.mpshare");
@@ -456,7 +491,7 @@ mod tests {
         let other_state = make_state(other_dir.path());
         import_bundle(&other_state, &bundle_path).unwrap();
         import_bundle(&other_state, &bundle_path).unwrap();
-        assert_eq!(other_state.library.lock().unwrap().len(), 1);
+        assert_eq!(other_state.library.locked().len(), 1);
     }
 
     #[test]

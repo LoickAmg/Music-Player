@@ -2,6 +2,7 @@
 //! partage) reçu au lancement ou transmis à l'instance déjà ouverte, et inscription auprès
 //! de Windows (Paramètres → Applications par défaut), où la personne choisit l'appli.
 
+use crate::state::Locked;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -27,11 +28,11 @@ pub fn file_from_args<S: AsRef<str>>(args: &[S]) -> Option<String> {
 static PENDING: Mutex<Option<String>> = Mutex::new(None);
 
 pub fn set_pending(path: Option<String>) {
-    *PENDING.lock().unwrap() = path;
+    *PENDING.locked() = path;
 }
 
 pub fn take_pending() -> Option<String> {
-    PENDING.lock().unwrap().take()
+    PENDING.locked().take()
 }
 
 /// Inscrit l'appli auprès de Windows (compte courant, sans droits administrateur) puis ouvre

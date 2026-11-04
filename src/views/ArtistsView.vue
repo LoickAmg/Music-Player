@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue";
 import { formatCollection, hueFor } from "@/lib/format";
+import { SCROLLER } from "@/lib/virtual";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { useUiStore } from "@/stores/ui";
 import AlbumCard from "@/components/AlbumCard.vue";
+import FastScroll from "@/components/FastScroll.vue";
 import Icon from "@/components/Icon.vue";
 import TrackRow from "@/components/TrackRow.vue";
+import VirtualList from "@/components/VirtualList.vue";
 
 const props = defineProps<{ artist?: string }>();
 const library = useLibraryStore();
@@ -32,9 +35,23 @@ const duration = computed(() => selected.value?.tracks.reduce((s, t) => s + t.du
 const singles = computed(() => selected.value?.tracks.slice(0, 60) ?? []);
 
 const list = ref<HTMLElement | null>(null);
+// Sur téléphone la liste défile avec la page ; sur ordinateur, dans sa colonne.
+const flatQuery = window.matchMedia("(max-width: 760px), (pointer: coarse) and (max-width: 1100px)");
+const flat = ref(flatQuery.matches);
+const onFlat = (e: MediaQueryListEvent) => (flat.value = e.matches);
+flatQuery.addEventListener("change", onFlat);
+onBeforeUnmount(() => flatQuery.removeEventListener("change", onFlat));
+const rowHeight = computed(() => (flat.value ? 56 : 40));
+const pageScroller = inject(SCROLLER, ref(null));
+provide(
+  SCROLLER,
+  computed(() => (flat.value ? pageScroller.value : list.value)),
+);
 async function revealSelected() {
   await nextTick();
-  list.value?.querySelector(".artist-item.active")?.scrollIntoView({ block: "center" });
+  const index = artists.value.findIndex((a) => a.name === selected.value?.name);
+  const box = flat.value ? pageScroller.value : list.value;
+  if (index >= 0 && box) box.scrollTop = Math.max(0, index * rowHeight.value - box.clientHeight / 2);
 }
 onMounted(revealSelected);
 watch(() => props.artist, revealSelected);
@@ -52,18 +69,21 @@ function initials(name: string) {
 <template>
   <div class="artists" :class="{ 'm-detail': ui.isMobile && showDetail, 'm-list': ui.isMobile && !showDetail }">
     <nav ref="list" class="artist-list" aria-label="Artistes">
-      <button
-        v-for="a in artists"
-        :key="a.name"
-        type="button"
-        class="artist-item"
-        :class="{ active: selected?.name === a.name }"
-        @click="selectedName = a.name; showDetail = true"
-      >
-        <span class="avatar" :style="{ background: `hsl(${hueFor(a.name)} 35% 32%)` }">{{ initials(a.name) }}</span>
-        <span class="name">{{ a.name }}</span>
-      </button>
+      <VirtualList :items="artists" :row-height="rowHeight">
+        <template #default="{ item: a }">
+          <button
+            type="button"
+            class="artist-item"
+            :class="{ active: selected?.name === a.name }"
+            @click="selectedName = a.name; showDetail = true"
+          >
+            <span class="avatar" :style="{ background: `hsl(${hueFor(a.name)} 35% 32%)` }">{{ initials(a.name) }}</span>
+            <span class="name">{{ a.name }}</span>
+          </button>
+        </template>
+      </VirtualList>
     </nav>
+    <FastScroll v-if="flat && !showDetail" :count="artists.length" :label="(i) => artists[i]?.name.trim().charAt(0).toUpperCase() ?? ''" />
 
     <div v-if="selected" class="detail">
       <header>
@@ -113,7 +133,8 @@ function initials(name: string) {
   align-items: center;
   gap: 10px;
   width: 100%;
-  padding: 5px 8px;
+  height: 100%;
+  padding: 0 8px;
   border: 0;
   border-radius: 8px;
   background: none;
@@ -201,9 +222,6 @@ section {
     border: 0;
     padding: 4px 10px;
     overflow: visible;
-  }
-  .artist-item {
-    padding: 8px;
   }
   .avatar {
     width: 40px;

@@ -70,6 +70,7 @@ const IDENTITY: &[u8] = b"music-player/partage/v1";
 /// Temps laissé au destinataire pour saisir le code (le relais ferme la salle après 15 min).
 const WAIT_RECEIVER: Duration = Duration::from_secs(15 * 60);
 const WAIT_SENDER: Duration = Duration::from_secs(2 * 60);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
 const TAKEN: &str = "salle déjà prise";
 const WRONG_CODE: &str = "Code incorrect : vérifiez-le auprès de la personne qui partage.";
@@ -148,7 +149,13 @@ fn room_url(relay: &str, room: &str, role: &str) -> Result<String, String> {
 
 fn connect(relay: &str, room: &str, role: &str) -> Result<Socket, String> {
     let url = room_url(relay, room, role)?;
-    match tungstenite::connect(url.as_str()) {
+    // tungstenite n'a pas de délai de connexion : réseau muet, l'appli attendrait sans fin.
+    let (done, answer) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(tungstenite::connect(url.as_str()));
+    });
+    let connected = answer.recv_timeout(CONNECT_TIMEOUT).map_err(|_| "Relais de partage injoignable : pas de réponse.".to_string())?;
+    match connected {
         Ok((ws, _)) => {
             // Liaison non bloquante, interrogée en boucle : l'attente reste interruptible
             // (annulation, délai dépassé). Pas de délai de lecture du système : sous Windows,

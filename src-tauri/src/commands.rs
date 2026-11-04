@@ -2,6 +2,7 @@
 //! ne fait que de la coordination : la vraie logique vit dans les modules
 //! `queue`, `library`, `playlists`, `session`, `eq` et `audio`.
 
+use crate::state::Locked;
 use crate::library::{self, Track};
 use crate::lyrics::{self, Lyrics};
 use crate::playlists::Playlist;
@@ -34,7 +35,7 @@ pub struct QueueView {
 }
 
 fn start_playback(state: &State<AppState>, path: &str) -> Result<(), String> {
-    let volume = *state.volume.lock().unwrap();
+    let volume = *state.volume.locked();
     state.audio.play(path, volume)
 }
 
@@ -50,7 +51,7 @@ fn track_or_stop(state: &State<AppState>, id: Option<String>) -> Result<Option<T
                 .ok_or("Piste introuvable dans la bibliothèque.")?;
             start_playback(state, &track.path)?;
             // Nouveau morceau lancé : l'ancienne position de reprise ne vaut plus.
-            *state.resume_at.lock().unwrap() = 0.0;
+            *state.resume_at.locked() = 0.0;
             Ok(Some(track))
         }
     }
@@ -100,8 +101,8 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
     }
     let _ = app.emit("scan-progress", ScanProgress { done: 0, total: 0 });
     // Même dossier : les morceaux déjà connus et inchangés ne sont pas relus.
-    let previous = if state.library_root.lock().unwrap().as_deref() == Some(root) {
-        state.library.lock().unwrap().clone()
+    let previous = if state.library_root.locked().as_deref() == Some(root) {
+        state.library.locked().clone()
     } else {
         Vec::new()
     };
@@ -110,8 +111,8 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
     let tracks = library::scan_library_with_extras(Path::new(root), &extras, &previous, |done, total| {
         let _ = app.emit("scan-progress", ScanProgress { done, total });
     });
-    *state.library.lock().unwrap() = tracks.clone();
-    *state.library_root.lock().unwrap() = Some(root.to_string());
+    *state.library.locked() = tracks.clone();
+    *state.library_root.locked() = Some(root.to_string());
     let _ = library::save_cache(&state.library_cache_path(), root, &tracks);
     state.scanning.store(false, Ordering::SeqCst);
     let _ = app.emit("library-updated", &tracks);
@@ -132,8 +133,7 @@ pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, St
     let state = app.state::<AppState>();
     let track = match state
         .library
-        .lock()
-        .unwrap()
+        .locked()
         .iter()
         .find(|t| t.path == path)
         .cloned()
@@ -143,11 +143,11 @@ pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, St
             let track = library::read_track(Path::new(&path))
                 .ok_or("Ce fichier n'est pas un fichier audio lisible.")?;
             let tracks = {
-                let mut library = state.library.lock().unwrap();
+                let mut library = state.library.locked();
                 library.push(track.clone());
                 library.clone()
             };
-            if let Some(root) = state.library_root.lock().unwrap().clone() {
+            if let Some(root) = state.library_root.locked().clone() {
                 let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
             }
             let _ = app.emit("library-updated", &tracks);
@@ -155,7 +155,7 @@ pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, St
         }
     };
     {
-        let mut queue = state.queue.lock().unwrap();
+        let mut queue = state.queue.locked();
         queue.set_items(vec![track.id.clone()], Some(&track.id));
     }
     track_or_stop(&state, Some(track.id))
@@ -163,7 +163,7 @@ pub fn open_audio_file(app: AppHandle, path: String) -> Result<Option<Track>, St
 
 #[tauri::command]
 pub fn get_library(state: State<AppState>) -> Vec<Track> {
-    state.library.lock().unwrap().clone()
+    state.library.locked().clone()
 }
 
 /// Chemin d'un fichier image de pochette (extrait dans le cache), ou `None`.
@@ -201,8 +201,7 @@ pub fn get_lyrics(
             };
             state
                 .library
-                .lock()
-                .unwrap()
+                .locked()
                 .iter()
                 .filter(|t| {
                     t.id != track.id && lyrics::song_key(t).as_deref() == Some(key.as_str())
@@ -391,10 +390,10 @@ pub fn play_queue(
     start_id: Option<String>,
 ) -> Result<Option<Track>, String> {
     {
-        let mut queue = state.queue.lock().unwrap();
+        let mut queue = state.queue.locked();
         queue.set_items(track_ids, start_id.as_deref());
     }
-    let current = state.queue.lock().unwrap().current().cloned();
+    let current = state.queue.locked().current().cloned();
     track_or_stop(&state, current)
 }
 
@@ -404,11 +403,11 @@ pub fn play_track_now(
     track_id: String,
 ) -> Result<Option<Track>, String> {
     let already_queued = {
-        let mut queue = state.queue.lock().unwrap();
+        let mut queue = state.queue.locked();
         queue.jump_to(&track_id)
     };
     if !already_queued {
-        let mut queue = state.queue.lock().unwrap();
+        let mut queue = state.queue.locked();
         queue.set_items(vec![track_id.clone()], Some(&track_id));
     }
     track_or_stop(&state, Some(track_id))
@@ -420,12 +419,12 @@ pub fn toggle_play_pause(state: State<'_, AppState>) -> Result<bool, String> {
     if status.current_path.is_none() {
         // Réouverture de l'appli : le dernier morceau est affiché mais pas encore chargé.
         // « Lecture » le charge et reprend là où l'écoute s'était arrêtée.
-        let current = state.queue.lock().unwrap().current().cloned();
+        let current = state.queue.locked().current().cloned();
         let track = current
             .and_then(|id| state.find_track(&id))
             .ok_or("Aucune piste chargée.")?;
         start_playback(&state, &track.path)?;
-        let resume_at = std::mem::take(&mut *state.resume_at.lock().unwrap());
+        let resume_at = std::mem::take(&mut *state.resume_at.locked());
         if resume_at > 1.0 && resume_at < track.duration_secs - 1.0 {
             state.audio.seek(Duration::from_secs_f64(resume_at));
         }
@@ -442,22 +441,22 @@ pub fn toggle_play_pause(state: State<'_, AppState>) -> Result<bool, String> {
 
 #[tauri::command(async)]
 pub fn next_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
-    let next_id = state.queue.lock().unwrap().skip().cloned();
+    let next_id = state.queue.locked().skip().cloned();
     track_or_stop(&state, next_id)
 }
 
 #[tauri::command(async)]
 pub fn previous_track(state: State<'_, AppState>) -> Result<Option<Track>, String> {
-    let prev_id = state.queue.lock().unwrap().previous().cloned();
+    let prev_id = state.queue.locked().previous().cloned();
     track_or_stop(&state, prev_id)
 }
 
 /// Ferme le morceau en cours : plus de son ni de file d'attente.
 #[tauri::command]
 pub fn stop_playback(state: State<AppState>) -> Result<(), String> {
-    state.queue.lock().unwrap().set_items(Vec::new(), None);
+    state.queue.locked().set_items(Vec::new(), None);
     state.audio.stop();
-    *state.resume_at.lock().unwrap() = 0.0;
+    *state.resume_at.locked() = 0.0;
     persist_session(&state).map_err(|e| e.to_string())
 }
 
@@ -465,7 +464,7 @@ pub fn stop_playback(state: State<AppState>) -> Result<(), String> {
 pub fn seek(state: State<AppState>, position_secs: f64) -> Result<(), String> {
     if state.audio.status().current_path.is_none() {
         // Rien de chargé (réouverture) : la lecture démarrera à cette position.
-        *state.resume_at.lock().unwrap() = position_secs.max(0.0);
+        *state.resume_at.locked() = position_secs.max(0.0);
         return Ok(());
     }
     state
@@ -477,20 +476,20 @@ pub fn seek(state: State<AppState>, position_secs: f64) -> Result<(), String> {
 #[tauri::command]
 pub fn set_volume(state: State<AppState>, volume: f32) -> Result<(), String> {
     let volume = volume.clamp(0.0, 1.0);
-    *state.volume.lock().unwrap() = volume;
+    *state.volume.locked() = volume;
     state.audio.set_volume(volume);
     Ok(())
 }
 
 #[tauri::command]
 pub fn set_shuffle(state: State<AppState>, on: bool) -> Result<(), String> {
-    state.queue.lock().unwrap().set_shuffle(on);
+    state.queue.locked().set_shuffle(on);
     Ok(())
 }
 
 #[tauri::command]
 pub fn set_repeat(state: State<AppState>, mode: RepeatMode) -> Result<(), String> {
-    state.queue.lock().unwrap().set_repeat(mode);
+    state.queue.locked().set_repeat(mode);
     Ok(())
 }
 
@@ -548,14 +547,14 @@ pub fn sync_app_icon(state: State<'_, AppState>, png: Option<String>, force: Opt
 /// la lecture démarre sur la première (et la piste lancée est renvoyée).
 #[tauri::command(async)]
 pub fn queue_play_next(state: State<'_, AppState>, track_ids: Vec<String>) -> Result<Option<Track>, String> {
-    let started = state.queue.lock().unwrap().play_next(&track_ids);
+    let started = state.queue.locked().play_next(&track_ids);
     start_if_needed(&state, started)
 }
 
 /// « Ajouter à la file d'attente » : à la fin de ce qui est prévu.
 #[tauri::command(async)]
 pub fn queue_append(state: State<'_, AppState>, track_ids: Vec<String>) -> Result<Option<Track>, String> {
-    let started = state.queue.lock().unwrap().enqueue(&track_ids);
+    let started = state.queue.locked().enqueue(&track_ids);
     start_if_needed(&state, started)
 }
 
@@ -563,19 +562,19 @@ fn start_if_needed(state: &State<'_, AppState>, started: bool) -> Result<Option<
     if !started {
         return Ok(None);
     }
-    let current = state.queue.lock().unwrap().current().cloned();
+    let current = state.queue.locked().current().cloned();
     track_or_stop(state, current)
 }
 
 #[tauri::command]
 pub fn remove_from_queue(state: State<AppState>, index: usize) -> Result<(), String> {
-    state.queue.lock().unwrap().remove_at(index);
+    state.queue.locked().remove_at(index);
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_queue(state: State<AppState>) -> QueueView {
-    let queue = state.queue.lock().unwrap();
+    let queue = state.queue.locked();
     QueueView {
         track_ids: queue.playback_order().to_vec(),
         position: queue.position(),
@@ -587,14 +586,14 @@ pub fn get_queue(state: State<AppState>) -> QueueView {
 #[tauri::command]
 pub fn get_playback_status(state: State<AppState>) -> PlaybackStatus {
     let status = state.audio.status();
-    let current_id = state.queue.lock().unwrap().current().cloned();
+    let current_id = state.queue.locked().current().cloned();
     let current_track = current_id.and_then(|id| state.find_track(&id));
     PlaybackStatus {
         current_track,
         position_secs: status.position_now(),
         // Aucune piste chargée (démarrage, fin de file) = rien ne joue.
         is_paused: status.is_paused || status.current_path.is_none(),
-        volume: *state.volume.lock().unwrap(),
+        volume: *state.volume.locked(),
     }
 }
 
@@ -620,7 +619,7 @@ pub fn auto_advance(state: &State<AppState>) -> Option<Result<Option<Track>, Str
         return None;
     }
     state.audio.clear_finished();
-    let next_id = state.queue.lock().unwrap().next().cloned();
+    let next_id = state.queue.locked().next().cloned();
     Some(track_or_stop(state, next_id))
 }
 
@@ -630,12 +629,12 @@ pub fn auto_advance(state: &State<AppState>) -> Option<Result<Option<Track>, Str
 
 #[tauri::command]
 pub fn list_playlists(state: State<AppState>) -> Vec<Playlist> {
-    state.playlists.lock().unwrap().playlists.clone()
+    state.playlists.locked().playlists.clone()
 }
 
 #[tauri::command]
 pub fn create_playlist(state: State<AppState>, name: String, theme: Option<String>) -> String {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     let id = store.create(name, theme);
     let _ = store.save(&state.playlists_path());
     id
@@ -643,7 +642,7 @@ pub fn create_playlist(state: State<AppState>, name: String, theme: Option<Strin
 
 #[tauri::command]
 pub fn delete_playlist(state: State<AppState>, id: String) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store.delete(&id);
     store
         .save(&state.playlists_path())
@@ -652,7 +651,7 @@ pub fn delete_playlist(state: State<AppState>, id: String) -> Result<(), String>
 
 #[tauri::command]
 pub fn rename_playlist(state: State<AppState>, id: String, name: String) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .rename(&id, name)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -663,7 +662,7 @@ pub fn rename_playlist(state: State<AppState>, id: String, name: String) -> Resu
 
 #[tauri::command]
 pub fn set_playlist_theme(state: State<AppState>, id: String, theme: String) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .set_theme(&id, theme)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -678,7 +677,7 @@ pub fn set_playlist_style(
     id: String,
     style: Option<serde_json::Value>,
 ) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .set_style(&id, style)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -736,7 +735,7 @@ pub fn add_to_playlist(
     playlist_id: String,
     track_id: String,
 ) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .add_track(&playlist_id, track_id)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -751,7 +750,7 @@ pub fn add_tracks_to_playlist(
     playlist_id: String,
     track_ids: Vec<String>,
 ) -> Result<usize, String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     let added = store
         .add_tracks(&playlist_id, track_ids)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -767,7 +766,7 @@ pub fn remove_from_playlist(
     playlist_id: String,
     track_id: String,
 ) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .remove_track(&playlist_id, &track_id)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -783,7 +782,7 @@ pub fn move_track_in_playlist(
     from: usize,
     to: usize,
 ) -> Result<(), String> {
-    let mut store = state.playlists.lock().unwrap();
+    let mut store = state.playlists.locked();
     store
         .move_track(&playlist_id, from, to)
         .map_err(|_| "Playlist introuvable.".to_string())?;
@@ -799,7 +798,7 @@ pub fn move_track_in_playlist(
 /// Inverse l'état « aimé » d'un morceau ; renvoie le nouvel état.
 #[tauri::command]
 pub fn toggle_favorite(state: State<AppState>, track_id: String) -> Result<bool, String> {
-    let mut store = state.favorites.lock().unwrap();
+    let mut store = state.favorites.locked();
     let now = store.toggle(&track_id);
     store
         .save(&state.favorites_path())
@@ -834,9 +833,9 @@ pub fn remove_duplicates(
     groups: Vec<crate::duplicates::Removal>,
 ) -> Result<crate::duplicates::Outcome, String> {
     let (outcome, tracks) = {
-        let mut library = state.library.lock().unwrap();
-        let mut playlists = state.playlists.lock().unwrap();
-        let mut favorites = state.favorites.lock().unwrap();
+        let mut library = state.library.locked();
+        let mut playlists = state.playlists.locked();
+        let mut favorites = state.favorites.locked();
         let outcome = crate::duplicates::apply(
             &mut library,
             &mut playlists,
@@ -851,7 +850,7 @@ pub fn remove_duplicates(
         (outcome, library.clone())
     };
     if outcome.removed > 0 {
-        if let Some(root) = state.library_root.lock().unwrap().clone() {
+        if let Some(root) = state.library_root.locked().clone() {
             let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
         }
         let _ = app.emit("library-updated", &tracks);
@@ -862,7 +861,7 @@ pub fn remove_duplicates(
 /// Aime plusieurs morceaux d'un coup (import des titres likés) ; renvoie le nombre ajouté.
 #[tauri::command]
 pub fn add_favorites(state: State<AppState>, track_ids: Vec<String>) -> Result<usize, String> {
-    let mut store = state.favorites.lock().unwrap();
+    let mut store = state.favorites.locked();
     let added = track_ids.into_iter().filter(|id| store.track_ids.insert(id.clone())).count();
     if added > 0 {
         store.save(&state.favorites_path()).map_err(|e| e.to_string())?;
@@ -872,7 +871,7 @@ pub fn add_favorites(state: State<AppState>, track_ids: Vec<String>) -> Result<u
 
 #[tauri::command]
 pub fn list_favorites(state: State<AppState>) -> Vec<String> {
-    state.favorites.lock().unwrap().track_ids.iter().cloned().collect()
+    state.favorites.locked().track_ids.iter().cloned().collect()
 }
 
 // ---------------------------------------------------------------------
@@ -962,8 +961,7 @@ pub fn export_playlist(app: AppHandle, playlist_id: String) -> Result<Option<Str
     let state = app.state::<AppState>();
     let name = state
         .playlists
-        .lock()
-        .unwrap()
+        .locked()
         .get(&playlist_id)
         .ok_or("Playlist introuvable.")?
         .name
@@ -1207,7 +1205,7 @@ pub fn transfer_cancel(id: String) {
 pub fn import_share_bundle(app: AppHandle, path: String) -> Result<ImportResult, String> {
     let state = app.state::<AppState>();
     let result = sharing::import_bundle(&state, Path::new(&path))?;
-    let _ = app.emit("library-updated", state.library.lock().unwrap().clone());
+    let _ = app.emit("library-updated", state.library.locked().clone());
     Ok(result)
 }
 
@@ -1218,13 +1216,13 @@ pub fn import_share_bundle(app: AppHandle, path: String) -> Result<ImportResult,
 #[tauri::command]
 pub fn set_eq_gains(state: State<AppState>, gains: [f32; 3]) -> Result<(), String> {
     let clamped = gains.map(|g| g.clamp(-12.0, 12.0));
-    *state.eq_gains.lock().unwrap() = clamped;
+    *state.eq_gains.locked() = clamped;
     Ok(())
 }
 
 #[tauri::command]
 pub fn get_eq_gains(state: State<AppState>) -> [f32; 3] {
-    *state.eq_gains.lock().unwrap()
+    *state.eq_gains.locked()
 }
 
 // ---------------------------------------------------------------------
@@ -1253,11 +1251,11 @@ pub struct InitialState {
 
 #[tauri::command]
 pub fn get_initial_state(state: State<AppState>) -> InitialState {
-    let library = state.library.lock().unwrap().clone();
-    let queue = state.queue.lock().unwrap();
+    let library = state.library.locked().clone();
+    let queue = state.queue.locked();
     let current_id = queue.current().cloned();
     InitialState {
-        library_root: state.library_root.lock().unwrap().clone(),
+        library_root: state.library_root.locked().clone(),
         library,
         queue: QueueView {
             track_ids: queue.playback_order().to_vec(),
@@ -1268,11 +1266,11 @@ pub fn get_initial_state(state: State<AppState>) -> InitialState {
         current_track: current_id.and_then(|id| state.find_track(&id)),
         // La lecture n'est pas relancée automatiquement au démarrage ; l'interface affiche
         // la position où elle reprendra.
-        position_secs: *state.resume_at.lock().unwrap(),
-        volume: *state.volume.lock().unwrap(),
-        eq_gains: *state.eq_gains.lock().unwrap(),
-        playlists: state.playlists.lock().unwrap().playlists.clone(),
-        favorites: state.favorites.lock().unwrap().track_ids.iter().cloned().collect(),
+        position_secs: *state.resume_at.locked(),
+        volume: *state.volume.locked(),
+        eq_gains: *state.eq_gains.locked(),
+        playlists: state.playlists.locked().playlists.clone(),
+        favorites: state.favorites.locked().track_ids.iter().cloned().collect(),
         scanning: state.scanning.load(Ordering::SeqCst),
         appearance: crate::appearance::load(&state.data_dir),
         custom_dir: crate::appearance::custom_dir(&state.data_dir)
@@ -1287,25 +1285,25 @@ pub fn save_session(state: State<AppState>) -> Result<(), String> {
 }
 
 pub fn persist_session(state: &State<AppState>) -> std::io::Result<()> {
-    let queue = state.queue.lock().unwrap();
+    let queue = state.queue.locked();
     let status = state.audio.status();
     // Morceau pas encore relancé depuis l'ouverture : on garde la position de reprise
     // (sinon la sauvegarde automatique l'écrasait par 0).
     let position_secs = if status.current_path.is_some() {
         status.position_secs
     } else {
-        *state.resume_at.lock().unwrap()
+        *state.resume_at.locked()
     };
 
     let session = SessionState {
-        library_root: state.library_root.lock().unwrap().clone(),
+        library_root: state.library_root.locked().clone(),
         queue: queue.playback_order().to_vec(),
         current_track_id: queue.current().cloned(),
         position_secs,
-        volume: *state.volume.lock().unwrap(),
+        volume: *state.volume.locked(),
         shuffle: queue.shuffle_enabled(),
         repeat: queue.repeat(),
-        eq_gains: *state.eq_gains.lock().unwrap(),
+        eq_gains: *state.eq_gains.locked(),
     };
     session.save(&state.session_path())
 }
@@ -1316,26 +1314,26 @@ pub fn persist_session(state: &State<AppState>) -> std::io::Result<()> {
 pub fn restore_state(state: &AppState, data_dir: &Path) -> Option<String> {
     let playlists =
         crate::playlists::PlaylistStore::load(&PathBuf::from(data_dir).join("playlists.json"));
-    *state.playlists.lock().unwrap() = playlists;
+    *state.playlists.locked() = playlists;
 
     let favorites =
         crate::favorites::FavoritesStore::load(&PathBuf::from(data_dir).join("favorites.json"));
-    *state.favorites.lock().unwrap() = favorites;
+    *state.favorites.locked() = favorites;
 
     let session = SessionState::load(&PathBuf::from(data_dir).join("session.json"));
-    *state.volume.lock().unwrap() = session.volume;
-    *state.eq_gains.lock().unwrap() = session.eq_gains;
+    *state.volume.locked() = session.volume;
+    *state.eq_gains.locked() = session.eq_gains;
 
     if let Some(root) = &session.library_root {
         let cached = library::load_cache(&state.library_cache_path(), root).unwrap_or_default();
-        *state.library.lock().unwrap() = cached;
-        *state.library_root.lock().unwrap() = Some(root.clone());
+        *state.library.locked() = cached;
+        *state.library_root.locked() = Some(root.clone());
     }
 
-    let mut queue = state.queue.lock().unwrap();
+    let mut queue = state.queue.locked();
     if !session.queue.is_empty() {
         queue.set_items(session.queue, session.current_track_id.as_deref());
-        *state.resume_at.lock().unwrap() = session.position_secs.max(0.0);
+        *state.resume_at.locked() = session.position_secs.max(0.0);
         // Remarque : si le shuffle était actif à la fermeture, l'ordre exact
         // n'est pas restauré tel quel (on retire un nouveau tirage aléatoire
         // plutôt que l'ordre sauvegardé) — simplification volontaire, sans
