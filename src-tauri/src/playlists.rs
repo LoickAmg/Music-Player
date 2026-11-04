@@ -39,7 +39,10 @@ pub enum PlaylistError {
 impl PlaylistStore {
     pub fn load(path: &Path) -> Self {
         match fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| {
+                crate::session::keep_damaged(path);
+                Self::default()
+            }),
             Err(_) => Self::default(),
         }
     }
@@ -49,7 +52,7 @@ impl PlaylistStore {
             fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).unwrap();
-        fs::write(path, json)
+        crate::session::write_atomically(path, &json)
     }
 
     pub fn create(&mut self, name: String, theme: Option<String>) -> String {
@@ -265,5 +268,17 @@ mod tests {
         fs::write(&path, b"{ceci n'est pas du json valide").unwrap();
         let store = PlaylistStore::load(&path);
         assert!(store.playlists.is_empty());
+        // Le fichier abîmé reste récupérable, même après la sauvegarde suivante.
+        store.save(&path).unwrap();
+        assert_eq!(fs::read(dir.path().join("playlists.json.abime")).unwrap(), b"{ceci n'est pas du json valide");
+    }
+
+    #[test]
+    fn saving_leaves_no_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("playlists.json");
+        PlaylistStore::default().save(&path).unwrap();
+        assert!(path.is_file());
+        assert!(!dir.path().join("playlists.json.tmp").exists());
     }
 }

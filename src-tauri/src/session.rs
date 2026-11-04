@@ -83,10 +83,24 @@ impl SessionState {
             fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).unwrap();
-        let temporary = path.with_extension("json.tmp");
-        fs::write(&temporary, json)?;
-        fs::rename(temporary, path)
+        write_atomically(path, &json)
     }
+}
+
+/// Écrit tout dans un fichier temporaire puis le met en place d'un coup : une coupure pendant
+/// l'écriture laisse l'ancien fichier intact.
+pub fn write_atomically(path: &Path, json: &str) -> std::io::Result<()> {
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, json)?;
+    fs::rename(temporary, path)
+}
+
+/// Fichier de données illisible : mis de côté (« playlists.json.abime »), pour que la prochaine
+/// sauvegarde ne l'écrase pas et qu'il reste une chance de le récupérer.
+pub fn keep_damaged(path: &Path) {
+    let mut kept = path.as_os_str().to_owned();
+    kept.push(".abime");
+    let _ = fs::copy(path, kept);
 }
 
 #[cfg(test)]

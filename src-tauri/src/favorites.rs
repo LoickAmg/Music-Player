@@ -16,7 +16,10 @@ pub struct FavoritesStore {
 impl FavoritesStore {
     pub fn load(path: &Path) -> Self {
         match fs::read_to_string(path) {
-            Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+            Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| {
+                crate::session::keep_damaged(path);
+                Self::default()
+            }),
             Err(_) => Self::default(),
         }
     }
@@ -26,7 +29,7 @@ impl FavoritesStore {
             fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_string_pretty(self).unwrap();
-        fs::write(path, json)
+        crate::session::write_atomically(path, &json)
     }
 
     pub fn is_favorite(&self, track_id: &str) -> bool {
@@ -83,5 +86,6 @@ mod tests {
         fs::write(&path, b"{ceci n'est pas du json valide").unwrap();
         let store = FavoritesStore::load(&path);
         assert!(store.track_ids.is_empty());
+        assert!(dir.path().join("favorites.json.abime").is_file());
     }
 }
