@@ -3,12 +3,11 @@ import { computed, reactive, ref, watch } from "vue";
 import { api } from "@/lib/api";
 import { shareFile } from "@/lib/androidMedia";
 import { type Backup, parseBackup, planRestore, restorePrefs } from "@/lib/backup";
-import { currentBackupJson, deviceName } from "@/lib/backupNow";
+import { currentBackupJson } from "@/lib/backupNow";
 import { useAppearanceStore } from "@/stores/appearance";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
-import { useShareStore } from "@/stores/share";
 import { useUiStore } from "@/stores/ui";
 import Icon from "./Icon.vue";
 
@@ -18,7 +17,6 @@ const library = useLibraryStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
 const appearance = useAppearanceStore();
-const share = useShareStore();
 const ui = useUiStore();
 const onAndroid = /Android/i.test(navigator.userAgent);
 
@@ -34,21 +32,7 @@ const found = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.
 const hasSettings = computed(() => !!backup.value && (!!backup.value.appearance || Object.keys(backup.value.prefs).length > 0));
 const total = computed(() => plan.value?.playlists.reduce((s, p) => s + p.found.length + p.missing.length, 0) ?? 0);
 
-const device = computed(() => deviceName());
 const backupJson = currentBackupJson;
-
-/** Synchronisation : la sauvegarde part par le partage (même Wi-Fi, code ou fichier) ;
- *  l'autre appareil la fusionne avec ses données. */
-async function sync() {
-  saving.value = true;
-  try {
-    share.open({ kind: "backup", id: await backupJson() }, `Sauvegarde de ${device.value}`);
-  } catch (e) {
-    ui.notify(`Synchronisation impossible : ${String(e)}`);
-  } finally {
-    saving.value = false;
-  }
-}
 
 async function save() {
   saving.value = true;
@@ -131,7 +115,7 @@ async function restore() {
       if (backup.value.appearance) appearance.restore(backup.value.appearance);
       restorePrefs(backup.value.prefs);
       summary.push("apparence et réglages");
-      // Identité des Proches (compte) et réglages lus au démarrage : interface relancée.
+      // Réglages lus au démarrage : interface relancée.
       reload = true;
     }
     done.value = `Restauré : ${summary.join(", ")}.`;
@@ -152,16 +136,9 @@ async function restore() {
       Playlists, titres aimés, historique d'écoute, apparence et réglages dans un fichier (.mpsave), à restaurer ici ou
       sur un autre appareil. La musique n'y est pas : les morceaux sont retrouvés dans la bibliothèque de l'appareil.
     </p>
-    <p class="muted small">
-      PC et téléphone : « Synchroniser » envoie cette sauvegarde à l'autre appareil (même Wi-Fi ou code), qui la
-      fusionne avec la sienne. Faites-le dans les deux sens pour que les deux aient tout.
-    </p>
     <div class="actions">
       <button type="button" class="pill pill-accent" :disabled="saving" @click="save">
         <Icon name="share" :size="15" /> {{ saving ? "Préparation…" : onAndroid ? "Sauvegarder et envoyer…" : "Enregistrer une sauvegarde…" }}
-      </button>
-      <button type="button" class="pill pill-ghost" :disabled="saving" @click="sync">
-        <Icon name="refresh" :size="15" /> Synchroniser avec un autre appareil…
       </button>
       <label class="pill pill-ghost file">
         <Icon name="import" :size="15" /> Restaurer une sauvegarde…

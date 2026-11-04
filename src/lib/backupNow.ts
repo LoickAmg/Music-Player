@@ -1,5 +1,5 @@
-// Sauvegarde de cet appareil, telle qu'au moment de l'appel (partagée par l'enregistrement
-// dans un fichier, la synchronisation et la sauvegarde en ligne du compte).
+// Sauvegarde de cet appareil, telle qu'au moment de l'appel (pour l'enregistrement
+// dans un fichier).
 
 import { api } from "./api";
 import { buildBackup } from "./backup";

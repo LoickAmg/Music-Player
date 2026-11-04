@@ -156,13 +156,16 @@ export const relay = {
       lecteur,
       amis,
     }),
-  /** Compte : empreinte du mot de passe enregistrée (par l'appareil propriétaire du profil). */
-  account: (base: string, code: string, secret: string, cle: string) =>
-    call<{ ok: true }>(base, `/v1/profil/${code}/compte`, { secret, cle }),
-  uploadChunk: (base: string, code: string, cle: string, n: number, total: number, data: string) =>
-    call<{ ok: true }>(base, `/v1/profil/${code}/envoyer`, { cle, n, total, data }),
+  /** Ancien compte (0.5.13 et avant) : dernière lecture de sa sauvegarde, puis effacement. */
   downloadChunk: (base: string, code: string, cle: string, n: number) =>
     call<{ total: number; at: number; data: string }>(base, `/v1/profil/${code}/recuperer`, { cle, n }),
+  forgetAccount: (base: string, code: string, secret: string) => call<{ ok: true }>(base, `/v1/profil/${code}/sanscompte`, { secret }),
+  /** Appareils liés : état commun chiffré. */
+  syncState: (base: string, code: string, secret: string) => call<{ version: string | null }>(base, `/v1/profil/${code}/synchroetat`, { secret }),
+  syncRead: (base: string, code: string, secret: string, n: number) =>
+    call<{ version: string; total: number; data: string }>(base, `/v1/profil/${code}/synchrolire`, { secret, n }),
+  syncWrite: (base: string, code: string, secret: string, chunk: { envoi: string; attendu: string | null; n: number; total: number; data: string }) =>
+    call<{ ok: true; version?: string }>(base, `/v1/profil/${code}/synchroenvoi`, { secret, ...chunk }),
   /** Avis : dépôt (public) ; le reste avec le code administrateur. */
   sendAvis: (base: string, avis: Record<string, unknown>) => call<{ ok: true; message: string }>(base, "/v1/avis", avis),
   avisCount: (base: string, admin: string) =>

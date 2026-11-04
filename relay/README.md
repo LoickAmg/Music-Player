@@ -20,6 +20,8 @@ Le même relais sert aux Proches (voir ce qu'écoutent ses amis) :
   l'autre accepte, et chacun donne à l'autre un jeton qui lui permet de lire son statut ;
 - le relais garde par profil : nom, petite photo, morceau en cours (effacé au bout de
   6 heures), demandes en attente, jetons des amis autorisés (empreintes seulement) ;
+- appareils liés : état commun (playlists, titres aimés, écoute) chiffré sur les appareils avec une
+  clé que le relais ne reçoit jamais, lu et publié avec le secret du profil ;
 - annuaire de ville, sur option : nom et code des profils qui ont choisi d'y être visibles,
   d'après l'adresse IP vue par Cloudflare ; une annonce s'efface au bout de 10 minutes.
 

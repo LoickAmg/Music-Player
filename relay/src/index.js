@@ -36,6 +36,7 @@ const ACCOUNT_KEY = /^[0-9a-f]{64}$/;
 const CHUNK_MAX = 1024 * 1024;
 const MAX_CHUNKS = 20;
 const TRIES_PER_HOUR = 10;
+const UPLOAD_ID = /^[0-9a-f]{32}$/;
 
 // Avis : types (comme le formulaire de l'appli) et taille d'un envoi (3 captures réduites).
 const AVIS_KINDS = ["bug", "suggestion", "idee", "avis", "autre"];
@@ -277,7 +278,7 @@ export class Profil {
       return card ? json(card) : json({ erreur: "Aucun profil avec ce code" }, 404);
     }
     if (request.method !== "POST") return json({ erreur: "Introuvable" }, 404);
-    const body = await readJson(request, action === "envoyer" ? CHUNK_MAX + 4096 : MAX_BODY);
+    const body = await readJson(request, action === "envoyer" || action === "synchroenvoi" ? CHUNK_MAX + 4096 : MAX_BODY);
 
     switch (action) {
       // Création (premier appareil qui présente ce code) ou mise à jour du nom et de la photo.
@@ -441,6 +442,62 @@ export class Profil {
         const n = Number(body.n ?? 0);
         if (!Number.isInteger(n) || n < 0 || n >= meta.total) return json({ erreur: "Morceau inconnu" }, 400);
         return json({ total: meta.total, at: meta.at, data: (await storage.get(`sauvegarde:${n}`)) ?? "" });
+      }
+      // Ancien compte abandonné (0.5.14) : mot de passe et sauvegarde en ligne effacés.
+      case "sanscompte": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        const meta = (await storage.get("sauvegarde")) ?? { total: 0 };
+        for (let i = 0; i < meta.total; i++) await storage.delete(`sauvegarde:${i}`);
+        for (let i = 0; i < MAX_CHUNKS; i++) await storage.delete(`envoi:${i}`);
+        for (const key of ["sauvegarde", "compte", "essais"]) await storage.delete(key);
+        return json({ ok: true });
+      }
+      // Appareils liés : état commun, chiffré sur les appareils (le relais n'en voit rien).
+      case "synchroetat": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        return json({ version: (await storage.get("synchro"))?.version ?? null });
+      }
+      case "synchrolire": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        const meta = await storage.get("synchro");
+        if (!meta) return json({ erreur: "Rien à synchroniser pour l'instant" }, 404);
+        const n = Number(body.n ?? 0);
+        if (!Number.isInteger(n) || n < 0 || n >= meta.total) return json({ erreur: "Morceau inconnu" }, 400);
+        return json({ version: meta.version, total: meta.total, data: (await storage.get(`synchro:${meta.version}:${n}`)) ?? "" });
+      }
+      // Envoi morceau par morceau. Un seul envoi à la fois, et il n'aboutit que si personne n'a
+      // publié entre-temps (`attendu`) : deux appareils ne peuvent ni se mélanger ni s'écraser.
+      case "synchroenvoi": {
+        if (!(await this.owner(body.secret))) return json({ erreur: "Refusé" }, 403);
+        const n = Number(body.n);
+        const total = Number(body.total);
+        if (!UPLOAD_ID.test(body.envoi ?? "") || !Number.isInteger(total) || total < 1 || total > MAX_CHUNKS || !Number.isInteger(n) || n < 0 || n >= total) {
+          return json({ erreur: "Sauvegarde trop volumineuse" }, 400);
+        }
+        if (typeof body.data !== "string" || body.data.length > CHUNK_MAX || !/^[A-Za-z0-9+/=]*$/.test(body.data)) {
+          return json({ erreur: "Morceau invalide" }, 400);
+        }
+        const current = (await storage.get("synchro")) ?? null;
+        if ((current?.version ?? null) !== (body.attendu ?? null)) return json({ erreur: "Un autre appareil vient de publier" }, 409);
+        const running = await storage.get("synchroencours");
+        if (running !== body.envoi) {
+          // Nouvel envoi : ce qu'un envoi abandonné a laissé est retiré.
+          if (n !== 0) return json({ erreur: "Envoi interrompu, recommencez" }, 409);
+          if (running) for (let i = 0; i < MAX_CHUNKS; i++) await storage.delete(`synchro:${running}:${i}`);
+          await storage.put("synchroencours", body.envoi);
+        }
+        await storage.put(`synchro:${body.envoi}:${n}`, body.data);
+        if (n === total - 1) {
+          for (let i = 0; i < total; i++) {
+            if (typeof (await storage.get(`synchro:${body.envoi}:${i}`)) !== "string") return json({ erreur: "Morceau manquant, recommencez" }, 409);
+          }
+          // Publication d'un coup : la description pointe sur la nouvelle version.
+          await storage.put("synchro", { version: body.envoi, total, at: Date.now() });
+          await storage.delete("synchroencours");
+          if (current) for (let i = 0; i < current.total; i++) await storage.delete(`synchro:${current.version}:${i}`);
+          return json({ ok: true, version: body.envoi });
+        }
+        return json({ ok: true });
       }
       default:
         return json({ erreur: "Introuvable" }, 404);

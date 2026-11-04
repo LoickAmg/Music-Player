@@ -195,13 +195,13 @@ export const useFriendsStore = defineStore("friends", {
       if (!this.me || !this.base) return;
       void relay.note(this.base, this.me.code, this.me.secret, entree).catch(() => {});
     },
-    /** Compte retrouvé sur cet appareil : même profil, mêmes proches et conversations que
+    /** Appareil lié : même profil, mêmes proches et conversations que
      *  l'appareil d'origine ; le journal du relais complète ce qui a changé depuis. */
     adopt(saved: Partial<Saved>, words?: { conversations?: Record<string, ChatLine[]>; unread?: Record<string, number> }) {
       if (!saved.me) return;
       this.stop();
       this.me = saved.me;
-      this.enabled = true;
+      this.enabled = saved.enabled ?? true;
       this.shareListening = saved.shareListening ?? true;
       this.zoneVisible = false;
       this.friends = saved.friends ?? [];
@@ -214,9 +214,47 @@ export const useFriendsStore = defineStore("friends", {
       this.save();
       this.saveWords();
       this.start();
-      useShareStore().setFriendCode(saved.me.code);
+      if (this.enabled) useShareStore().setFriendCode(saved.me.code);
     },
-    /** Active les Proches : crée le profil sur le relais (code d'ami nouveau si déjà pris). */
+    /** Cet appareil quitte le groupe de ses appareils liés : plus aucune trace du profil ici. */
+    forget() {
+      this.stop();
+      this.me = null;
+      this.enabled = false;
+      this.zoneVisible = false;
+      this.friends = [];
+      this.outgoing = [];
+      this.incoming = [];
+      this.live = {};
+      this.conversations = {};
+      this.unread = {};
+      this.cursor = 0;
+      this.seen = [];
+      this.save();
+      this.saveWords();
+      useShareStore().setFriendCode(null);
+    },
+    /** Profil sur le relais (code d'ami nouveau si déjà pris), sans activer les Proches. */
+    async ensureProfile(): Promise<{ code: string; secret: string }> {
+      if (!this.base) throw new RelayError("Aucun relais configuré (Réglages → Partage).", 0);
+      const card = await this.myCard();
+      for (let attempt = 0; ; attempt++) {
+        const me = this.me ?? { code: newCode(), secret: hex(32) };
+        try {
+          await relay.saveProfile(this.base, me.code, me.secret, card.nom, card.avatar);
+          this.me = me;
+          this.save();
+          return me;
+        } catch (e) {
+          if (e instanceof RelayError && e.status === 409 && attempt < 3) {
+            this.me = null;
+            continue;
+          }
+          throw e;
+        }
+      }
+    },
+    /** Active les Proches : crée le profil sur le relais au besoin. */
     async enable() {
       if (!this.base) {
         this.error = "Aucun relais configuré (Réglages → Partage).";
@@ -224,21 +262,7 @@ export const useFriendsStore = defineStore("friends", {
       }
       this.busy = true;
       await this.run(async () => {
-        const card = await this.myCard();
-        for (let attempt = 0; ; attempt++) {
-          const me = this.me ?? { code: newCode(), secret: hex(32) };
-          try {
-            await relay.saveProfile(this.base!, me.code, me.secret, card.nom, card.avatar);
-            this.me = me;
-            break;
-          } catch (e) {
-            if (e instanceof RelayError && e.status === 409 && attempt < 3) {
-              this.me = null;
-              continue;
-            }
-            throw e;
-          }
-        }
+        await this.ensureProfile();
         this.enabled = true;
         this.save();
         this.start();

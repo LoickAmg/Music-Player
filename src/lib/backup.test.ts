@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBackup, parseBackup, planRestore } from "./backup";
+import { buildBackup, parseBackup, planRestore, restorePrefs } from "./backup";
 import type { Playlist, Track } from "./types";
 
 function track(id: string, title: string, artist: string, path = `/m/${id}.mp3`): Track {
@@ -52,34 +52,22 @@ describe("sauvegarde", () => {
   });
 });
 
-describe("sauvegarde partagée par deux appareils", () => {
-  it("fusionne au lieu d'écraser", async () => {
-    const { mergeBackups } = await import("./backup");
-    const base = { format: "music-player-sauvegarde" as const, version: 1 as const, created: "", device: "", appearance: null };
-    const t = (title: string, artist = "A") => ({ title, artist, album: "", duration: 200 });
-    const phone = {
-      ...base,
-      device: "Téléphone",
-      playlists: [{ name: "J-Pop", theme: "ocean", style: null, tracks: [t("Lemon")] }, { name: "Funk", theme: "sunset", style: null, tracks: [t("Montagem")] }],
-      favorites: [t("Lemon")],
-      listens: [{ track_id: "a", title: "Lemon", artist: "A", album: "", started: 1, secs: 100, duration_secs: 200 }],
-      prefs: { "mp:proches": '{"me":{"code":"K7QM-2D9X"}}' },
-    };
-    const pc = {
-      ...base,
-      device: "PC",
-      playlists: [{ name: "funk", theme: "sunset", style: null, tracks: [t("Montagem"), t("Bota")] }, { name: "Re:Zero", theme: "aurora", style: null, tracks: [t("Redo")] }],
-      favorites: [t("Redo")],
-      listens: [
-        { track_id: "b", title: "Lemon", artist: "A", album: "", started: 1, secs: 100, duration_secs: 200 },
-        { track_id: "c", title: "Redo", artist: "A", album: "", started: 2, secs: 90, duration_secs: 200 },
-      ],
-      prefs: {},
-    };
-    const merged = mergeBackups(pc, phone);
-    expect(merged.playlists.map((p) => `${p.name}:${p.tracks.length}`).sort()).toEqual(["J-Pop:1", "Re:Zero:1", "funk:2"]);
-    expect(merged.favorites.map((f) => f.title).sort()).toEqual(["Lemon", "Redo"]);
-    expect(merged.listens).toHaveLength(2);
-    expect(merged.prefs["mp:proches"]).toContain("K7QM-2D9X");
+describe("fichier de sauvegarde", () => {
+  it("ne contient ni le secret du profil, ni les jetons, ni les conversations", () => {
+    localStorage.setItem("mp:proches", JSON.stringify({ me: { code: "K7QM-2D9X", secret: "s3cret" }, friends: [{ readToken: "j3ton" }] }));
+    localStorage.setItem("mp:proches-mots", JSON.stringify({ conversations: { x: [{ texte: "message privé" }] } }));
+    localStorage.setItem("mp:visuels", "vinyle");
+    const text = JSON.stringify(buildBackup({ device: "PC", playlists: [], favoriteIds: [], byId: () => null, listens: [], appearance: null }));
+    expect(text).not.toContain("s3cret");
+    expect(text).not.toContain("j3ton");
+    expect(text).not.toContain("message privé");
+    expect(text).toContain("vinyle");
+  });
+
+  it("une ancienne sauvegarde ne remplace pas le profil de cet appareil", () => {
+    localStorage.setItem("mp:proches", '{"me":{"code":"MOI"}}');
+    restorePrefs({ "mp:proches": '{"me":{"code":"AUTRE"}}', "mp:visuels": "cd" });
+    expect(localStorage.getItem("mp:proches")).toContain("MOI");
+    expect(localStorage.getItem("mp:visuels")).toBe("cd");
   });
 });

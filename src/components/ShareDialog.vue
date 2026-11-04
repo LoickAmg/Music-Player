@@ -56,11 +56,7 @@ async function viaFile() {
   fileBusy.value = true;
   try {
     const path =
-      item.value.kind === "track"
-        ? await api.exportTrack(item.value.id)
-        : item.value.kind === "backup"
-          ? await api.saveBackup(item.value.id, item.value.name)
-          : await api.exportPlaylist(item.value.id);
+      item.value.kind === "track" ? await api.exportTrack(item.value.id) : await api.exportPlaylist(item.value.id);
     const problem = path ? await revealOrShare(path) : null;
     if (problem) ui.notify(problem);
   } catch (e) {
@@ -77,7 +73,7 @@ async function viaFile() {
       <section class="card" role="dialog" aria-modal="true" aria-labelledby="share-title">
         <header>
           <div>
-            <p class="kicker">{{ { track: "Partager ce morceau", playlist: "Partager cette playlist", backup: "Synchroniser avec un autre appareil" }[item.kind] }}</p>
+            <p class="kicker">{{ item.kind === "track" ? "Partager ce morceau" : "Partager cette playlist" }}</p>
             <h2 id="share-title">{{ item.name }}</h2>
           </div>
           <button type="button" class="icon-btn" aria-label="Fermer" @click="share.close()"><Icon name="close" :size="18" /></button>
@@ -122,7 +118,7 @@ async function viaFile() {
 
         <section class="block">
           <h3>Autre application</h3>
-          <p class="hint">Fichier {{ item.kind === "backup" ? ".mpsave" : ".mpshare" }} à envoyer par messagerie, e-mail, Bluetooth… puis à ouvrir avec Music Player.</p>
+          <p class="hint">Fichier .mpshare à envoyer par messagerie, e-mail, Bluetooth… puis à ouvrir avec Music Player.</p>
           <button type="button" class="pill pill-ghost" :disabled="fileBusy" @click="viaFile">
             <Icon name="share" :size="15" /> {{ fileBusy ? "Préparation…" : "Envoyer le fichier…" }}
           </button>

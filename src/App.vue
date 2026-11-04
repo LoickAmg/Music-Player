@@ -44,7 +44,7 @@ import SpotifyImportView from "@/views/SpotifyImportView.vue";
 import AvisView from "@/views/AvisView.vue";
 import { useAvisStore } from "@/stores/avis";
 import { useFriendsStore } from "@/stores/friends";
-import { useAccountStore } from "@/stores/account";
+import { parseLink, useSyncStore } from "@/stores/sync";
 import PlaylistView from "@/views/PlaylistView.vue";
 import PlaylistsView from "@/views/PlaylistsView.vue";
 import RecentView from "@/views/RecentView.vue";
@@ -59,6 +59,7 @@ const player = usePlayerStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
 const friends = useFriendsStore();
+const sync = useSyncStore();
 const share = useShareStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
@@ -235,6 +236,7 @@ function onReturn() {
     if (document.hidden) void api.nearbyStop().catch(() => {});
     else void share.startVisible();
   }
+  if (!document.hidden) void sync.check();
   if (document.hidden || performance.now() - lastRefresh < 60_000) return;
   lastRefresh = performance.now();
   void library.refresh();
@@ -255,6 +257,11 @@ watch(
     if (cardTimer) clearTimeout(cardTimer);
     cardTimer = setTimeout(() => void friends.refreshCard(), 2000);
   },
+);
+// Appareils liés : un changement ici est publié quelques secondes plus tard.
+watch(
+  () => [playlists.items, favorites.ids],
+  () => sync.localChange(),
 );
 const offPlayback: (() => void)[] = [];
 const onPopState = () => ui.onPopState();
@@ -292,19 +299,22 @@ onMounted(async () => {
       received: (result) => share.onReceived(result),
       // Sauvegarde reçue (synchronisation) : proposée à la restauration dans les Réglages.
       backup: (content) => {
-        ui.backupToRestore = content;
         ui.go({ name: "settings" });
+        // Lien d'un appareil à l'autre : accepté seulement si l'on attendait un lien.
+        const link = parseLink(content);
+        if (link) {
+          if (!sync.onLink(link)) ui.notify("Lien ignoré : passez par Réglages → Appareils liés.");
+          return;
+        }
+        ui.backupToRestore = content;
       },
     }),
   );
   void share.init(deviceName.value);
   // Proches : statut des amis et de ce que j'écoute (si activé).
   friends.start();
-  // Compte : sauvegarde en ligne une fois par jour (quelques secondes après l'ouverture).
-  // (D'abord l'identité des Proches, pour ne jamais envoyer une sauvegarde qui en serait privée.)
-  void useAccountStore()
-    .adoptIfNeeded()
-    .then(() => setTimeout(() => void useAccountStore().autoUpload(), 20_000));
+  // Appareils liés : synchronisation quelques secondes après l'ouverture, puis régulièrement.
+  setTimeout(() => void sync.start(), 8_000);
   // Administrateur : nouveaux avis vérifiés toutes les 3 minutes (notification du système).
   useAvisStore().start();
   // Morceau suivant enchaîné côté Rust (continue écran éteint) : l'interface suit.

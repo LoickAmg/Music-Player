@@ -224,11 +224,13 @@ export const useShareStore = defineStore("share", {
     /** Envoi à distance : renvoie le code à transmettre (l'envoi attend en arrière-plan). */
     async sendRemote(): Promise<string | null> {
       if (!this.sharing) return null;
-      const item: ShareItem = { kind: this.sharing.kind, id: this.sharing.id };
+      return this.sendRemoteItem({ kind: this.sharing.kind, id: this.sharing.id }, this.sharing.name);
+    },
+    async sendRemoteItem(item: ShareItem, label: string): Promise<string | null> {
       const t = this.track({
         id: newId(),
         direction: "envoi",
-        label: this.sharing.name,
+        label,
         peer: null,
         code: null,
       });

@@ -159,7 +159,7 @@ export interface Artist {
 
 /** Ce que l'on partage avec un autre appareil. */
 export interface ShareItem {
-  /** « backup » : sauvegarde (id = contenu JSON), pour synchroniser un autre appareil. */
+  /** « backup » : contenu JSON (id) envoyé par code, pour relier un autre appareil. */
   kind: "track" | "playlist" | "backup";
   id: string;
 }
