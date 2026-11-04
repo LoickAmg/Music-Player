@@ -113,7 +113,7 @@ mod tests {
     }
 
     fn samples(wav: &[u8]) -> Vec<f64> {
-        wav[44..].chunks_exact(2).map(|b| f64::from(i16::from_le_bytes([b[0], b[1]]))).collect()
+        wav[44..].as_chunks::<2>().0.iter().map(|b| f64::from(i16::from_le_bytes(*b))).collect()
     }
 
     /// Énergie du signal à une fréquence (Goertzel), rapportée à l'énergie totale.
