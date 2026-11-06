@@ -153,6 +153,9 @@ export const useFriendsStore = defineStore("friends", {
     },
     isFriend: (state) => (code: string) => state.friends.some((f) => f.code === code),
     unreadTotal: (state) => Object.values(state.unread).reduce((s, n) => s + n, 0),
+    /** Profil sans proches, demandes ni conversations : le remplacer ne fait rien perdre. */
+    isEmpty: (state) =>
+      !state.friends.length && !state.outgoing.length && !state.incoming.length && !Object.values(state.conversations).some((l) => l.length),
     isPending: (state) => (code: string) => state.outgoing.some((o) => o.code === code),
   },
   actions: {

@@ -151,6 +151,53 @@ describe("mise à jour depuis l'ancien compte", () => {
   });
 });
 
+describe("ancien compte sur un appareil au profil Proches différent", () => {
+  async function account(key: string) {
+    const cle = "c".repeat(64);
+    await post("compte", { secret: SECRET, cle });
+    const backup = {
+      format: "music-player-sauvegarde",
+      playlists: [{ name: "Soir", theme: "ocean", style: null, tracks: [{ title: "Redo", artist: "Artiste", album: "Album", duration: 200 }] }],
+      favorites: [],
+      listens: [],
+      prefs: { "mp:proches": JSON.stringify({ me: { code: CODE, secret: SECRET }, enabled: true, friends: [] }) },
+    };
+    await post("envoyer", { cle, n: 0, total: 1, data: await encrypt(key, JSON.stringify(backup)) });
+    localStorage.setItem("mp:compte", JSON.stringify({ code: CODE, keys: { cle, key }, lastUpload: 0 }));
+  }
+
+  it("profil local vide : remplacé par celui du compte, appareil lié", async () => {
+    const key = newSyncKey();
+    await account(key);
+    const friends = useFriendsStore();
+    friends.me = { code: "YBHR-ZMNS", secret: "d".repeat(64) };
+    friends.enabled = true;
+    const sync = useSyncStore();
+    await sync.migrateAccount();
+    friends.stop();
+    expect(friends.me?.code).toBe(CODE);
+    expect(sync.linked).toBe(true);
+    expect(sync.relinkFrom).toBeNull();
+  });
+
+  it("profil local avec des proches : rien n'est remplacé, la marche à suivre est affichée", async () => {
+    await account(newSyncKey());
+    // Une tâche du test précédent (minuterie des Proches) a pu réactiver son ancien Pinia.
+    setActivePinia(createPinia());
+    useShareStore().relay = BASE;
+    const friends = useFriendsStore();
+    friends.me = { code: "YBHR-ZMNS", secret: "d".repeat(64) };
+    friends.friends = [{ code: "H4JN-8RTY", name: "Meryl", avatar: null, readToken: "t".repeat(32), since: 1 }];
+    const sync = useSyncStore();
+    await sync.migrateAccount();
+    expect(friends.me?.code).toBe("YBHR-ZMNS");
+    expect(friends.friends).toHaveLength(1);
+    expect(sync.linked).toBe(false);
+    expect(sync.relinkFrom).toBe(CODE);
+    expect(localStorage.getItem("mp:compte")).toBeNull();
+  });
+});
+
 describe("liaison", () => {
   const link = { format: "music-player-lien", key: "k", from: "PC", proches: { me: { code: CODE, secret: SECRET }, enabled: false, shareListening: true, friends: [], outgoing: [], incoming: [] }, mots: { conversations: {} } };
 

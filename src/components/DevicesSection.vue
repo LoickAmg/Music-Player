@@ -73,6 +73,11 @@ function leave() {
       passe. Vos proches et vos conversations vous suivent aussi. Tout est chiffré sur vos appareils : le relais n'y a pas accès.
     </p>
 
+    <p v-if="sync.relinkFrom && !sync.linked" class="notice">
+      Cet appareil était connecté au compte <strong>{{ sync.relinkFrom }}</strong>. Pour le garder synchronisé, sur l'appareil qui a ce code d'ami :
+      Réglages → Appareils liés → « Lier un autre appareil », puis ici « Relier cet appareil ».
+    </p>
+
     <div v-if="sync.pendingLink" class="ask">
       <p>
         <strong>Lier cet appareil à « {{ sync.pendingLink.from }} » ?</strong> Vos playlists et titres aimés seront réunis avec les siens.
@@ -171,6 +176,13 @@ function leave() {
 }
 .ask p {
   margin: 0;
+}
+.notice {
+  margin: var(--space-3) 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 13px;
 }
 .warn {
   color: var(--danger-text);

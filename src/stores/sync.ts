@@ -35,6 +35,8 @@ const KEY = "mp:synchro";
 const BASE_KEY = "mp:synchro-base";
 /** Ancien compte (0.5.13 et avant), repris une fois à la mise à jour. */
 const OLD_ACCOUNT_KEY = "mp:compte";
+/** Ancien compte qui n'a pas pu être repris tout seul : cet appareil est à relier par un code. */
+const RELINK_KEY = "mp:compte-a-relier";
 const LINK_FORMAT = "music-player-lien";
 /** Le relais est interrogé à ce rythme quand l'appli est ouverte. */
 const CHECK_EVERY = 5 * 60 * 1000;
@@ -112,6 +114,8 @@ export const useSyncStore = defineStore("sync", {
     awaitingLink: false,
     /** Lien reçu, à confirmer avant de l'appliquer. */
     pendingLink: null as LinkPayload | null,
+    /** Code de l'ancien compte que cet appareil n'a pas pu reprendre seul (à relier par un code). */
+    relinkFrom: load<string>(RELINK_KEY),
   }),
   getters: {
     linked: (state) => !!state.saved,
@@ -197,6 +201,8 @@ export const useSyncStore = defineStore("sync", {
       this.pendingLink = null;
       useFriendsStore().adopt(link.proches, { conversations: link.mots?.conversations, unread: {} });
       this.saved = { key: link.key, lastSync: 0 };
+      this.relinkFrom = null;
+      store(RELINK_KEY, null);
       this.persist();
       store(BASE_KEY, null);
       dirty = true;
@@ -241,7 +247,9 @@ export const useSyncStore = defineStore("sync", {
         const parts = [first.data];
         for (let n = 1; n < first.total; n++) parts.push((await relay.downloadChunk(friends.base, old.code, old.keys.cle, n)).data);
         const backup = JSON.parse(await decrypt(old.keys.key, parts.join(""))) as Partial<SyncDoc> & { prefs?: Record<string, string> };
-        if (!friends.me && backup.prefs?.["mp:proches"]) {
+        // Profil Proches de cet appareil différent de celui du compte (connexion faite avec une
+        // ancienne version) : il est remplacé par celui du compte s'il n'a rien à perdre.
+        if (backup.prefs?.["mp:proches"] && (!friends.me || (friends.me.code !== old.code && friends.isEmpty))) {
           friends.adopt(JSON.parse(backup.prefs["mp:proches"]), backup.prefs["mp:proches-mots"] ? JSON.parse(backup.prefs["mp:proches-mots"]) : undefined);
         }
         inherited = { ...emptyDoc(), playlists: backup.playlists ?? [], favorites: backup.favorites ?? [], listens: backup.listens ?? [] };
@@ -251,8 +259,12 @@ export const useSyncStore = defineStore("sync", {
         if (e instanceof RelayError && e.status === 0) return;
       }
       if (friends.me?.code !== old.code) {
+        // Pas de liaison possible sans risque ici : la personne relie cet appareil par un code,
+        // depuis un appareil du compte (Réglages → Appareils liés). On le lui dit.
         inherited = null;
         store(OLD_ACCOUNT_KEY, null);
+        store(RELINK_KEY, old.code);
+        this.relinkFrom = old.code;
         return;
       }
       this.saved = this.saved ?? { key: old.keys.key, lastSync: 0 };
