@@ -127,9 +127,17 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
-/// Les mots qui comptent pour comparer (sans les mots de présentation des vidéos).
+/// Les mots qui comptent pour comparer (sans les mots de présentation des vidéos). Les chaînes
+/// officielles collent « VEVO » au nom (« DamsoVEVO ») : retiré, il reste l'artiste.
 fn tokens(words: &[String]) -> HashSet<String> {
-    words.iter().filter(|w| !NOISE.contains(&w.as_str())).cloned().collect()
+    words
+        .iter()
+        .filter(|w| !NOISE.contains(&w.as_str()) && w.as_str() != "vevo")
+        .map(|w| match w.strip_suffix("vevo") {
+            Some(name) if !name.is_empty() => name.to_owned(),
+            _ => w.clone(),
+        })
+        .collect()
 }
 
 fn is_year(word: &str) -> bool {
@@ -242,6 +250,15 @@ mod tests {
         assert!(score_match(info("Formidable", "Stromae", Some(213.0)), info("Formidable", "Stromae - Topic", Some(213.0))).accepted);
         let s = score_match(info("Don't Stop Me Now", "Queen", Some(209.0)), info("Dont Stop Me Now", "Queen", Some(209.0)));
         assert_eq!(s.title_similarity, 1.0);
+    }
+
+    #[test]
+    fn reconnait_l_artiste_derriere_une_chaine_officielle() {
+        // Avec yt-dlp, l'« artiste » lu dans le fichier est souvent la chaîne YouTube.
+        let wanted = info("Bruxelles vie", "Damso", Some(200.0));
+        assert!(score_match(wanted, info("Damso - Bruxelles vie (Clip officiel)", "DamsoVEVO", Some(201.0))).accepted);
+        assert!(score_match(wanted, info("Bruxelles vie", "Damso VEVO", Some(200.0))).accepted);
+        assert!(score_match(wanted, info("Bruxelles vie", "Damso - Topic", Some(200.0))).accepted);
     }
 
     #[test]

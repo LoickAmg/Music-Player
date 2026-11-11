@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod common;
+pub mod import;
 pub mod matching;
 pub mod queue;
 pub mod source;
