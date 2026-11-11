@@ -6,6 +6,10 @@ import type { SpotdlQuery } from "./spotifyImport";
 import type {
   AlignModelStatus,
   DuplicateOutcome,
+  FetchAvailability,
+  FetchJob,
+  FetchJobUpdate,
+  FetchWanted,
   InitialState,
   Lyrics,
   LyricsCandidate,
@@ -46,6 +50,16 @@ export const api = {
     listen<{ index: number; total: number; title: string; artist: string; status: string }>("spotdl-progress", (e) => handler(e.payload)),
   spotdlDownloadMissing: (queries: SpotdlQuery[]) =>
     invoke<{ items: { title: string; artist: string; status: string; detail: string }[]; imported: number; library: Track[] }>("spotdl_download_missing", { queries }),
+  /** Outils de téléchargement installés sur la machine. */
+  fetchAvailability: () => invoke<FetchAvailability>("fetch_availability"),
+  /** File de téléchargements enregistrée (reprise au démarrage). */
+  fetchJobs: () => invoke<FetchJob[]>("fetch_jobs"),
+  /** Ajoute des morceaux à la file ; renvoie leurs identifiants de tâche. */
+  fetchEnqueue: (wanted: FetchWanted[]) => invoke<string[]>("fetch_enqueue", { wanted }),
+  /** Arrête une tâche (en attente ou en cours). */
+  fetchCancel: (id: string) => invoke<void>("fetch_cancel", { id }),
+  /** Retire les tâches terminées, échouées ou arrêtées ; renvoie leur nombre. */
+  fetchClearFinished: () => invoke<number>("fetch_clear_finished"),
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
   getLibrary: () => invoke<Track[]>("get_library"),
@@ -234,4 +248,23 @@ export async function onScanEvents(handlers: {
   } catch {
     return () => {};
   }
+}
+
+/** Abonnements à la file de téléchargements (sans effet dans le mode démo du navigateur). */
+export async function onFetchEvents(handlers: {
+  queue: (jobs: FetchJob[]) => void;
+  job: (update: FetchJobUpdate) => void;
+  error: (message: string) => void;
+}): Promise<UnlistenFn> {
+  const offs: UnlistenFn[] = [];
+  try {
+    offs.push(await listen<FetchJob[]>("fetch-queue-updated", (e) => handlers.queue(e.payload)));
+    offs.push(await listen<FetchJobUpdate>("fetch-job-updated", (e) => handlers.job(e.payload)));
+    offs.push(await listen<string>("fetch-error", (e) => handlers.error(e.payload)));
+  } catch {
+    // Mode démo : pas d'événements.
+  }
+  return () => {
+    for (const off of offs.splice(0)) off();
+  };
 }

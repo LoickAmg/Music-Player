@@ -220,3 +220,34 @@ export interface UpdateInfo {
   /** Android : taille de l'APK (octets). */
   size: number | null;
 }
+
+/** File de téléchargements (spotDL puis yt-dlp), miroir de `fetch::queue::QueueItem`. */
+export type FetchJobState = "queued" | "running" | "done" | "failed" | "cancelled";
+
+export interface FetchWanted {
+  title: string;
+  artist: string;
+  album?: string;
+  duration_secs?: number | null;
+  /** Playlist où ranger le morceau une fois importé. */
+  playlist_id?: string | null;
+}
+
+export interface FetchJob {
+  id: string;
+  wanted: FetchWanted;
+  state: FetchJobState;
+  attempts: number;
+  last_error: string | null;
+}
+
+export interface FetchAvailability {
+  spotdl: boolean;
+  ytdlp: boolean;
+}
+
+export interface FetchJobUpdate {
+  id: string;
+  state: FetchJobState;
+  error: string | null;
+}
