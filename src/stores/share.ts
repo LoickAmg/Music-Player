@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
+import { alert } from "@/lib/alerts";
 import { transferNotice, transferNoticeDone } from "@/lib/androidMedia";
+import { taskbarProgress } from "@/lib/taskbar";
 import { useDevicesStore } from "./devices";
 import { useLibraryStore } from "./library";
 import { usePlaylistsStore } from "./playlists";
@@ -251,12 +253,14 @@ export const useShareStore = defineStore("share", {
       const running = this.transfers.filter(isRunning);
       if (!running.length) {
         transferNoticeDone();
+        taskbarProgress(null);
         return;
       }
       const t = running[0];
       const p = t.progress;
       const percent =
         p.total > 0 && (p.stage === "envoi" || p.stage === "reception") ? Math.round((p.done / p.total) * 100) : -1;
+      taskbarProgress(percent);
       const what = `${t.direction === "envoi" ? "Envoi" : "Réception"} de « ${t.label || "partage"} »`;
       const text = p.stage === "reprise" ? `${what} : reprise après une coupure…` : what;
       transferNotice(text, percent);
@@ -368,6 +372,8 @@ export const useShareStore = defineStore("share", {
         return;
       }
       this.offers.push({ id, offer });
+      const what = offer.kind === "playlist" ? `la playlist « ${offer.name} »` : `« ${offer.name} »`;
+      alert("partages", `${offer.from} veut vous envoyer un son`, `${what} : ouvrez Music Player pour accepter ou refuser.`, { silentInApp: true });
     },
     async answer(id: string, accept: boolean) {
       const pending = this.offers.find((o) => o.id === id);
@@ -386,6 +392,9 @@ export const useShareStore = defineStore("share", {
     onReceived(result: ShareImportResult) {
       const copy = useDevicesStore().onReceived(result.name);
       this.noteShared(result.track_ids, "recu", copy ? { who: copy, via: "appareils" } : {});
+      const n = result.track_ids.length;
+      if (copy) alert("appareils", "Copie terminée", `${n} son${n > 1 ? "s" : ""} copié${n > 1 ? "s" : ""} depuis ${copy}, dans Musique › Music Player › Reçus.`);
+      else alert("partages", "Son reçu", `${result.name} : rangé dans Musique › Music Player › Reçus.`);
       const t = this.transfers.find((x) => x.direction === "reception" && !x.result && x.label === result.name);
       if (t) t.result = result;
     },

@@ -48,6 +48,8 @@ export interface CopyRequest {
   /** Lot `part` sur `parts` d'une même demande (copie découpée pour le relais). */
   part?: number;
   parts?: number;
+  /** Arrêtée par la personne (sur l'un ou l'autre appareil) : jamais relancée. */
+  cancelled?: boolean;
 }
 
 /** Morceaux par demande : l'archive est préparée d'un bloc dans le cache de l'appareil. */

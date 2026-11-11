@@ -27,6 +27,8 @@ import LyricsShare from "@/components/LyricsShare.vue";
 import ProfileView from "@/views/ProfileView.vue";
 import DevicesView from "@/views/DevicesView.vue";
 import SharedView from "@/views/SharedView.vue";
+import DevicesNotice from "@/components/DevicesNotice.vue";
+import { setBanner } from "@/lib/alerts";
 import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
 import ShareActivity from "@/components/ShareActivity.vue";
@@ -69,6 +71,7 @@ const share = useShareStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
 const ui = useUiStore();
+setBanner((message) => ui.notify(message));
 // Clé de la transition de page : le nom de la route suffit, sauf pour un album ou une
 // playlist (sinon ouvrir un autre album ne jouerait pas la transition).
 const pageKey = computed(() => {
@@ -473,6 +476,7 @@ onBeforeUnmount(() => {
     <ShareDialog />
     <FeedbackDialog />
     <FriendChat />
+    <DevicesNotice />
     <ShareActivity />
     <TrackMenu />
     <TrackPicker />

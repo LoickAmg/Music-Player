@@ -64,6 +64,8 @@ const permissions = [
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
   // Partage en cours écran éteint ou appli en arrière-plan (TransferService).
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />',
+  // Notifications instantanées (option) : messages des proches appli fermée (ProchesService).
+  '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_REMOTE_MESSAGING" />',
   '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
   '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
   '<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />',
@@ -83,6 +85,13 @@ if (!manifest.includes(".MediaService")) {
   manifest = manifest.replace(
     /<\/application>/,
     `    <service android:name="${pkg}.MediaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />\n    </application>`,
+  );
+}
+if (!manifest.includes(".ProchesService")) {
+  manifest = manifest.replace(
+    /<\/application>/,
+    `    <service android:name="${pkg}.ProchesService" android:exported="false" android:foregroundServiceType="remoteMessaging" />
+    </application>`,
   );
 }
 if (!manifest.includes(".TransferService")) {
@@ -260,6 +269,8 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
     contentResolver.registerContentObserver(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, true, mediaObserver)
     handleOpenIntent(intent)
     Updates.schedule(this)
+    // Notifications instantanées choisies par la personne : le service repart à chaque ouverture.
+    if (ProchesWatch.prefs(this).getBoolean("instant", false)) ProchesService.start(this)
   }
 
   override fun onNewIntent(intent: Intent) {
@@ -344,6 +355,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
 
   override fun onResume() {
     super.onResume()
+    ProchesWatch.visible = true
     pushSystemDark()
     // Retour des réglages « installer des applis inconnues » : l'installation reprend.
     updates?.resumePending()
@@ -368,6 +380,7 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
   }
 
   override fun onPause() {
+    ProchesWatch.visible = false
     multicast?.let { if (it.isHeld) it.release() }
     super.onPause()
   }
@@ -1631,14 +1644,23 @@ import android.app.job.JobInfo
 import android.app.job.JobParameters
 import android.app.job.JobScheduler
 import android.app.job.JobService
+import android.app.Service
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
 import android.webkit.JavascriptInterface
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
 object ProchesWatch {
+  /** Appli à l'écran : la page prévient elle-même (pas de notification en double). */
+  @Volatile var visible = false
   private const val PREFS = "music-player-proches"
   private const val CHANNEL = "proches"
   private const val JOB_ID = 4244
@@ -1647,7 +1669,8 @@ object ProchesWatch {
   fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
   fun watch(context: Context, base: String, code: String, secret: String, since: Long, names: String) {
-    prefs(context).edit().putString("base", base).putString("code", code).putString("secret", secret).putLong("since", since).putString("names", names).apply()
+    val known = prefs(context).getLong("since", 0L)
+    prefs(context).edit().putString("base", base).putString("code", code).putString("secret", secret).putLong("since", maxOf(known, since)).putString("names", names).apply()
     val scheduler = context.getSystemService(JobScheduler::class.java)
     if (scheduler.getPendingJob(JOB_ID) != null) return
     val job = JobInfo.Builder(JOB_ID, ComponentName(context, ProchesCheckJob::class.java))
@@ -1665,10 +1688,12 @@ object ProchesWatch {
   fun stop(context: Context) {
     prefs(context).edit().clear().apply()
     context.getSystemService(JobScheduler::class.java).cancel(JOB_ID)
+    ProchesService.stop(context)
   }
 
   /** Nouveautés du journal du profil depuis la dernière fois : une notification. */
   fun check(context: Context) {
+    if (visible) return
     val prefs = prefs(context)
     val base = prefs.getString("base", null) ?: return
     val code = prefs.getString("code", null) ?: return
@@ -1738,8 +1763,95 @@ class ProchesCheckJob : JobService() {
   override fun onStopJob(params: JobParameters): Boolean = true
 }
 
+/**
+ * Notifications instantanées (option des Réglages) : un service discret qui reste actif et lit le
+ * journal du profil chaque minute, appli fermée. Sans les services Google (Huawei…), c'est le seul
+ * moyen fiable : la tâche planifiée d'Android peut attendre des heures. Une notification
+ * permanente, la plus discrète possible, le signale (Android l'exige).
+ */
+class ProchesService : Service() {
+  companion object {
+    private const val CHANNEL = "joignable"
+    private const val NOTIFICATION_ID = 7303
+    private const val EVERY = 60_000L
+
+    fun start(context: Context) {
+      val intent = Intent(context, ProchesService::class.java)
+      try {
+        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent) else context.startService(intent)
+      } catch (e: Exception) {
+        // démarrage refusé (appli en arrière-plan) : il repartira à la prochaine ouverture
+      }
+    }
+
+    fun stop(context: Context) {
+      context.stopService(Intent(context, ProchesService::class.java))
+    }
+  }
+
+  private val handler = Handler(Looper.getMainLooper())
+  private val tick = object : Runnable {
+    override fun run() {
+      Thread {
+        try {
+          ProchesWatch.check(this@ProchesService)
+        } catch (e: Exception) {
+          // hors ligne : au prochain tour
+        }
+      }.start()
+      handler.postDelayed(this, EVERY)
+    }
+  }
+
+  override fun onBind(intent: Intent?): IBinder? = null
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    val manager = getSystemService(NotificationManager::class.java)
+    if (Build.VERSION.SDK_INT >= 26 && manager.getNotificationChannel(CHANNEL) == null) {
+      manager.createNotificationChannel(NotificationChannel(CHANNEL, "Rester joignable", NotificationManager.IMPORTANCE_MIN))
+    }
+    val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
+      PendingIntent.getActivity(this, 8, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+    }
+    val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL) else Notification.Builder(this)
+    val notification = builder
+      .setSmallIcon(android.R.drawable.ic_dialog_email)
+      .setContentTitle("Music Player reste joignable")
+      .setContentText("Messages et sons de vos proches, même appli fermée")
+      .setContentIntent(open)
+      .setOngoing(true)
+      .setShowWhen(false)
+      .build()
+    try {
+      if (Build.VERSION.SDK_INT >= 34) {
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_REMOTE_MESSAGING)
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (e: Exception) {
+      stopSelf()
+      return START_NOT_STICKY
+    }
+    handler.removeCallbacks(tick)
+    handler.post(tick)
+    return START_STICKY
+  }
+
+  override fun onDestroy() {
+    handler.removeCallbacks(tick)
+    super.onDestroy()
+  }
+}
+
 /** window.AndroidProches : la page transmet le profil et où elle en est du journal. */
 class ProchesBridge(private val context: Context) {
+  /** Notifications instantanées : marche ou arrêt du service, retenu pour les prochains lancements. */
+  @JavascriptInterface
+  fun instant(on: Boolean) {
+    ProchesWatch.prefs(context).edit().putBoolean("instant", on).apply()
+    if (on) ProchesService.start(context) else ProchesService.stop(context)
+  }
+
   @JavascriptInterface
   fun watch(base: String, code: String, secret: String, since: Double, names: String) {
     ProchesWatch.watch(context, base, code, secret, since.toLong(), names)

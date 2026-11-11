@@ -16,7 +16,7 @@ import {
   type Word,
 } from "@/lib/friendsApi";
 import { conversationKey, openWord, publicKey, sealWord } from "@/lib/e2e";
-import { notify } from "@/lib/notify";
+import { alert } from "@/lib/alerts";
 import { api } from "@/lib/api";
 import { PARCEL_MAX_BYTES, receiveParcel, sendParcel } from "@/lib/parcel";
 import type { Track } from "@/lib/types";
@@ -513,11 +513,20 @@ export const useFriendsStore = defineStore("friends", {
       this.addLine(w.de, { id: w.id, mine: false, texte, piece, at: w.at });
       if (this.chatWith !== w.de) this.unread = { ...this.unread, [w.de]: (this.unread[w.de] ?? 0) + 1 };
       this.saveWords();
-      this.signal(this.friends.find((f) => f.code === w.de)?.name ?? "Un proche", texte || (piece?.type === "playlist" ? `Playlist : ${piece.nom}` : piece ? `Morceau : ${piece.titre}` : ""), w.at);
+      const name = this.friends.find((f) => f.code === w.de)?.name ?? "Un proche";
+      const what =
+        piece?.type === "playlist"
+          ? `Playlist : ${piece.nom}`
+          : piece?.type === "morceau"
+            ? `${piece.colis ? "Vous a envoyé un son" : "Morceau"} : ${piece.titre} · ${piece.artiste}`
+            : "";
+      this.signal(name, [texte, what].filter(Boolean).join(" — "), w.at, this.chatWith === w.de);
     },
     /** Appli ouverte mais cachée : notification du système (pas pour l'historique relu). */
-    signal(title: string, body: string, at: number) {
-      if (typeof document !== "undefined" && document.hidden && Date.now() - at < 10 * 60_000) void notify(title, body);
+    /** Message ou demande reçus : bannière dans l'appli, notification si elle n'est pas sous les
+     *  yeux (pas pour l'historique relu, ni pour la discussion déjà ouverte). */
+    signal(title: string, body: string, at: number, onScreen = false) {
+      if (Date.now() - at < 10 * 60_000) alert("messages", title, body, { silentInApp: onScreen });
     },
     /** Android : messages et demandes signalés aussi appli fermée, à partir d'ici. */
     watchInBackground() {
@@ -727,6 +736,12 @@ export const useFriendsStore = defineStore("friends", {
         );
         const now = Date.now();
         for (const a of amis) {
+          const before = this.live[a.code];
+          // Un proche se met à écouter (après un premier tour, pour ne pas tout annoncer au démarrage).
+          if (before && !before.status?.playing && a.statut?.playing) {
+            const name = this.friends.find((x) => x.code === a.code)?.name ?? "Un proche";
+            alert("proches", `${name} est en ligne`, `Écoute ${a.statut.title} · ${a.statut.artist}`, { key: `en-ligne:${a.code}`, quiet: 30 * 60_000 });
+          }
           this.live[a.code] = { status: a.statut ?? null, refused: !!a.refuse, checkedAt: now };
           const f = this.friends.find((x) => x.code === a.code);
           if (f && a.carte && (f.name !== a.carte.nom || f.avatar !== a.carte.avatar || f.pubKey !== (a.carte.cle ?? null))) {
@@ -785,7 +800,16 @@ export const useFriendsStore = defineStore("friends", {
     async loadZone() {
       if (!this.base) return;
       const zone = await this.run(() => relay.zone(this.base!));
-      if (zone) this.zone = { label: zone.zone, profiles: zone.profils.filter((p) => p.code !== this.me?.code) };
+      if (zone) {
+        const known = new Set((this.zone?.profiles ?? []).map((p) => p.code));
+        const profiles = zone.profils.filter((p) => p.code !== this.me?.code);
+        if (this.zone) {
+          for (const p of profiles.filter((x) => !known.has(x.code))) {
+            alert("proches", "Quelqu'un près de chez vous", `${p.nom} utilise Music Player${zone.zone ? ` à ${zone.zone}` : ""}`, { key: `zone:${p.code}`, quiet: 6 * 3600_000 });
+          }
+        }
+        this.zone = { label: zone.zone, profiles };
+      }
     },
 
     /** Tours réguliers : boîte de réception, statut des amis, rappel de mon statut. */

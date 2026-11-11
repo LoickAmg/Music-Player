@@ -15,10 +15,12 @@ import {
   RELAY_PAUSE_MS,
   requestBytes,
 } from "@/lib/devices";
+import { alert } from "@/lib/alerts";
 import type { NearbyPeer, ShareOffer } from "@/lib/types";
 import { useLibraryStore } from "./library";
 import { isRunning, useShareStore } from "./share";
 import { useSyncStore } from "./sync";
+import { useUiStore } from "./ui";
 
 // Mes appareils (liés au même profil) : ce que chacun a et que l'autre n'a pas, et la copie
 // d'un appareil à l'autre, demandée ici ou automatique. Celui qui a les fichiers les envoie
@@ -45,12 +47,16 @@ interface Saved {
   tries: Record<string, number>;
   /** Envois par le relais aujourd'hui (offre gratuite) : jour, octets, fin du dernier lot. */
   relay: { day: string; bytes: number; lastEnd: number };
+  /** « Plus tard » : liste d'un appareil (sa date) dont les nouveaux sons ne sont plus signalés. */
+  dismissed: Record<string, number>;
+  /** Sons déjà reçus de chaque appareil : jamais redemandés par la copie automatique. */
+  copied: Record<string, string[]>;
 }
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 function load(): Saved {
-  const empty: Saved = { hash: "", at: 0, copies: [], autoFrom: [], tries: {}, relay: { day: today(), bytes: 0, lastEnd: 0 } };
+  const empty: Saved = { hash: "", at: 0, copies: [], autoFrom: [], tries: {}, relay: { day: today(), bytes: 0, lastEnd: 0 }, dismissed: {}, copied: {} };
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? { ...empty, ...(JSON.parse(raw) as Partial<Saved>) } : empty;
@@ -75,6 +81,8 @@ export const useDevicesStore = defineStore("devices", {
     /** Voisins du Wi-Fi, relus au plus toutes les 30 s. */
     peers: [] as NearbyPeer[],
     peersAt: 0,
+    /** Dernière liste signalée (appareil:date), pour ne notifier qu'une fois. */
+    signalled: "",
   }),
   getters: {
     others(state): DeviceInventory[] {
@@ -83,6 +91,20 @@ export const useDevicesStore = defineStore("devices", {
     mine(state): DeviceInventory | null {
       return state.devices.find((d) => d.id === state.myId) ?? null;
     },
+    /** Un autre appareil a des sons absents d'ici, pas encore vus ni demandés : à proposer. */
+    notice(): { device: DeviceInventory; count: number } | null {
+      for (const d of this.others) {
+        if (this.dismissed[d.id] === d.at || this.autoFrom.includes(d.id)) continue;
+        if (this.copies.some((c) => c.from === this.myId && c.to === d.id && (c.state === "attente" || c.state === "envoi"))) continue;
+        const count = this.mine ? missingFrom(d.tracks, this.mine.tracks).length : 0;
+        if (count) return { device: d, count };
+      }
+      return null;
+    },
+    /** Envois en cours d'ici vers un autre de mes appareils (à sa demande). */
+    sending(state): CopyRequest[] {
+      return state.copies.filter((c) => c.to === state.myId && (c.state === "attente" || c.state === "envoi"));
+    },
     /** Demandes encore ouvertes qui concernent cet appareil. */
     active(state): CopyRequest[] {
       return state.copies.filter((c) => (c.from === state.myId || c.to === state.myId) && (c.state === "attente" || c.state === "envoi"));
@@ -90,7 +112,16 @@ export const useDevicesStore = defineStore("devices", {
   },
   actions: {
     save() {
-      const saved: Saved = { hash: this.hash, at: this.at, copies: this.copies, autoFrom: this.autoFrom, tries: this.tries, relay: this.relay };
+      const saved: Saved = {
+        hash: this.hash,
+        at: this.at,
+        copies: this.copies,
+        autoFrom: this.autoFrom,
+        tries: this.tries,
+        relay: this.relay,
+        dismissed: this.dismissed,
+        copied: this.copied,
+      };
       try {
         localStorage.setItem(KEY, JSON.stringify(saved));
       } catch {
@@ -124,12 +155,49 @@ export const useDevicesStore = defineStore("devices", {
     },
     /** État fusionné reçu de la synchronisation. */
     onSynced(devices: DeviceInventory[], copies: CopyRequest[]) {
+      const before = new Set(this.copies.filter((c) => c.to === this.myId).map((c) => c.id));
+      const stoppedBefore = new Set(this.copies.filter((c) => c.cancelled).map((c) => c.id));
       this.devices = devices;
       this.copies = mergeCopies(this.copies, copies);
+      // Copie arrêtée sur l'autre appareil : la copie automatique depuis lui s'arrête aussi.
+      for (const c of this.copies) {
+        if (c.from === this.myId && c.cancelled && !stoppedBefore.has(c.id) && this.autoFrom.includes(c.to)) {
+          this.autoFrom = this.autoFrom.filter((d) => d !== c.to);
+          useUiStore().notify(`Copie automatique depuis ${this.nameOf(c.to)} arrêtée.`);
+        }
+      }
+      // Nouvelle demande d'un autre de mes appareils : on le dit avant d'envoyer.
+      const fresh = this.copies.filter((c) => c.to === this.myId && c.state === "attente" && !before.has(c.id));
+      if (fresh.length) {
+        const n = fresh.reduce((s, c) => s + c.tracks.length, 0);
+        const text = `${n} son${n > 1 ? "s" : ""} demandé${n > 1 ? "s" : ""} par ${this.nameOf(fresh[0].from)} : envoi dès que possible (Mes appareils pour l'arrêter).`;
+        alert("appareils", "Copie entre vos appareils", text);
+      }
       this.save();
       this.planAuto();
+      this.signalNew();
       void this.act();
       this.pace();
+    },
+    nameOf(deviceId: string): string {
+      return this.devices.find((d) => d.id === deviceId)?.name ?? "votre autre appareil";
+    },
+    /** Sons d'un autre appareil absents d'ici, pas encore signalés : une notification (une fois
+     *  par changement de sa liste). Rien n'est copié sans qu'on le demande. */
+    signalNew() {
+      const n = this.notice;
+      if (!n || this.signalled === `${n.device.id}:${n.device.at}`) return;
+      this.signalled = `${n.device.id}:${n.device.at}`;
+      // Dans l'appli, le bandeau le dit déjà ; ailleurs, une notification.
+      alert("appareils", "Mes appareils", `${n.device.name} a ${n.count} son${n.count > 1 ? "s" : ""} absent${n.count > 1 ? "s" : ""} d'ici. Ouvrez Mes appareils pour choisir.`, {
+        silentInApp: true,
+      });
+    },
+    /** « Plus tard » : on ne reparle de cet appareil qu'à son prochain changement de liste. */
+    dismiss(deviceId: string) {
+      const d = this.devices.find((x) => x.id === deviceId);
+      if (d) this.dismissed = { ...this.dismissed, [deviceId]: d.at };
+      this.save();
     },
 
     /** Morceaux d'un autre appareil qui manquent ici. */
@@ -163,13 +231,38 @@ export const useDevicesStore = defineStore("devices", {
       await this.publish();
     },
     /** Annule les demandes encore en attente vers cet appareil. */
+    /** Arrête tout ce qui vient de cet appareil (demandé ici) : lots en attente et en cours ; la
+     *  copie automatique depuis lui s'arrête aussi. */
     async cancel(deviceId: string) {
-      const now = Date.now();
-      this.copies = this.copies.map((c) =>
-        c.from === this.myId && c.to === deviceId && c.state === "attente" ? { ...c, state: "echec", message: "Annulée", updated: now } : c,
-      );
+      await this.stopPair(this.myId, deviceId);
+      if (this.autoFrom.includes(deviceId)) {
+        this.autoFrom = this.autoFrom.filter((d) => d !== deviceId);
+        useUiStore().notify(`Copie automatique depuis ${this.nameOf(deviceId)} arrêtée.`);
+      }
       this.save();
       await this.publish();
+    },
+    /** Arrête les envois d'ici vers cet appareil (côté expéditeur). */
+    async stopSending(deviceId: string) {
+      await this.stopPair(deviceId, this.myId);
+      await this.publish();
+    },
+    async stopPair(from: string, to: string) {
+      const now = Date.now();
+      const share = useShareStore();
+      for (const c of this.copies) {
+        if (c.from !== from || c.to !== to || (c.state !== "attente" && c.state !== "envoi")) continue;
+        const tid = this.working[c.id];
+        if (tid) await share.cancel(tid);
+        delete this.working[c.id];
+        delete this.relaying[c.id];
+      }
+      this.copies = this.copies.map((c) =>
+        c.from === from && c.to === to && (c.state === "attente" || c.state === "envoi")
+          ? { ...c, state: "echec", cancelled: true, message: "Arrêtée", code: null, updated: now }
+          : c,
+      );
+      this.save();
     },
     /** Publie tout de suite ; si une synchronisation tourne déjà, au tour suivant. */
     async publish() {
@@ -177,6 +270,7 @@ export const useDevicesStore = defineStore("devices", {
       sync.localChange();
       await sync.run();
     },
+    /** Copie automatique : seulement quand la personne l'active elle-même (Mes appareils). */
     setAuto(deviceId: string, on: boolean) {
       this.autoFrom = on ? [...new Set([...this.autoFrom, deviceId])] : this.autoFrom.filter((d) => d !== deviceId);
       this.save();
@@ -190,7 +284,10 @@ export const useDevicesStore = defineStore("devices", {
       for (const id of this.autoFrom) {
         if (!this.devices.some((d) => d.id === id)) continue;
         if (this.copies.some((c) => c.from === this.myId && c.to === id && (c.state === "attente" || c.state === "envoi"))) continue;
-        const missing = this.missingHere(id).slice(0, AUTO_AT_ONCE);
+        const done = new Set(this.copied[id] ?? []);
+        const missing = this.missingHere(id)
+          .filter((t) => !done.has(`${t.a.trim().toLowerCase()}\u0000${t.t.trim().toLowerCase()}`))
+          .slice(0, AUTO_AT_ONCE);
         if (!missing.length) continue;
         this.copies = [...this.copies, ...newRequests(this.myId, id, missing, true)];
         useSyncStore().localChange();
@@ -258,7 +355,16 @@ export const useDevicesStore = defineStore("devices", {
     settle(c: CopyRequest, stage: string, message: string | null) {
       if (stage === "fini") {
         delete this.tries[c.id];
+        if (c.from === this.myId) {
+          const keys = c.tracks.map((t) => `${t.a.trim().toLowerCase()}\u0000${t.t.trim().toLowerCase()}`);
+          this.copied = { ...this.copied, [c.to]: [...new Set([...(this.copied[c.to] ?? []), ...keys])].slice(-5000) };
+        }
         this.mark(c.id, { state: "fini", message: null });
+        return;
+      }
+      // Arrêtée ou refusée par la personne (d'un côté ou de l'autre) : jamais relancée.
+      if (stage === "refuse" || /annul|refus|arr[êe]t/i.test(message ?? "")) {
+        void this.stopPair(c.from, c.to).then(() => useSyncStore().localChange());
         return;
       }
       if (c.to === this.myId) {

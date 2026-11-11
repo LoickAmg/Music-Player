@@ -148,6 +148,50 @@ describe("Mes appareils", () => {
     expect(engine.sent.size).toBe(2);
   });
 
+  it("une copie coupée ne repart jamais, et la copie automatique s'arrête avec elle", async () => {
+    const phone = await device("tel", "Téléphone", [track("t1", "Morose")]);
+    const pc = await device("pc", "Ordinateur", [track("p1", "Silence")]);
+    await on(pc, "pc").sync.run();
+    const t = on(phone, "tel");
+    await t.sync.run();
+    // Copie demandée à la main (par le relais), copie automatique activée aussi.
+    await t.devices.request("pc", t.devices.missingHere("pc"));
+    t.devices.autoFrom = ["pc"];
+    await vi.waitFor(() => expect(t.sync.running).toBe(false));
+    await t.sync.run();
+
+    // Le PC envoie (par le relais), puis la personne coupe le transfert sur le PC.
+    const p = on(pc, "pc");
+    await p.sync.run();
+    await vi.waitFor(() => expect(engine.sent.size).toBe(1));
+    const sending = p.devices.copies.find((c) => c.to === "pc")!;
+    p.share.finish(p.devices.working[sending.id], "erreur", "Partage annulé.");
+    await p.devices.act();
+    await vi.waitFor(() => expect(p.devices.copies.find((c) => c.id === sending.id)!.cancelled).toBe(true));
+    await vi.waitFor(() => expect(p.sync.running).toBe(false));
+    await p.sync.run();
+    await p.devices.act();
+    expect(engine.sent.size).toBe(1); // pas de nouvel essai
+
+    // Le téléphone apprend l'arrêt : plus de copie automatique, aucune nouvelle demande.
+    const t2 = on(phone, "tel");
+    await t2.sync.run();
+    expect(t2.devices.autoFrom).toEqual([]);
+    expect(t2.devices.active).toHaveLength(0);
+  });
+
+  it("signale les sons absents d'ici sans rien copier, jusqu'à « Plus tard »", async () => {
+    const phone = await device("tel", "Téléphone", [track("t1", "Morose"), track("t2", "Tard")]);
+    const pc = await device("pc", "Ordinateur", [track("p1", "Silence")]);
+    await on(phone, "tel").sync.run();
+    const p = on(pc, "pc");
+    await p.sync.run();
+    expect(p.devices.notice).toMatchObject({ device: { id: "tel" }, count: 2 });
+    expect(p.devices.copies).toHaveLength(0);
+    p.devices.dismiss("tel");
+    expect(p.devices.notice).toBeNull();
+  });
+
   it("la copie automatique attend le même Wi-Fi", async () => {
     const phone = await device("tel", "Téléphone", [track("t1", "Morose")]);
     const pc = await device("pc", "Ordinateur", [track("p1", "Silence")]);

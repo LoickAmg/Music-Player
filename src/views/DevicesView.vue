@@ -103,6 +103,27 @@ function reason(d: DeviceInventory): string | null {
 function split(d: DeviceInventory): number {
   return Math.max(0, ...running(d).map((c) => c.parts ?? 1));
 }
+/** Envois d'ici vers `d`, à sa demande. */
+function outgoing(d: DeviceInventory): CopyRequest[] {
+  return devices.copies.filter((c) => c.to === devices.myId && c.from === d.id && (c.state === "attente" || c.state === "envoi"));
+}
+/** Copie automatique : activée seulement après confirmation. */
+const confirmAuto = ref<string | null>(null);
+function onAuto(d: DeviceInventory, e: Event) {
+  const box = e.target as HTMLInputElement;
+  if (box.checked) {
+    box.checked = false;
+    confirmAuto.value = d.id;
+  } else {
+    devices.setAuto(d.id, false);
+    ui.notify(`Copie automatique depuis ${d.name} arrêtée.`);
+  }
+}
+function enableAuto(d: DeviceInventory) {
+  confirmAuto.value = null;
+  devices.setAuto(d.id, true);
+  ui.notify(`Copie automatique depuis ${d.name} activée (même Wi-Fi seulement).`);
+}
 /** Dernières copies terminées depuis `d`. */
 function history(d: DeviceInventory): CopyRequest[] {
   return devices.copies
@@ -186,11 +207,33 @@ function history(d: DeviceInventory): CopyRequest[] {
           </li>
         </ul>
 
-        <label class="toggle auto">
-          <input type="checkbox" :checked="devices.autoFrom.includes(d.id)" @change="devices.setAuto(d.id, ($event.target as HTMLInputElement).checked)" />
+        <div v-if="outgoing(d).length" class="progress outgoing" role="status">
+          <div class="progress-text">
+            <Icon name="share" :size="15" />
+            <span>
+              Envoi de {{ tracksWord(outgoing(d).reduce((s, c) => s + c.tracks.length, 0)) }} vers {{ d.name }}
+              <small class="reason">Demandé depuis {{ d.name }}. {{ outgoing(d).find((c) => c.message)?.message ?? "" }}</small>
+            </span>
+            <button type="button" class="link danger" @click="devices.stopSending(d.id)">Arrêter</button>
+          </div>
+        </div>
+
+        <div v-if="confirmAuto === d.id" class="confirm" role="alertdialog" :aria-label="`Activer la copie automatique depuis ${d.name}`">
+          <p>
+            <strong>Copier tout seul les nouveaux sons de {{ d.name }} ?</strong>
+            Dès que les deux appareils seront sur le même Wi-Fi, appli ouverte, ses sons absents d'ici arriveront sans rien demander
+            ({{ tracksWord(devices.missingHere(d.id).length) }} aujourd'hui). Vous pourrez l'arrêter à tout moment.
+          </p>
+          <div class="confirm-actions">
+            <button type="button" class="pill pill-accent small" @click="enableAuto(d)">Activer</button>
+            <button type="button" class="pill pill-ghost small" @click="confirmAuto = null">Non merci</button>
+          </div>
+        </div>
+        <label v-else class="toggle auto">
+          <input type="checkbox" :checked="devices.autoFrom.includes(d.id)" @change="onAuto(d, $event)" />
           <span>
-            <strong>Copie automatique depuis {{ d.name }}</strong>
-            <small class="muted">Ses nouveaux morceaux arrivent ici seuls, quand les deux appareils sont sur le même Wi-Fi, appli ouverte.</small>
+            <strong>Copie automatique depuis {{ d.name }}{{ devices.autoFrom.includes(d.id) ? " · activée" : "" }}</strong>
+            <small class="muted">Désactivée par défaut. Activée, ses nouveaux sons arrivent ici seuls (même Wi-Fi, appli ouverte) ; arrêter une copie la désactive.</small>
           </span>
         </label>
 
@@ -227,6 +270,26 @@ function history(d: DeviceInventory): CopyRequest[] {
   margin: -6px 0 18px;
   max-width: 68ch;
   line-height: 1.5;
+}
+.confirm {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.confirm p {
+  margin: 0;
+}
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+.link.danger {
+  color: #ff8a8a;
 }
 .small-note {
   display: flex;

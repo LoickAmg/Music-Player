@@ -15,6 +15,7 @@ import { autoReason, lite, perfSetting, resetDetection, setPerfSetting, type Per
 import DamagedFiles from "@/components/DamagedFiles.vue";
 import BackupSection from "@/components/BackupSection.vue";
 import DevicesSection from "@/components/DevicesSection.vue";
+import NotificationsSection from "@/components/NotificationsSection.vue";
 import AdminAccess from "@/components/AdminAccess.vue";
 import Icon from "@/components/Icon.vue";
 import LegalDialog from "@/components/LegalDialog.vue";
@@ -226,6 +227,7 @@ const shortcuts = [
 
     <DamagedFiles />
     <DevicesSection />
+    <NotificationsSection />
     <BackupSection />
 
     <section class="section-card">
