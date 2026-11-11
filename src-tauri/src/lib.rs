@@ -132,6 +132,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::pick_library_folder,
             commands::scan_library,
+            commands::spotdl_download_missing,
             commands::get_library,
             commands::open_audio_file,
             commands::get_cover,

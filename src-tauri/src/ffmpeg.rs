@@ -76,7 +76,7 @@ pub fn ffmpeg_available() -> bool {
     find_tool("ffmpeg").is_some()
 }
 
-fn quiet(command: &mut Command) -> &mut Command {
+pub(crate) fn quiet(command: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;

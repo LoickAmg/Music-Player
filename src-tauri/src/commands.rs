@@ -124,6 +124,139 @@ pub fn scan_library(app: AppHandle, root: String) -> Result<Vec<Track>, String> 
     run_scan(&app, &root)
 }
 
+#[derive(Debug, Serialize)]
+pub struct SpotdlItemResult {
+    pub title: String,
+    pub artist: String,
+    pub status: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SpotdlReport {
+    pub items: Vec<SpotdlItemResult>,
+    pub imported: usize,
+    pub library: Vec<Track>,
+}
+
+/// Télécharge les morceaux absents un par un pour donner une raison précise par échec.
+/// Le processus externe reçoit chaque recherche comme argument séparé (pas de shell).
+/// Fonction synchrone lancée hors du fil principal (`async`) : les téléchargements bloquent
+/// longtemps, ils ne doivent pas occuper l'exécuteur asynchrone de l'appli.
+#[tauri::command(async)]
+pub fn spotdl_download_missing(
+    app: AppHandle,
+    queries: Vec<SpotdlQuery>,
+) -> Result<SpotdlReport, String> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = (app, queries);
+        return Err("Le téléchargement spotDL intégré est disponible uniquement dans la version PC.".into());
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use std::process::{Command, Stdio};
+
+        if queries.is_empty() {
+            return Err("Aucun morceau manquant à télécharger.".into());
+        }
+        if queries.len() > 500 {
+            return Err("La sélection dépasse 500 morceaux. Lancez plusieurs imports.".into());
+        }
+        let state = app.state::<AppState>();
+        let root = state
+            .library_root
+            .locked()
+            .clone()
+            .ok_or("Choisissez d’abord le dossier de votre bibliothèque.")?;
+        let output = Path::new(&root).join("{artists} - {title}.{output-ext}");
+        // Sans fenêtre de console sous Windows (une par morceau sinon).
+        let probe = |program: &str, args: &[&str]| {
+            let mut command = Command::new(program);
+            crate::ffmpeg::quiet(&mut command).args(args).output().is_ok_and(|o| o.status.success())
+        };
+        let executable = if probe("spotdl", &["--version"]) {
+            "spotdl"
+        } else if cfg!(windows) && probe("py", &["-m", "spotdl", "--version"]) {
+            "py"
+        } else if probe("python", &["-m", "spotdl", "--version"]) {
+            "python"
+        } else {
+            return Err("spotDL introuvable. Installez Python puis `pip install -U spotdl`, ou configurez l’exécutable spotdl dans le PATH. Redémarrez Music Player après l’installation.".into());
+        };
+
+        let mut items = Vec::with_capacity(queries.len());
+        for q in queries {
+            let title = q.title.trim();
+            let artist = q.artist.trim();
+            if title.is_empty() {
+                continue;
+            }
+            let query = if artist.is_empty() { title.to_owned() } else { format!("{artist} - {title}") };
+            let mut cmd = Command::new(executable);
+            crate::ffmpeg::quiet(&mut cmd);
+            if executable != "spotdl" {
+                cmd.arg("-m").arg("spotdl");
+            }
+            let result = cmd
+                .arg("download")
+                .arg(query)
+                .arg("--format").arg("mp3")
+                .arg("--output").arg(&output)
+                .arg("--overwrite").arg("skip")
+                .arg("--max-retries").arg("3")
+                .arg("--log-level").arg("INFO")
+                .arg("--print-errors")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output();
+            let (status, detail) = match result {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+                    "outil_absent",
+                    format!("Exécutable introuvable ({executable}). Vérifiez Python/spotDL et le PATH. {e}"),
+                ),
+                Err(e) => ("erreur_lancement", format!("Impossible de démarrer spotDL : {e}")),
+                Ok(out) if out.status.success() => (
+                    "telecharge",
+                    String::from_utf8_lossy(&out.stdout).chars().rev().take(12000).collect::<String>().chars().rev().collect(),
+                ),
+                Ok(out) => {
+                    let raw = format!("{}\n{}", String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout));
+                    let lower = raw.to_lowercase();
+                    let kind = if lower.contains("ffmpeg") {
+                        "ffmpeg"
+                    } else if lower.contains("deno") || lower.contains("javascript runtime") {
+                        "deno"
+                    } else if lower.contains("timed out") || lower.contains("timeout") || lower.contains("connection") || lower.contains("network") || lower.contains("429") {
+                        "reseau"
+                    } else if lower.contains("no results") || lower.contains("no song") || lower.contains("not found") || lower.contains("no match") {
+                        "introuvable"
+                    } else {
+                        "echec_spotdl"
+                    };
+                    let detail = raw.chars().rev().take(12000).collect::<String>().chars().rev().collect();
+                    (kind, detail)
+                }
+            };
+            items.push(SpotdlItemResult { title: title.to_owned(), artist: artist.to_owned(), status: status.to_owned(), detail });
+        }
+        let successful = items.iter().any(|i| i.status == "telecharge");
+        // Scan déjà en cours (ou échoué) : les téléchargements restent valables, la bibliothèque
+        // actuelle est renvoyée et le prochain scan trouvera les nouveaux fichiers.
+        let library = if successful { run_scan(&app, &root).unwrap_or_else(|_| state.library.locked().clone()) } else { state.library.locked().clone() };
+        let imported = library.iter().filter(|track| {
+            items.iter().any(|i| i.status == "telecharge" && track.title.eq_ignore_ascii_case(&i.title))
+        }).count();
+        Ok(SpotdlReport { items, imported, library })
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SpotdlQuery {
+    title: String,
+    artist: String,
+}
+
 /// Ouvre un fichier audio donné par le système (« Ouvrir avec Music Player ») : lu tout de
 /// suite, et ajouté à la bibliothèque s'il n'y était pas encore. Les archives de partage
 /// (`.mpshare`) passent par `import_share_bundle` à la place (voir `App.vue::openFile`,

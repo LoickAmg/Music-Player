@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { SpotdlQuery } from "./spotifyImport";
 import type {
   AlignModelStatus,
   DuplicateOutcome,
@@ -38,6 +39,8 @@ function toBase64(bytes: Uint8Array): Promise<string> {
 }
 
 export const api = {
+  spotdlDownloadMissing: (queries: SpotdlQuery[]) =>
+    invoke<{ items: { title: string; artist: string; status: string; detail: string }[]; imported: number; library: Track[] }>("spotdl_download_missing", { queries }),
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
   scanLibrary: (root: string) => invoke<Track[]>("scan_library", { root }),
   getLibrary: () => invoke<Track[]>("get_library"),
