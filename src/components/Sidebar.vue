@@ -53,6 +53,8 @@ function newPlaylist() {
         placeholder="Rechercher"
         aria-label="Rechercher dans la bibliothèque"
         @input="ui.setSearch(($event.target as HTMLInputElement).value)"
+        @click="ui.reopenSearch()"
+        @keydown.enter="ui.reopenSearch()"
         @keydown.esc="ui.setSearch(''); ($event.target as HTMLInputElement).blur()"
       />
     </label>

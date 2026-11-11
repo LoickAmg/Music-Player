@@ -73,7 +73,7 @@ const ui = useUiStore();
 // playlist (sinon ouvrir un autre album ne jouerait pas la transition).
 const pageKey = computed(() => {
   const r = ui.route;
-  return r.name === "album" ? `album:${r.key}` : r.name === "playlist" ? `playlist:${r.id}` : r.name;
+  return r.name === "album" ? `album:${r.key}` : r.name === "playlist" ? `playlist:${r.id}` : r.name === "artists" ? `artists:${r.artist ?? ""}` : r.name;
 });
 const lyrics = useLyricsStore();
 const ambience = useAmbienceStore();
@@ -417,7 +417,7 @@ onBeforeUnmount(() => {
         <div
           ref="scroller"
           class="content"
-          :class="{ flush: ui.route.name === 'artists' && !ui.isMobile, home: !library.root || ui.route.name === 'recent', ambient: !!player.currentTrack }"
+          :class="{ home: !library.root || ui.route.name === 'recent', ambient: !!player.currentTrack }"
         >
           <MobileTop v-if="ui.isMobile" />
           <div v-if="!library.root" class="welcome">
@@ -457,7 +457,7 @@ onBeforeUnmount(() => {
               <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
             </div>
           </Transition>
-          <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && ui.route.name !== 'artists'" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
+          <button v-if="!ui.isMobile && ui.canGoBack && ui.route.name !== 'recent' && !(ui.route.name === 'artists' && ui.route.artist)" type="button" class="back icon-btn" aria-label="Retour" @click="ui.back()">
             <Icon name="back" :size="18" />
           </button>
         </div>

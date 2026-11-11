@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BATCH_TRACKS, type CopyRequest, inventoryHash, inventoryOf, localIds, mergeCopies, mergeDevices, missingFrom, newRequests } from "./devices";
+import { BATCH_TRACKS, batches, type CopyRequest, inventoryHash, inventoryOf, localIds, mergeCopies, mergeDevices, missingFrom, newRequests, RELAY_CYCLE_BYTES, requestBytes } from "./devices";
 import type { Track } from "./types";
 
 function track(id: string, title: string, artist = "Damso", extra: Partial<Track> = {}): Track {
@@ -29,12 +29,22 @@ describe("morceaux manquants", () => {
 });
 
 describe("demandes de copie", () => {
-  it("découpe une grosse demande en lots, chacun avec son jeton", () => {
-    const many = Array.from({ length: BATCH_TRACKS * 2 + 3 }, (_, i) => inv(`Titre ${i}`));
+  it("découpe une grosse demande en lots numérotés (40 morceaux au plus), chacun avec son jeton", () => {
+    const many = Array.from({ length: BATCH_TRACKS * 2 + 3 }, (_, i) => ({ ...inv(`Titre ${i}`), d: 30 }));
     const reqs = newRequests("pc", "tel", many);
     expect(reqs.map((r) => r.tracks.length)).toEqual([BATCH_TRACKS, BATCH_TRACKS, 3]);
+    expect(reqs.map((r) => `${r.part}/${r.parts}`)).toEqual(["1/3", "2/3", "3/3"]);
     expect(new Set(reqs.map((r) => r.token)).size).toBe(3);
     expect(reqs.every((r) => r.state === "attente" && r.from === "pc" && r.to === "tel")).toBe(true);
+  });
+
+  it("garde chaque lot sous 150 Mo pour l'offre gratuite du relais (playlist de 100 sons)", () => {
+    const playlist = Array.from({ length: 100 }, (_, i) => inv(`Titre ${i}`)); // 3 min 20 chacun
+    const reqs = newRequests("pc", "tel", playlist);
+    expect(reqs.reduce((s, r) => s + r.tracks.length, 0)).toBe(100);
+    expect(reqs.every((r) => requestBytes(r) <= RELAY_CYCLE_BYTES)).toBe(true);
+    expect(reqs.length).toBe(6);
+    expect(batches([{ ...inv("Très long mix"), d: 3 * 3600 }])).toHaveLength(1);
   });
 
   it("garde l'état le plus avancé d'une demande vue des deux côtés", () => {

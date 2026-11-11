@@ -157,9 +157,12 @@ h1 {
   grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
   gap: 18px;
 }
+/* Grille à une colonne bornée : la pochette tient dans sa case (en colonne flex, un bouton la
+   laissait déborder à la largeur du titre, d'où des jaquettes rognées qui se chevauchaient). */
 .mini {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   gap: 6px;
   padding: 0;
   border: 0;
@@ -167,6 +170,9 @@ h1 {
   text-align: left;
   font-size: 12.5px;
   min-width: 0;
+}
+.mini :deep(.art) {
+  width: 100%;
 }
 .mini span {
   white-space: nowrap;

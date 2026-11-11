@@ -162,6 +162,12 @@ export const useUiStore = defineStore("ui", {
         this.back();
       }
     },
+    /** Champ de recherche touché (clic, Entrée) alors qu'il garde une recherche et qu'on est
+     *  ailleurs : les résultats reviennent, sans avoir à retaper une lettre. */
+    reopenSearch() {
+      const query = this.search.trim();
+      if (query && this.route.name !== "search") this.go({ name: "search", query: this.search });
+    },
     notify(message: string) {
       this.toast = message;
       setTimeout(() => {

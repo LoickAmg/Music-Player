@@ -36,6 +36,7 @@ function play() {
 }
 .cover {
   position: relative;
+  width: 100%;
   padding: 0;
   border: 0;
   background: none;

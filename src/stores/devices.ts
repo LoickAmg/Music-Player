@@ -11,6 +11,9 @@ import {
   mergeCopies,
   missingFrom,
   newRequests,
+  RELAY_DAY_BYTES,
+  RELAY_PAUSE_MS,
+  requestBytes,
 } from "@/lib/devices";
 import type { NearbyPeer, ShareOffer } from "@/lib/types";
 import { useLibraryStore } from "./library";
@@ -40,10 +43,14 @@ interface Saved {
   autoFrom: string[];
   /** Essais d'envoi par le relais restés sans réponse, par demande. */
   tries: Record<string, number>;
+  /** Envois par le relais aujourd'hui (offre gratuite) : jour, octets, fin du dernier lot. */
+  relay: { day: string; bytes: number; lastEnd: number };
 }
 
+const today = () => new Date().toISOString().slice(0, 10);
+
 function load(): Saved {
-  const empty: Saved = { hash: "", at: 0, copies: [], autoFrom: [], tries: {} };
+  const empty: Saved = { hash: "", at: 0, copies: [], autoFrom: [], tries: {}, relay: { day: today(), bytes: 0, lastEnd: 0 } };
   try {
     const raw = localStorage.getItem(KEY);
     return raw ? { ...empty, ...(JSON.parse(raw) as Partial<Saved>) } : empty;
@@ -63,6 +70,8 @@ export const useDevicesStore = defineStore("devices", {
     acting: false,
     /** Demande en cours ici → transfert suivi (envoi ou réception). */
     working: {} as Record<string, string>,
+    /** Demandes envoyées en ce moment par le relais (un lot à la fois). */
+    relaying: {} as Record<string, true>,
     /** Voisins du Wi-Fi, relus au plus toutes les 30 s. */
     peers: [] as NearbyPeer[],
     peersAt: 0,
@@ -81,7 +90,7 @@ export const useDevicesStore = defineStore("devices", {
   },
   actions: {
     save() {
-      const saved: Saved = { hash: this.hash, at: this.at, copies: this.copies, autoFrom: this.autoFrom, tries: this.tries };
+      const saved: Saved = { hash: this.hash, at: this.at, copies: this.copies, autoFrom: this.autoFrom, tries: this.tries, relay: this.relay };
       try {
         localStorage.setItem(KEY, JSON.stringify(saved));
       } catch {
@@ -204,6 +213,19 @@ export const useDevicesStore = defineStore("devices", {
     },
 
     /** Ce que cet appareil doit faire pour les demandes en cours : envoyer, recevoir, constater. */
+    /**
+     * Le relais peut-il prendre un lot maintenant ? Un lot à la fois, une pause entre deux lots,
+     * 2 Go par jour : l'offre gratuite du relais suffit ainsi, même pour une grosse copie.
+     * Renvoie la raison de l'attente, montrée sur les deux appareils, ou null.
+     */
+    relayWait(): string | null {
+      if (this.relay.day !== today()) this.relay = { day: today(), bytes: 0, lastEnd: this.relay.lastEnd };
+      if (Object.keys(this.relaying).length) return "Lot suivant dès la fin de celui en cours.";
+      if (this.relay.bytes >= RELAY_DAY_BYTES) return "Limite du jour par le relais atteinte (2 Go) : la suite reprend demain, ou tout de suite sur le même Wi-Fi.";
+      const pause = this.relay.lastEnd + RELAY_PAUSE_MS - Date.now();
+      if (pause > 0) return `Courte pause entre deux lots (${Math.ceil(pause / 1000)} s).`;
+      return null;
+    },
     async act() {
       if (this.acting || !this.myId) return;
       this.acting = true;
@@ -215,6 +237,12 @@ export const useDevicesStore = defineStore("devices", {
           if (t && isRunning(t)) continue;
           if (tid) {
             delete this.working[c.id];
+            if (this.relaying[c.id]) {
+              delete this.relaying[c.id];
+              this.relay.lastEnd = Date.now();
+              if (t?.progress.stage === "fini") this.relay.bytes += requestBytes(c);
+              this.save();
+            }
             this.settle(c, t?.progress.stage ?? "erreur", t?.progress.message ?? null);
             continue;
           }
@@ -263,15 +291,23 @@ export const useDevicesStore = defineStore("devices", {
       }
       // Copie automatique : seulement sur le même Wi-Fi.
       if (c.auto) return;
+      const wait = this.relayWait();
+      if (wait) {
+        if (c.message !== wait) this.mark(c.id, { message: wait });
+        return;
+      }
+      this.relaying[c.id] = true;
       const started = await share.sendRemoteItemTracked(item, label);
       if (!started) {
+        delete this.relaying[c.id];
+        this.relay.lastEnd = Date.now();
         this.settle(c, "erreur", "Envoi impossible pour l'instant.");
         return;
       }
       this.working[c.id] = started.id;
       const sent = share.byId(started.id);
       if (sent) sent.meta = { who: this.devices.find((d) => d.id === c.from)?.name, via: "appareils" };
-      this.mark(c.id, { state: "envoi", code: started.code });
+      this.mark(c.id, { state: "envoi", code: started.code, message: null });
     },
     async receive(c: CopyRequest) {
       const share = useShareStore();

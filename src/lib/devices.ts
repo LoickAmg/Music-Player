@@ -45,12 +45,23 @@ export interface CopyRequest {
   message?: string | null;
   /** Dernier changement d'état (ms). */
   updated: number;
+  /** Lot `part` sur `parts` d'une même demande (copie découpée pour le relais). */
+  part?: number;
+  parts?: number;
 }
 
 /** Morceaux par demande : l'archive est préparée d'un bloc dans le cache de l'appareil. */
 export const BATCH_TRACKS = 40;
-/** Par le relais, une demande ne dépasse pas cette taille (au-delà : même Wi-Fi). */
-export const RELAY_MAX_BYTES = 400 * 1024 * 1024;
+/**
+ * Offre gratuite du relais (Cloudflare) : par le relais, la copie part par lots d'environ
+ * 150 Mo, un lot à la fois, avec une pause entre deux lots, et 2 Go par jour au plus (la suite
+ * reprend le lendemain). Sur le même Wi-Fi, aucune de ces limites.
+ */
+export const RELAY_CYCLE_BYTES = 150 * 1024 * 1024;
+export const RELAY_DAY_BYTES = 2 * 1024 * 1024 * 1024;
+export const RELAY_PAUSE_MS = 30_000;
+/** Débit retenu pour estimer la taille d'un morceau dont on ne connaît que la durée (320 kb/s). */
+const BYTES_PER_SECOND = 40_000;
 
 const RANK: Record<CopyState, number> = { attente: 0, envoi: 1, fini: 2, echec: 2 };
 const DAY = 24 * 3600 * 1000;
@@ -134,25 +145,53 @@ function randomHex(bytes: number): string {
   return [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Demandes de copie pour ces morceaux, par lots. */
-export function newRequests(from: string, to: string, tracks: InvTrack[], auto = false, now = Date.now()): CopyRequest[] {
-  const out: CopyRequest[] = [];
-  for (let i = 0; i < tracks.length; i += BATCH_TRACKS) {
-    out.push({
-      id: randomHex(8),
-      token: `copie-${randomHex(12)}`,
-      from,
-      to,
-      tracks: tracks.slice(i, i + BATCH_TRACKS),
-      at: now,
-      updated: now,
-      state: "attente",
-      auto,
-      code: null,
-      message: null,
-    });
+/** Taille estimée d'un morceau (octets) : la vraie si on la connaît, sinon d'après sa durée. */
+export function estimateBytes(t: InvTrack): number {
+  return t.s ?? Math.max(1, t.d) * BYTES_PER_SECOND;
+}
+
+/** Découpe en lots : 40 morceaux et environ 150 Mo au plus chacun. */
+export function batches(tracks: InvTrack[]): InvTrack[][] {
+  const out: InvTrack[][] = [];
+  let current: InvTrack[] = [];
+  let bytes = 0;
+  for (const t of tracks) {
+    const size = estimateBytes(t);
+    if (current.length && (current.length >= BATCH_TRACKS || bytes + size > RELAY_CYCLE_BYTES)) {
+      out.push(current);
+      current = [];
+      bytes = 0;
+    }
+    current.push(t);
+    bytes += size;
   }
+  if (current.length) out.push(current);
   return out;
+}
+
+/** Demandes de copie pour ces morceaux, par lots numérotés. */
+export function newRequests(from: string, to: string, tracks: InvTrack[], auto = false, now = Date.now()): CopyRequest[] {
+  const parts = batches(tracks);
+  return parts.map((part, i) => ({
+    id: randomHex(8),
+    token: `copie-${randomHex(12)}`,
+    from,
+    to,
+    tracks: part,
+    at: now,
+    updated: now,
+    state: "attente" as const,
+    auto,
+    code: null,
+    message: null,
+    part: i + 1,
+    parts: parts.length,
+  }));
+}
+
+/** Taille estimée d'une demande (octets). */
+export function requestBytes(c: CopyRequest): number {
+  return c.tracks.reduce((s, t) => s + estimateBytes(t), 0);
 }
 
 /** Morceaux de cette bibliothèque correspondant à une demande (ceux qui y sont encore). */

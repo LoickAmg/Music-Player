@@ -87,9 +87,21 @@ function progress(d: DeviceInventory): { percent: number; label: string } | null
 function status(d: DeviceInventory): string {
   const list = running(d);
   const count = list.reduce((s, c) => s + c.tracks.length, 0);
-  if (list.some((c) => c.state === "envoi")) return `${tracksWord(count)} en route depuis ${d.name}`;
+  const moving = list.find((c) => c.state === "envoi");
+  if (moving) {
+    const lot = moving.parts && moving.parts > 1 ? ` · lot ${moving.part} sur ${moving.parts}` : "";
+    return `${tracksWord(count)} en route depuis ${d.name}${lot}`;
+  }
   if (list.every((c) => c.auto)) return `${tracksWord(count)} à copier dès que ${d.name} sera sur le même Wi-Fi, appli ouverte`;
   return `${tracksWord(count)} en attente : ouvrez Music Player sur ${d.name}`;
+}
+/** Pourquoi la copie attend (pause entre deux lots, limite du jour…), dite par l'appareil qui envoie. */
+function reason(d: DeviceInventory): string | null {
+  return running(d).find((c) => c.state === "attente" && c.message)?.message ?? null;
+}
+/** Copie découpée en lots (par le relais) : on le dit. */
+function split(d: DeviceInventory): number {
+  return Math.max(0, ...running(d).map((c) => c.parts ?? 1));
 }
 /** Dernières copies terminées depuis `d`. */
 function history(d: DeviceInventory): CopyRequest[] {
@@ -104,6 +116,10 @@ function history(d: DeviceInventory): CopyRequest[] {
   <div class="page">
     <h1 class="page-title">Mes appareils</h1>
     <p class="intro muted">Ce que vos autres appareils ont de plus que celui-ci, et la copie ici en un geste. Les morceaux copiés arrivent dans {{ receivedPlace }}, visibles aussi hors de l'appli.</p>
+    <p class="intro muted small-note">
+      <Icon name="refresh" :size="13" /> Sur le même Wi-Fi, la copie est directe et sans limite. Sinon elle passe par le relais chiffré, par lots d'environ 150 Mo
+      (2 Go par jour au plus), pour rester dans son offre gratuite : une grosse copie se fait donc en plusieurs étapes, toute seule.
+    </p>
 
     <section v-if="!sync.linked" class="section-card empty">
       <Icon :name="onAndroid ? 'desktop' : 'phone'" :size="36" />
@@ -153,7 +169,11 @@ function history(d: DeviceInventory): CopyRequest[] {
         <div v-if="running(d).length" class="progress" role="status">
           <div class="progress-text">
             <Icon name="refresh" :size="15" class="spin" />
-            <span>{{ status(d) }}</span>
+            <span>
+              {{ status(d) }}
+              <small v-if="reason(d)" class="reason">{{ reason(d) }}</small>
+              <small v-else-if="split(d) > 1" class="reason">Sans Wi-Fi commun, la copie passe par le relais en {{ split(d) }} lots d'environ 150 Mo, l'un après l'autre.</small>
+            </span>
             <button type="button" class="link" @click="devices.cancel(d.id)">Annuler</button>
           </div>
           <div v-if="progress(d)" class="bar"><span :style="{ width: `${progress(d)!.percent}%` }" /></div>
@@ -207,6 +227,22 @@ function history(d: DeviceInventory): CopyRequest[] {
   margin: -6px 0 18px;
   max-width: 68ch;
   line-height: 1.5;
+}
+.small-note {
+  display: flex;
+  gap: 6px;
+  margin-top: -10px;
+  font-size: 12.5px;
+}
+.small-note :deep(svg) {
+  flex: none;
+  margin-top: 3px;
+}
+.reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .empty {
   display: grid;

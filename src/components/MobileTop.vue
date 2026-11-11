@@ -23,6 +23,8 @@ const appearance = useAppearanceStore();
         aria-label="Rechercher dans la bibliothèque"
         enterkeyhint="search"
         @input="ui.setSearch(($event.target as HTMLInputElement).value)"
+        @click="ui.reopenSearch()"
+        @keydown.enter="ui.reopenSearch()"
       />
     </label>
     <button type="button" class="top-btn" :aria-label="appearance.light ? 'Passer en mode sombre' : 'Passer en mode clair'" @click="appearance.toggleScheme()">

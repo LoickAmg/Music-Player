@@ -116,6 +116,38 @@ describe("Mes appareils", () => {
     expect(c.devices.active).toHaveLength(0);
   });
 
+  it("par le relais : un lot à la fois, une pause entre deux, et une raison montrée à l'autre appareil", async () => {
+    const many = Array.from({ length: 30 }, (_, i) => track(`t${i}`, `Titre ${i}`));
+    const phone = await device("tel", "Téléphone", many);
+    const pc = await device("pc", "Ordinateur", [track("p1", "Autre")]);
+    await on(phone, "tel").sync.run();
+    const p = on(pc, "pc");
+    await p.sync.run();
+    await p.devices.request("tel", p.devices.missingHere("tel"));
+    expect(p.devices.copies.map((c) => `${c.part}/${c.parts}`)).toEqual(["1/2", "2/2"]);
+    await vi.waitFor(() => expect(p.sync.running).toBe(false));
+    await p.sync.run();
+
+    const t = on(phone, "tel");
+    await t.sync.run();
+    await vi.waitFor(() => expect(engine.sent.size).toBe(1));
+    await t.devices.act();
+    expect(engine.sent.size).toBe(1); // le 2e lot attend la fin du 1er
+    const second = t.devices.copies.find((c) => c.part === 2)!;
+    expect(second.state).toBe("attente");
+    expect(second.message).toMatch(/Lot suivant/);
+
+    // Fin du 1er lot : pause, puis le 2e part.
+    const first = t.devices.copies.find((c) => c.part === 1)!;
+    t.share.finish(t.devices.working[first.id], "fini", null);
+    await t.devices.act();
+    expect(t.devices.copies.find((c) => c.part === 2)!.message).toMatch(/pause/);
+    expect(t.devices.relay.bytes).toBeGreaterThan(0);
+    t.devices.relay.lastEnd = Date.now() - 31_000;
+    await t.devices.act();
+    expect(engine.sent.size).toBe(2);
+  });
+
   it("la copie automatique attend le même Wi-Fi", async () => {
     const phone = await device("tel", "Téléphone", [track("t1", "Morose")]);
     const pc = await device("pc", "Ordinateur", [track("p1", "Silence")]);

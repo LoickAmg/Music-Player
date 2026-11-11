@@ -71,14 +71,23 @@ function present(p: Playlist): number {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 18px;
 }
+/* Largeurs explicites : les vues web anciennes (Chrome < 116, avis de Méryl) n'étiraient pas
+   toujours un bouton dans sa case de grille ; la jaquette, sans largeur propre (container-type),
+   tombait alors à zéro et seul le nom restait. */
 .card {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  width: 100%;
+  min-width: 0;
   padding: 0;
   border: 0;
   background: none;
   text-align: left;
+}
+.card :deep(.pl-cover),
+.liked-cover {
+  width: 100%;
 }
 .card :deep(.pl-cover) {
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
