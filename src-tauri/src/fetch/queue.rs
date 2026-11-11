@@ -138,8 +138,28 @@ impl QueueStore {
         Ok(queue)
     }
 
+    /// File vide, enregistrée à `path` à la première modification : repli quand le fichier
+    /// existant ne peut pas être lu (droits, disque), pour que l'appli démarre quand même.
+    pub fn empty(path: impl Into<PathBuf>) -> Self {
+        Self { path: path.into(), items: Vec::new() }
+    }
+
     pub fn items(&self) -> &[QueueItem] {
         &self.items
+    }
+
+    /// Retire les tâches terminées (faites, échouées, annulées) et l'enregistre, avec la même
+    /// écriture atomique ; rien ne change si l'écriture échoue. Renvoie le nombre retiré.
+    pub fn remove_finished(&mut self) -> Result<usize, QueueError> {
+        let (kept, removed): (Vec<_>, Vec<_>) = std::mem::take(&mut self.items)
+            .into_iter()
+            .partition(|item| matches!(item.state, JobState::Queued | JobState::Running));
+        self.items = kept;
+        if let Err(error) = self.save() {
+            self.items.extend(removed);
+            return Err(error);
+        }
+        Ok(removed.len())
     }
 
     pub fn next_queued(&self) -> Option<&QueueItem> {
@@ -396,6 +416,24 @@ mod tests {
         let unique: std::collections::HashSet<_> = ids.iter().collect();
         assert_eq!(unique.len(), 50);
         assert!(ids.iter().all(|id| id.len() == 32), "identifiants aleatoires (uuid)");
+    }
+
+    #[test]
+    fn retire_les_taches_finies_et_garde_les_autres() {
+        let directory = tempfile::tempdir().expect("dossier temporaire");
+        let path = directory.path().join("telechargements.json");
+        let mut queue = QueueStore::open(&path).expect("file vide");
+        let ids = queue
+            .enqueue_many(vec![wanted("A"), wanted("B"), wanted("C"), wanted("D")])
+            .expect("ajout");
+        queue.set_state(&ids[0], JobState::Done, None).expect("fait");
+        queue.set_state(&ids[1], JobState::Failed, Some("raté".into())).expect("échoué");
+        queue.set_state(&ids[2], JobState::Cancelled, None).expect("annulé");
+
+        assert_eq!(queue.remove_finished().expect("nettoyage"), 3);
+        let restored = QueueStore::open(&path).expect("rechargement");
+        assert_eq!(restored.items().len(), 1);
+        assert_eq!(restored.items()[0].wanted.title, "D");
     }
 
     #[test]

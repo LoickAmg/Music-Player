@@ -68,6 +68,15 @@ pub fn run() {
             sharing::remember_moved(sharing::move_received(&state));
             app.manage(state);
 
+            // Moteur de téléchargement : file enregistrée, reprise des morceaux restés en attente.
+            let (fetch_runtime, fetch_problem) = fetch::commands::FetchRuntime::open(&data_dir);
+            if let Some(problem) = fetch_problem {
+                eprintln!("{problem}");
+            }
+            let fetch_runtime = std::sync::Arc::new(fetch_runtime);
+            app.manage(std::sync::Arc::clone(&fetch_runtime));
+            fetch::commands::start_worker(app.handle().clone(), fetch_runtime);
+
             // La bibliothèque s'affiche aussitôt depuis le cache ; le rescan (nouveaux
             // fichiers, étiquettes modifiées) se fait en arrière-plan.
             if let Some(root) = library_root {
@@ -136,6 +145,11 @@ pub fn run() {
             commands::scan_library,
             commands::spotdl_download_missing,
             commands::spotdl_cancel,
+            fetch::commands::fetch_availability,
+            fetch::commands::fetch_jobs,
+            fetch::commands::fetch_enqueue,
+            fetch::commands::fetch_cancel,
+            fetch::commands::fetch_clear_finished,
             commands::get_library,
             commands::open_audio_file,
             commands::get_cover,
