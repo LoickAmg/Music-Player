@@ -1219,7 +1219,7 @@ pub fn parcel_import(app: AppHandle, name: String) -> Result<ImportResult, Strin
     let result = sharing::import_bundle(&state, &path);
     let _ = std::fs::remove_file(&path);
     let result = result?;
-    let _ = app.emit("library-updated", state.library.locked().clone());
+    let _ = app.emit("library-updated", &*state.library.locked());
     Ok(result)
 }
 
@@ -1475,7 +1475,7 @@ pub fn transfer_cancel(id: String) {
 pub fn import_share_bundle(app: AppHandle, path: String) -> Result<ImportResult, String> {
     let state = app.state::<AppState>();
     let result = sharing::import_bundle(&state, Path::new(&path))?;
-    let _ = app.emit("library-updated", state.library.locked().clone());
+    let _ = app.emit("library-updated", &*state.library.locked());
     Ok(result)
 }
 

@@ -100,11 +100,13 @@ fn write_bundle(
             n += 1;
         }
 
-        let bytes = fs::read(source)
+        // Recopié par morceaux du disque vers l'archive : jamais le fichier entier en mémoire
+        // (un FLAC dépasse facilement 50 Mo).
+        let mut audio = fs::File::open(source)
             .map_err(|e| format!("Lecture de « {} » impossible : {e}", track.title))?;
         zip.start_file(format!("pistes/{filename}"), options)
             .map_err(|e| e.to_string())?;
-        zip.write_all(&bytes).map_err(|e| e.to_string())?;
+        std::io::copy(&mut audio, &mut zip).map_err(|e| format!("Lecture de « {} » impossible : {e}", track.title))?;
 
         manifest_tracks.push(ManifestTrack {
             title: track.title.clone(),

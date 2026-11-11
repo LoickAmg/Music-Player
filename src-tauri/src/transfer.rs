@@ -146,7 +146,7 @@ pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, Str
     let result = sharing::import_bundle(&state, path);
     let _ = std::fs::remove_file(path);
     let result = result?;
-    let _ = app.emit("library-updated", state.library.locked().clone());
+    let _ = app.emit("library-updated", &*state.library.locked());
     let _ = app.emit("share-received", &result);
     Ok(result)
 }
