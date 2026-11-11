@@ -86,7 +86,7 @@ jobs:
         with:
           name: "Music Player ${{ github.ref_name }}"
           body: |
-            Installeurs générés automatiquement par la CI pour Windows, macOS et Android (Linux : momentanément absent).
+            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
             Choisis le fichier correspondant à ton système ci-dessous.
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
@@ -94,6 +94,7 @@ jobs:
             - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
+            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
 
   release:
     needs: [test, create-release]
@@ -107,8 +108,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux mis de côté le 11/11 (téléchargement des paquets impossible sur les machines
-          # Linux de GitHub) : à reprendre plus tard.
+          - platform: ubuntu-latest
           - platform: macos-latest
           - platform: windows-latest
     runs-on: ${{ matrix.platform }}
@@ -119,13 +119,28 @@ jobs:
 
       - name: Dépendances système Tauri (Linux uniquement)
         if: matrix.platform == 'ubuntu-latest'
+        # 11/11, à partir de 14 h UTC : panne chez Canonical, les machines Linux de GitHub ne
+        # résolvaient plus les noms des miroirs Ubuntu (« Ign: » sans fin, 2 h perdues).
+        # Parade : DNS publics, miroir Azure retiré, miroirs officiel et kernel.org, chaque
+        # tentative bornée dans le temps ; l'étape échoue en 15 min au plus au lieu de bloquer.
+        timeout-minutes: 15
         run: |
-          # Miroir Azure de GitHub parfois injoignable (11/11 : « Ign: » en boucle, 44 min) :
-          # miroir officiel d'Ubuntu en premier, Azure en secours, délais courts et nouveaux essais.
-          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/80-ci-reseau > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo mkdir -p /etc/systemd/resolved.conf.d
+          printf '%s\n' '[Resolve]' 'DNS=1.1.1.1 8.8.8.8 1.0.0.1 8.8.4.4' \
+            | sudo tee /etc/systemd/resolved.conf.d/ci-dns.conf > /dev/null
+          sudo systemctl restart systemd-resolved || true
+          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://mirrors.edge.kernel.org/ubuntu\tpriority:2\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:3\n' \
+            | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' \
+            | sudo tee /etc/apt/apt.conf.d/80-ci-reseau > /dev/null
+          ok=
+          for essai in 1 2 3; do
+            if timeout 240 sudo apt-get update; then ok=1; break; fi
+            echo "::warning::apt-get update, essai $essai échoué ; nouvel essai dans 20 s"
+            sleep 20
+          done
+          [ -n "$ok" ] || { echo "::error::Miroirs Ubuntu injoignables (voir actions/runner-images#15297)"; exit 1; }
+          timeout 600 sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
             librsvg2-dev libasound2-dev build-essential curl wget file \
             libssl-dev libsoup-3.0-dev
@@ -167,7 +182,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Music Player ${{ github.ref_name }}"
           releaseBody: |
-            Installeurs générés automatiquement par la CI pour Windows, macOS et Android (Linux : momentanément absent).
+            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
             Choisis le fichier correspondant à ton système ci-dessous.
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
@@ -175,6 +190,7 @@ jobs:
             - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
+            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
           releaseDraft: false
           prerelease: false
 
