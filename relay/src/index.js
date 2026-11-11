@@ -15,6 +15,11 @@
 // 3. Zone (sur option) : annuaire des profils qui ont choisi d'être visibles des personnes de
 //    leur ville, d'après l'adresse IP vue par Cloudflare (jamais de position GPS). Une
 //    annonce s'efface au bout de 10 minutes.
+//
+// 4. Colis : un son joint à un message entre proches, pour qu'il arrive même si le
+//    destinataire a l'appli fermée. Il est chiffré sur l'appareil (la clé voyage dans le message,
+//    lui-même chiffré de bout en bout) : le relais ne garde que des morceaux illisibles, 7 jours
+//    au plus, puis les efface.
 
 const ROOM = /^[0-9]{4,8}$/;
 const ROLES = new Set(["envoi", "reception"]);
@@ -50,6 +55,11 @@ const CHUNK_MAX = 1024 * 1024;
 const MAX_CHUNKS = 20;
 const TRIES_PER_HOUR = 10;
 const UPLOAD_ID = /^[0-9a-f]{32}$/;
+
+// Colis : identifiant tiré au hasard par l'expéditeur ; 40 morceaux de 1 Mo (base64) au plus.
+const PARCEL_ID = /^[0-9a-f]{32}$/;
+const PARCEL_CHUNKS = 40;
+const PARCEL_TTL_MS = 7 * 24 * 3600_000;
 
 // Avis : types (comme le formulaire de l'appli) et taille d'un envoi (3 captures réduites).
 const AVIS_KINDS = ["bug", "suggestion", "idee", "avis", "autre"];
@@ -196,6 +206,23 @@ export default {
             }),
         );
         return json({ amis: results });
+      }
+
+      // Colis : seul le propriétaire d'un profil en dépose (preuve : son secret) ; la lecture
+      // ne demande que l'identifiant, inutile sans la clé du message.
+      const colis = url.pathname.match(/^\/v1\/colis\/([^/]+)\/([a-z]+)$/);
+      if (colis && request.method === "POST") {
+        if (!PARCEL_ID.test(colis[1])) return json({ erreur: "Colis inconnu" }, 404);
+        const body = await readJson(request, CHUNK_MAX + 4096);
+        if (colis[2] === "deposer" || colis[2] === "effacer") {
+          if (!CODE.test(body.de ?? "") || !SECRET.test(body.secret ?? "")) return json({ erreur: "Expéditeur non reconnu" }, 403);
+          const check = await profile(env, body.de).fetch(
+            new Request(`https://profil/v1/profil/${body.de}/verifier`, { method: "POST", body: JSON.stringify({ secret: body.secret }) }),
+          );
+          if (!check.ok) return json({ erreur: "Expéditeur non reconnu" }, 403);
+          delete body.secret;
+        }
+        return await env.COLIS.get(env.COLIS.idFromName(colis[1])).fetch(new Request(`https://colis/${colis[2]}`, { method: "POST", body: JSON.stringify(body) }));
       }
 
       // « Un avis ? » : dépôt public, lecture réservée au code administrateur (AVIS_ADMIN).
@@ -636,6 +663,56 @@ export class Profil {
     const ok = ACCOUNT_KEY.test(cle ?? "") && expected === (await sha256(cle));
     if (!ok && counted) await storage.put("essais", { n: tries.n + 1, since: tries.since });
     return ok;
+  }
+}
+
+/** Colis : morceaux chiffrés d'un son joint à un message, gardés 7 jours au plus. */
+export class Colis {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async alarm() {
+    await this.state.storage.deleteAll();
+  }
+
+  async fetch(request) {
+    const storage = this.state.storage;
+    const action = new URL(request.url).pathname.slice(1);
+    const body = JSON.parse(await request.text());
+    const meta = await storage.get("meta");
+
+    if (action === "deposer") {
+      const n = Number(body.n);
+      const total = Number(body.total);
+      if (!Number.isInteger(n) || !Number.isInteger(total) || total < 1 || total > PARCEL_CHUNKS || n < 0 || n >= total) return json({ erreur: "Colis invalide" }, 400);
+      if (typeof body.data !== "string" || !body.data || body.data.length > CHUNK_MAX || !BASE64.test(body.data)) return json({ erreur: "Morceau invalide" }, 400);
+      if (meta && (meta.de !== body.de || meta.total !== total)) return json({ erreur: "Colis déjà pris" }, 409);
+      if (!meta && n !== 0) return json({ erreur: "Colis inconnu", recus: 0 }, 409);
+      const state = meta ?? { de: body.de, total, recus: 0, at: Date.now() };
+      // Reprise après une coupure : un morceau déjà reçu est ignoré, un trou est refusé.
+      if (n < state.recus) return json({ recus: state.recus, total });
+      if (n !== state.recus) return json({ erreur: "Morceau hors d'ordre", recus: state.recus }, 409);
+      await storage.put(`m${n}`, body.data);
+      state.recus = n + 1;
+      await storage.put("meta", state);
+      if (!meta) await storage.setAlarm(Date.now() + PARCEL_TTL_MS);
+      return json({ recus: state.recus, total });
+    }
+    if (!meta) return json({ erreur: "Ce son n'est plus disponible (gardé 7 jours)." }, 404);
+    if (action === "etat") return json({ recus: meta.recus, total: meta.total, complet: meta.recus === meta.total });
+    if (action === "lire") {
+      const n = Number(body.n);
+      if (meta.recus !== meta.total) return json({ erreur: "Envoi pas encore terminé" }, 409);
+      if (!Number.isInteger(n) || n < 0 || n >= meta.total) return json({ erreur: "Morceau inconnu" }, 400);
+      return json({ data: await storage.get(`m${n}`), total: meta.total });
+    }
+    if (action === "effacer") {
+      if (meta.de !== body.de) return json({ erreur: "Refusé" }, 403);
+      await storage.deleteAll();
+      return json({ ok: true });
+    }
+    return json({ erreur: "Introuvable" }, 404);
   }
 }
 

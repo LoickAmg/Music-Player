@@ -1,5 +1,5 @@
 // Pour les tests : le vrai code du relais, avec un stockage en mémoire et sans réseau.
-import worker, { Profil } from "../../relay/src/index.js";
+import worker, { Colis, Profil } from "../../relay/src/index.js";
 
 export class FakeStorage {
   map = new Map<string, unknown>();
@@ -36,7 +36,21 @@ export class FakeRelay {
       idFromName: (n: string) => n,
       get: (id: string) => this.profile(id),
     },
+    COLIS: {
+      idFromName: (n: string) => n,
+      get: (id: string) => this.parcel(id),
+    },
   };
+  parcels = new Map<string, { colis: Colis; storage: FakeStorage }>();
+  parcel(id: string): Colis {
+    let found = this.parcels.get(id);
+    if (!found) {
+      const storage = new FakeStorage();
+      found = { colis: new Colis({ storage }), storage };
+      this.parcels.set(id, found);
+    }
+    return found.colis;
+  }
   profile(code: string): Profil {
     let found = this.profiles.get(code);
     if (!found) {

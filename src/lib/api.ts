@@ -155,6 +155,12 @@ export const api = {
   takeMovedTracks: () => invoke<[string, string][]>("take_moved_tracks"),
   /** Identifiant de cet appareil (celui annoncé aux voisins du Wi-Fi). */
   deviceIdentity: () => invoke<string>("device_identity"),
+  /** Colis (son joint à un message) : archive préparée, lue et écrite par morceaux (base64). */
+  parcelPrepare: (trackId: string) => invoke<{ name: string; size: number }>("parcel_prepare", { trackId }),
+  parcelRead: (name: string, offset: number, len: number) => invoke<string>("parcel_read", { name, offset, len }),
+  parcelWrite: (name: string, data: string, append: boolean) => invoke<number>("parcel_write", { name, data, append }),
+  parcelImport: (name: string) => invoke<ShareImportResult>("parcel_import", { name }),
+  parcelForget: (name: string) => invoke<void>("parcel_forget", { name }),
 
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),

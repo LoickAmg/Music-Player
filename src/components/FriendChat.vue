@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import type { Piece } from "@/lib/friendsApi";
+import type { Track } from "@/lib/types";
 import { LibraryMatcher, matchPlaylist } from "@/lib/spotifyImport";
-import { useFriendsStore } from "@/stores/friends";
+import { type ChatLine, useFriendsStore } from "@/stores/friends";
 import { useLibraryStore } from "@/stores/library";
 import { usePlayerStore } from "@/stores/player";
 import { usePlaylistsStore } from "@/stores/playlists";
@@ -22,6 +23,8 @@ const friend = computed(() => friends.friends.find((f) => f.code === friends.cha
 const lines = computed(() => (friend.value ? (friends.conversations[friend.value.code] ?? []) : []));
 const draft = ref("");
 const piece = ref<Piece | null>(null);
+/** Morceau joint (son fichier part avec le message). */
+const pieceTrack = ref<Track | null>(null);
 const sending = ref(false);
 const list = ref<HTMLElement | null>(null);
 const matcher = computed(() => new LibraryMatcher(library.tracks));
@@ -46,6 +49,7 @@ function attachCurrent() {
   const t = player.currentTrack;
   if (!t) return;
   piece.value = { type: "morceau", titre: t.title, artiste: t.artist, album: t.album };
+  pieceTrack.value = t;
 }
 function attachPlaylist(id: string) {
   const p = playlists.byId(id);
@@ -55,18 +59,27 @@ function attachPlaylist(id: string) {
     .filter((t) => !!t)
     .slice(0, 300)
     .map((t) => ({ titre: t!.title, artiste: t!.artist, album: t!.album }));
-  if (morceaux.length) piece.value = { type: "playlist", nom: p.name, morceaux };
+  if (morceaux.length) {
+    piece.value = { type: "playlist", nom: p.name, morceaux };
+    pieceTrack.value = null;
+  }
 }
 
 async function send() {
   if (!friend.value || sending.value || (!draft.value.trim() && !piece.value)) return;
   sending.value = true;
-  const ok = await friends.sendWord(friend.value.code, draft.value, piece.value);
+  const track = piece.value?.type === "morceau" ? pieceTrack.value : null;
+  const ok = track ? await friends.sendTrack(friend.value.code, track, draft.value) : await friends.sendWord(friend.value.code, draft.value, piece.value);
   sending.value = false;
   if (ok) {
     draft.value = "";
     piece.value = null;
-  } else if (friends.error) ui.notify(friends.error);
+    pieceTrack.value = null;
+  }
+  if (friends.error) {
+    ui.notify(friends.error);
+    friends.error = null;
+  }
 }
 function onKey(e: KeyboardEvent) {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -75,9 +88,21 @@ function onKey(e: KeyboardEvent) {
   }
 }
 
-/** Morceau reçu présent dans ma bibliothèque. */
-function localTrack(p: Piece) {
-  return p.type === "morceau" ? matcher.value.find({ title: p.titre, artist: p.artiste, album: p.album }) : null;
+/** Morceau reçu présent dans ma bibliothèque (fichier joint reçu, ou déjà là). */
+function localTrack(p: Piece, line?: ChatLine) {
+  if (p.type !== "morceau") return null;
+  const received = line?.recu?.map((id) => library.byId(id)).find((t) => !!t);
+  return received ?? matcher.value.find({ title: p.titre, artist: p.artiste, album: p.album });
+}
+const sizeLabel = (bytes: number) => (bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1).replace(".", ",")} Mo` : `${Math.max(1, Math.round(bytes / 1e3))} Ko`);
+function incoming(p: Piece) {
+  return p.type === "morceau" && p.colis ? (friends.parcels[`in:${p.colis.id}`] ?? null) : null;
+}
+const outgoing = computed(() => (friend.value ? (friends.parcels[`out:${friend.value.code}`] ?? null) : null));
+async function receive(l: ChatLine) {
+  if (!friend.value) return;
+  const id = await friends.receivePiece(friend.value.code, l.at);
+  if (id) ui.notify("Son reçu : rangé dans Musique › Music Player › Reçus.");
 }
 function playlistMatch(p: Piece) {
   if (p.type !== "playlist") return null;
@@ -117,9 +142,17 @@ async function createPlaylist(p: Piece) {
                   <strong>{{ l.piece.titre }}</strong>
                   <small>{{ l.piece.artiste }}</small>
                 </span>
-                <button v-if="localTrack(l.piece)" type="button" class="pill pill-ghost small" @click="player.playTrackNow(localTrack(l.piece)!.id)">
+                <button v-if="localTrack(l.piece, l)" type="button" class="pill pill-ghost small" @click="player.playTrackNow(localTrack(l.piece, l)!.id)">
                   <Icon name="play" :size="13" /> Écouter
                 </button>
+                <template v-else-if="!l.mine && l.piece.colis">
+                  <span v-if="incoming(l.piece) && !incoming(l.piece)!.error" class="getting" role="status">
+                    {{ incoming(l.piece)!.total ? Math.round((incoming(l.piece)!.done / incoming(l.piece)!.total) * 100) : 0 }} %
+                  </span>
+                  <button v-else type="button" class="pill pill-accent small" :title="incoming(l.piece)?.error ?? undefined" @click="receive(l)">
+                    <Icon name="import" :size="13" /> {{ incoming(l.piece)?.error ? "Réessayer" : `Recevoir · ${sizeLabel(l.piece.colis.taille)}` }}
+                  </button>
+                </template>
                 <small v-else-if="!l.mine" class="absent">Pas dans votre bibliothèque</small>
               </div>
               <div v-else-if="l.piece?.type === 'playlist'" class="piece">
@@ -148,6 +181,9 @@ async function createPlaylist(p: Piece) {
             <Icon :name="piece.type === 'morceau' ? 'note' : 'playlist'" :size="15" />
             <span>{{ piece.type === "morceau" ? `${piece.titre} · ${piece.artiste}` : `${piece.nom} (${piece.morceaux.length} morceaux)` }}</span>
             <button type="button" class="icon-btn" aria-label="Retirer la pièce jointe" @click="piece = null"><Icon name="close" :size="14" /></button>
+          </div>
+          <div v-if="outgoing" class="sending" role="status">
+            Envoi du son… {{ outgoing.total ? Math.round((outgoing.done / outgoing.total) * 100) : 0 }} %
           </div>
           <div class="compose">
             <button type="button" class="icon-btn" title="Joindre le morceau en cours" aria-label="Joindre le morceau en cours" :disabled="!player.currentTrack" @click="attachCurrent">
@@ -282,6 +318,16 @@ header {
 .absent {
   font-size: 11.5px;
   color: var(--text-2);
+}
+.getting {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+}
+.sending {
+  font-size: 12px;
+  color: var(--accent);
+  padding: 0 4px 6px;
 }
 .pill.small {
   height: 28px;

@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import { api } from "@/lib/api";
 import { transferNotice, transferNoticeDone } from "@/lib/androidMedia";
 import { useDevicesStore } from "./devices";
+import { useLibraryStore } from "./library";
 import { usePlaylistsStore } from "./playlists";
 import type { NearbyPeer, ShareImportResult, ShareItem, ShareOffer, TransferProgress } from "@/lib/types";
 
@@ -10,12 +11,19 @@ const VISIBLE_KEY = "mp:share-visible";
 const RELAY_KEY = "mp:share-relay";
 /** Morceaux reçus et envoyés récemment, à retrouver sans les chercher (page d'accueil). */
 const SHARED_KEY = "mp:partages-recents";
-const MAX_SHARED = 60;
+const MAX_SHARED = 500;
 
 export interface SharedTrack {
   id: string;
   direction: "recu" | "envoye";
   at: number;
+  /** Avec qui (nom du proche, de l'appareil voisin…), quand on le sait. */
+  who?: string;
+  /** Par où : discussion avec un proche, partage (Wi-Fi, code, fichier) ou copie entre mes appareils. */
+  via?: "discussion" | "partage" | "appareils";
+  /** Titre et artiste au moment du partage (le morceau peut avoir quitté la bibliothèque). */
+  title?: string;
+  artist?: string;
 }
 
 function readShared(): SharedTrack[] {
@@ -68,6 +76,8 @@ export interface Transfer {
   sampleDone: number;
   /** Morceaux concernés, notés comme envoyés une fois l'envoi fini. */
   trackIds?: string[];
+  /** Pour l'historique : avec qui, par où. */
+  meta?: Pick<SharedTrack, "who" | "via">;
 }
 
 /** Transfert encore en cours (pas fini, refusé ni en échec). */
@@ -146,11 +156,16 @@ export const useShareStore = defineStore("share", {
     },
 
     /** Ces morceaux viennent d'être reçus ou envoyés : en tête de la page d'accueil. */
-    noteShared(ids: string[], direction: SharedTrack["direction"]) {
+    noteShared(ids: string[], direction: SharedTrack["direction"], meta: Pick<SharedTrack, "who" | "via"> = {}) {
       if (!ids.length) return;
       const at = Date.now();
-      const kept = this.shared.filter((s) => !(s.direction === direction && ids.includes(s.id)));
-      this.shared = [...ids.map((id) => ({ id, direction, at })), ...kept].slice(0, MAX_SHARED);
+      const library = useLibraryStore();
+      const kept = this.shared.filter((s) => !(s.direction === direction && ids.includes(s.id) && s.who === meta.who));
+      const added = ids.map((id) => {
+        const t = library.byId(id);
+        return { id, direction, at, via: meta.via ?? "partage", ...(meta.who ? { who: meta.who } : {}), ...(t ? { title: t.title, artist: t.artist } : {}) };
+      });
+      this.shared = [...added, ...kept].slice(0, MAX_SHARED);
       write(SHARED_KEY, JSON.stringify(this.shared));
     },
     /** Morceaux d'un élément partagé. */
@@ -228,7 +243,7 @@ export const useShareStore = defineStore("share", {
     },
     noteSent(t: Transfer) {
       if (t.direction !== "envoi" || !t.trackIds) return;
-      this.noteShared(t.trackIds, "envoye");
+      this.noteShared(t.trackIds, "envoye", t.meta);
       t.trackIds = undefined;
     },
     /** Android : notification du partage en cours (garde l'appli en vie en arrière-plan). */
@@ -337,7 +352,7 @@ export const useShareStore = defineStore("share", {
       try {
         t.result = await api.remoteReceive(code, this.relay.trim() || null, t.id);
         if (!t.label || t.result.kind !== "track") t.label = t.result.name;
-        this.noteShared(t.result.track_ids, "recu");
+        this.noteShared(t.result.track_ids, "recu", t.meta);
         this.finish(t.id, "fini", null);
       } catch (e) {
         this.finish(t.id, "erreur", String(e));
@@ -369,8 +384,8 @@ export const useShareStore = defineStore("share", {
       }
     },
     onReceived(result: ShareImportResult) {
-      this.noteShared(result.track_ids, "recu");
-      useDevicesStore().onReceived(result.name);
+      const copy = useDevicesStore().onReceived(result.name);
+      this.noteShared(result.track_ids, "recu", copy ? { who: copy, via: "appareils" } : {});
       const t = this.transfers.find((x) => x.direction === "reception" && !x.result && x.label === result.name);
       if (t) t.result = result;
     },

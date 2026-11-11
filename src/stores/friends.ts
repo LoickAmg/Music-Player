@@ -17,6 +17,9 @@ import {
 } from "@/lib/friendsApi";
 import { conversationKey, openWord, publicKey, sealWord } from "@/lib/e2e";
 import { notify } from "@/lib/notify";
+import { api } from "@/lib/api";
+import { PARCEL_MAX_BYTES, receiveParcel, sendParcel } from "@/lib/parcel";
+import type { Track } from "@/lib/types";
 import { useAppearanceStore } from "./appearance";
 import { useLibraryStore } from "./library";
 import { usePlayerStore } from "./player";
@@ -39,6 +42,15 @@ export interface ChatLine {
   texte: string;
   piece: Piece | null;
   at: number;
+  /** Son joint reçu : morceaux importés ici (Musique/Music Player/Reçus). */
+  recu?: string[];
+}
+
+/** Avancement d'un son joint, envoyé (« out:code ») ou reçu (« in:id du colis »). */
+export interface ParcelProgress {
+  done: number;
+  total: number;
+  error?: string | null;
 }
 
 function loadWords(): { conversations: Record<string, ChatLine[]>; unread: Record<string, number> } {
@@ -148,6 +160,8 @@ export const useFriendsStore = defineStore("friends", {
     busy: false,
     /** Carte reprise d'un autre appareil en cours d'application (pas une modification d'ici). */
     adoptingCard: false,
+    /** Sons joints en cours d'envoi ou de réception. */
+    parcels: {} as Record<string, ParcelProgress>,
   }),
   getters: {
     base(): string | null {
@@ -540,6 +554,69 @@ export const useFriendsStore = defineStore("friends", {
         return true;
       });
       return !!ok;
+    },
+    /**
+     * Envoie un morceau dans la discussion, fichier compris : déposé chiffré sur le relais (gardé
+     * 7 jours), il arrive même si le proche a l'appli fermée. Proche pas à jour, fichier trop
+     * lourd ou relais indisponible : le titre part seul, et on le dit.
+     */
+    async sendTrack(code: string, track: Track, texte: string): Promise<boolean> {
+      const friend = this.friends.find((f) => f.code === code);
+      if (!friend || !this.me || !this.base) return false;
+      const piece: Piece = { type: "morceau", titre: track.title, artiste: track.artist, album: track.album };
+      const key = `out:${code}`;
+      let warning: string | null = null;
+      if (await this.peerKey(code)) {
+        this.parcels[key] = { done: 0, total: 0 };
+        let name: string | null = null;
+        try {
+          const file = await api.parcelPrepare(track.id);
+          name = file.name;
+          if (file.size > PARCEL_MAX_BYTES) throw new Error(`fichier trop lourd (${Math.round(file.size / 1e6)} Mo, ${Math.round(PARCEL_MAX_BYTES / 1e6)} Mo au plus)`);
+          const who = { base: this.base, de: this.me.code, secret: this.me.secret };
+          piece.colis = await sendParcel(who, file.size, (offset, len) => api.parcelRead(file.name, offset, len), (done, total) => {
+            this.parcels[key] = { done, total };
+          });
+        } catch (e) {
+          warning = `Le fichier n'a pas pu être joint (${e instanceof Error ? e.message : String(e)}) : seul le titre est envoyé.`;
+        } finally {
+          if (name) void api.parcelForget(name).catch(() => {});
+          delete this.parcels[key];
+        }
+      } else {
+        warning = `${friend.name} doit mettre Music Player à jour pour recevoir le fichier : seul le titre est envoyé.`;
+      }
+      const ok = await this.sendWord(code, texte, piece);
+      if (ok && piece.colis) useShareStore().noteShared([track.id], "envoye", { who: friend.name, via: "discussion" });
+      if (ok && warning) this.error = warning;
+      return ok;
+    },
+    /** Reprend le fichier d'un son reçu dans la discussion ; renvoie le morceau importé. */
+    async receivePiece(code: string, at: number): Promise<string | null> {
+      const line = (this.conversations[code] ?? []).find((l) => l.at === at && !l.mine);
+      const piece = line?.piece;
+      if (!line || piece?.type !== "morceau" || !piece.colis || !this.base) return null;
+      const ref = piece.colis;
+      const key = `in:${ref.id}`;
+      if (this.parcels[key] && !this.parcels[key].error) return null;
+      this.parcels[key] = { done: 0, total: ref.taille };
+      const name = `colis-${ref.id}.${"mpshare"}`;
+      try {
+        await receiveParcel(this.base, ref, (data, append) => api.parcelWrite(name, data, append), (done, total) => {
+          this.parcels[key] = { done, total };
+        });
+        const result = await api.parcelImport(name);
+        line.recu = result.track_ids;
+        this.saveWords();
+        const who = this.friends.find((f) => f.code === code)?.name;
+        useShareStore().noteShared(result.track_ids, "recu", { who, via: "discussion" });
+        delete this.parcels[key];
+        return result.track_ids[0] ?? null;
+      } catch (e) {
+        void api.parcelForget(name).catch(() => {});
+        this.parcels[key] = { done: 0, total: ref.taille, error: e instanceof Error ? e.message : String(e) };
+        return null;
+      }
     },
     openChat(code: string | null) {
       this.chatWith = code;

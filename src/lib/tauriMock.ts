@@ -456,6 +456,11 @@ export function installTauriMock() {
     transfer_cancel: () => undefined,
     take_moved_tracks: () => [],
     device_identity: () => "demo-pc",
+    parcel_prepare: () => ({ name: "colis-demo.mpshare", size: 4_200_000 }),
+    parcel_read: () => "",
+    parcel_write: () => 0,
+    parcel_import: () => ({ name: "Son reçu", kind: "track", added_tracks: 1, skipped_tracks: 0, playlist_id: null, track_ids: [] }),
+    parcel_forget: () => undefined,
     // Visualiseur : spectre de démonstration qui « bat » à 120 BPM pendant la lecture.
     get_spectrum: () => {
       if (isPaused) return [];

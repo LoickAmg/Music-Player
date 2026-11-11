@@ -74,7 +74,7 @@ function play(index: number) {
     </button>
 
     <section v-if="received.length">
-      <div class="head"><h2>Reçus récemment</h2></div>
+      <div class="head"><h2>Reçus récemment</h2><button type="button" class="more" @click="ui.go({ name: 'shared' })">Historique</button></div>
       <div class="list">
         <div v-for="(track, i) in received" :key="track.id" class="row">
           <TrackRow :track="track" :index="i" striped @play="playFrom(received, track.id)" />
@@ -82,7 +82,7 @@ function play(index: number) {
       </div>
     </section>
     <section v-if="sent.length">
-      <div class="head"><h2>Envoyés récemment</h2></div>
+      <div class="head"><h2>Envoyés récemment</h2><button type="button" class="more" @click="ui.go({ name: 'shared' })">Historique</button></div>
       <div class="list">
         <div v-for="(track, i) in sent" :key="track.id" class="row">
           <TrackRow :track="track" :index="i" striped @play="playFrom(sent, track.id)" />

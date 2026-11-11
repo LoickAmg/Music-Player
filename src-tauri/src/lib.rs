@@ -208,6 +208,11 @@ pub fn run() {
             commands::transfer_cancel,
             commands::take_moved_tracks,
             commands::device_identity,
+            commands::parcel_prepare,
+            commands::parcel_read,
+            commands::parcel_write,
+            commands::parcel_import,
+            commands::parcel_forget,
             updater::check_update,
             updater::install_update,
         ])

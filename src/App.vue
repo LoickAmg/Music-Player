@@ -26,6 +26,7 @@ import LyricsSearch from "@/components/LyricsSearch.vue";
 import LyricsShare from "@/components/LyricsShare.vue";
 import ProfileView from "@/views/ProfileView.vue";
 import DevicesView from "@/views/DevicesView.vue";
+import SharedView from "@/views/SharedView.vue";
 import PlaylistDialog from "@/components/PlaylistDialog.vue";
 import PlayerBar from "@/components/PlayerBar.vue";
 import ShareActivity from "@/components/ShareActivity.vue";
@@ -451,6 +452,7 @@ onBeforeUnmount(() => {
               <AppearanceView v-else-if="ui.route.name === 'appearance'" />
               <ProfileView v-else-if="ui.route.name === 'profile'" />
               <DevicesView v-else-if="ui.route.name === 'devices'" />
+              <SharedView v-else-if="ui.route.name === 'shared'" />
               <StatsView v-else-if="ui.route.name === 'stats'" />
               <PlaylistsView v-else-if="ui.route.name === 'playlists'" />
             </div>

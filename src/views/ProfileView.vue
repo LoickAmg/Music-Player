@@ -116,6 +116,7 @@ async function copyCode() {
     <nav class="section-card links" aria-label="Raccourcis du profil">
       <button type="button" @click="ui.go({ name: 'stats' })"><Icon name="stats" :size="18" /> Mon écoute</button>
       <button type="button" @click="ui.go({ name: 'devices' })"><Icon name="phone" :size="18" /> Mes appareils</button>
+      <button type="button" @click="ui.go({ name: 'shared' })"><Icon name="share" :size="18" /> Sons partagés</button>
       <button type="button" @click="ui.go({ name: 'appearance' })"><Icon name="brush" :size="18" /> Personnalisation</button>
       <button type="button" @click="ui.go({ name: 'settings' })"><Icon name="settings" :size="18" /> Réglages</button>
     </nav>

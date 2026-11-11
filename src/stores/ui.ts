@@ -19,6 +19,7 @@ export type Route =
   | { name: "appearance" }
   | { name: "profile" }
   | { name: "devices" }
+  | { name: "shared" }
   | { name: "stats" };
 
 export type SidePanel = "lyrics" | "queue" | null;

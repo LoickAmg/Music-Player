@@ -974,6 +974,91 @@ pub fn export_playlist(app: AppHandle, playlist_id: String) -> Result<Option<Str
 }
 
 // ---------------------------------------------------------------------
+// Colis : son joint à un message d'un proche. L'archive est préparée ici ; l'interface la
+// chiffre et la dépose sur le relais par morceaux (1 Mo au plus), le destinataire la reprend
+// de même puis l'importe. Seuls des fichiers du dossier des partages sont lus ou écrits.
+// ---------------------------------------------------------------------
+
+/// Morceau de colis lu ou écrit en une fois, au plus.
+const PARCEL_PIECE_MAX: u32 = 1024 * 1024;
+
+fn parcel_path(app: &AppHandle, name: &str) -> Result<PathBuf, String> {
+    let ok = !name.is_empty() && name.len() <= 80 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') && !name.contains("..");
+    if !ok {
+        return Err("Nom de colis invalide.".into());
+    }
+    Ok(share_temp_dir(app).ok_or("Dossier temporaire indisponible.")?.join(name))
+}
+
+#[derive(Serialize)]
+pub struct ParcelFile {
+    pub name: String,
+    pub size: u64,
+}
+
+/// Prépare l'archive d'un morceau à joindre à un message.
+#[tauri::command(async)]
+pub fn parcel_prepare(app: AppHandle, track_id: String) -> Result<ParcelFile, String> {
+    let state = app.state::<AppState>();
+    let name = format!("colis-{}.{}", uuid::Uuid::new_v4().simple(), sharing::EXTENSION);
+    let path = parcel_path(&app, &name)?;
+    sharing::export_track(&state, &path, &track_id)?;
+    let size = std::fs::metadata(&path).map_err(|e| e.to_string())?.len();
+    Ok(ParcelFile { name, size })
+}
+
+/// Lit un morceau d'un colis (base64).
+#[tauri::command(async)]
+pub fn parcel_read(app: AppHandle, name: String, offset: u64, len: u32) -> Result<String, String> {
+    use base64::Engine as _;
+    use std::io::{Read as _, Seek as _};
+    let mut file = std::fs::File::open(parcel_path(&app, &name)?).map_err(|e| e.to_string())?;
+    file.seek(std::io::SeekFrom::Start(offset)).map_err(|e| e.to_string())?;
+    let mut buf = Vec::with_capacity(len.min(PARCEL_PIECE_MAX) as usize);
+    file.take(u64::from(len.min(PARCEL_PIECE_MAX))).read_to_end(&mut buf).map_err(|e| e.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(buf))
+}
+
+/// Écrit un morceau reçu (base64) à la suite du colis (ou au début, `append` faux).
+#[tauri::command(async)]
+pub fn parcel_write(app: AppHandle, name: String, data: String, append: bool) -> Result<u64, String> {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.as_bytes()).map_err(|_| "Morceau de colis illisible.".to_string())?;
+    if bytes.len() > PARCEL_PIECE_MAX as usize {
+        return Err("Morceau de colis trop gros.".into());
+    }
+    let path = parcel_path(&app, &name)?;
+    let mut file = std::fs::OpenOptions::new().create(true).write(true).append(append).truncate(!append).open(&path).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    if std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0) > crate::transfer::MAX_SIZE {
+        let _ = std::fs::remove_file(&path);
+        return Err("Colis trop gros.".into());
+    }
+    Ok(bytes.len() as u64)
+}
+
+/// Importe un colis reçu (rangé dans Musique/Music Player/Reçus), puis l'efface.
+#[tauri::command(async)]
+pub fn parcel_import(app: AppHandle, name: String) -> Result<ImportResult, String> {
+    let path = parcel_path(&app, &name)?;
+    let state = app.state::<AppState>();
+    let result = sharing::import_bundle(&state, &path);
+    let _ = std::fs::remove_file(&path);
+    let result = result?;
+    let _ = app.emit("library-updated", state.library.locked().clone());
+    Ok(result)
+}
+
+/// Efface un colis du dossier des partages (envoyé, ou réception abandonnée).
+#[tauri::command]
+pub fn parcel_forget(app: AppHandle, name: String) {
+    if let Ok(path) = parcel_path(&app, &name) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+// ---------------------------------------------------------------------
 // Sauvegarde (fichier .mpsave : playlists, titres aimés, écoute, réglages)
 // ---------------------------------------------------------------------
 

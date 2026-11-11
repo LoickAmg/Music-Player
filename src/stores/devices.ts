@@ -256,6 +256,8 @@ export const useDevicesStore = defineStore("devices", {
       if (peer) {
         this.mark(c.id, { state: "envoi", code: null });
         const tid = share.sendNearbyItem(peer, item, label);
+        const sent = share.byId(tid);
+        if (sent) sent.meta = { who: peer.name, via: "appareils" };
         this.working[c.id] = tid;
         return;
       }
@@ -267,21 +269,28 @@ export const useDevicesStore = defineStore("devices", {
         return;
       }
       this.working[c.id] = started.id;
+      const sent = share.byId(started.id);
+      if (sent) sent.meta = { who: this.devices.find((d) => d.id === c.from)?.name, via: "appareils" };
       this.mark(c.id, { state: "envoi", code: started.code });
     },
     async receive(c: CopyRequest) {
       const share = useShareStore();
-      const t = share.receiveRemoteTracked(c.code!, `Copie depuis ${this.devices.find((d) => d.id === c.to)?.name ?? "un autre appareil"}`);
+      const from = this.devices.find((d) => d.id === c.to)?.name ?? "Mon autre appareil";
+      const t = share.receiveRemoteTracked(c.code!, `Copie depuis ${from}`);
+      t.meta = { who: from, via: "appareils" };
       this.working[c.id] = t.id;
     },
     /** Envoi d'un voisin : accepté sans question s'il porte le jeton d'une de mes demandes. */
     claimOffer(offer: ShareOffer): boolean {
       return offer.kind === "copie" && this.copies.some((c) => c.from === this.myId && c.token === offer.name && (c.state === "attente" || c.state === "envoi"));
     },
-    /** Copie reçue par le Wi-Fi : la demande est remplie. */
-    onReceived(name: string) {
+    /** Copie reçue par le Wi-Fi : la demande est remplie. Renvoie le nom de l'appareil d'origine
+     *  (pour l'historique), ou null si ce n'était pas une de mes copies. */
+    onReceived(name: string): string | null {
       const c = this.copies.find((x) => x.from === this.myId && x.token === name);
-      if (c && c.state !== "fini") this.mark(c.id, { state: "fini", message: null });
+      if (!c) return null;
+      if (c.state !== "fini") this.mark(c.id, { state: "fini", message: null });
+      return this.devices.find((d) => d.id === c.to)?.name ?? "Mon autre appareil";
     },
 
     /** Vérifications rapprochées tant qu'une copie me concerne. */

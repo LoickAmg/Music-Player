@@ -19,6 +19,10 @@ class_name = "Zone"
 name = "AVIS"
 class_name = "Avis"
 
+[[durable_objects.bindings]]
+name = "COLIS"
+class_name = "Colis"
+
 # Durable Objects « SQLite » : disponibles avec l'offre gratuite de Cloudflare Workers.
 [[migrations]]
 tag = "v1"
@@ -33,6 +37,11 @@ new_sqlite_classes = ["Profil", "Zone"]
 [[migrations]]
 tag = "v3"
 new_sqlite_classes = ["Avis"]
+
+# Colis : sons joints aux messages entre proches (chiffrés, 7 jours au plus).
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["Colis"]
 
 # Code administrateur des avis : seule son empreinte SHA-256 est ici (le code reste chez
 # l'administrateur, %USERPROFILE%\.music-player-avis\code-admin.txt).

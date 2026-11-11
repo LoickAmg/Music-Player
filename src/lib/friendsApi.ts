@@ -53,8 +53,17 @@ export interface Message {
 }
 
 /** Morceau ou playlist joint à un mot (décrits, jamais de fichier). */
+/** Son joint à un message : déposé chiffré sur le relais (7 jours), clé dans le message. */
+export interface ParcelRef {
+  id: string;
+  /** Clé AES-256 (base64) : seuls l'expéditeur et le destinataire la connaissent. */
+  cle: string;
+  /** Taille de l'archive (octets). */
+  taille: number;
+}
+
 export type Piece =
-  | { type: "morceau"; titre: string; artiste: string; album: string }
+  | { type: "morceau"; titre: string; artiste: string; album: string; colis?: ParcelRef | null }
   | { type: "playlist"; nom: string; morceaux: { titre: string; artiste: string; album: string }[] };
 
 /** Mot reçu d'un proche (messagerie). */
@@ -141,6 +150,11 @@ export const relay = {
   /** Efface tout ce que le relais garde de ce profil. */
   erase: (base: string, code: string, secret: string) => call<{ ok: true }>(base, `/v1/profil/${code}/effacer`, { secret }),
   card: (base: string, code: string) => call<Card>(base, `/v1/profil/${code}/carte`),
+  /** Colis (son joint à un message) : dépôt d'un morceau chiffré, état, lecture. */
+  parcelPut: (base: string, id: string, body: { de: string; secret: string; n: number; total: number; data: string }) =>
+    call<{ recus: number; total: number }>(base, `/v1/colis/${id}/deposer`, body),
+  parcelState: (base: string, id: string) => call<{ recus: number; total: number; complet: boolean }>(base, `/v1/colis/${id}/etat`, {}),
+  parcelRead: (base: string, id: string, n: number) => call<{ data: string; total: number }>(base, `/v1/colis/${id}/lire`, { n }),
   setStatus: (base: string, code: string, secret: string, statut: Omit<Presence, "at"> | null) =>
     call<{ ok: true }>(base, `/v1/profil/${code}/statut`, { secret, statut }),
   grant: (base: string, code: string, secret: string, lecteur: string, token: string) =>
