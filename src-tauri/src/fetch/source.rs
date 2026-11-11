@@ -168,7 +168,7 @@ pub fn safe_output_path(
 /// Sous Windows, `canonicalize` renvoie un chemin préfixé par `\\?\` : un autre chemin que celui
 /// trouvé par le scan de la bibliothèque (morceau en double), et mal compris de certains outils.
 /// On revient à la forme habituelle (`C:\…`, `\\serveur\partage\…`).
-fn plain_path(path: PathBuf) -> PathBuf {
+pub(crate) fn plain_path(path: PathBuf) -> PathBuf {
     let text = path.to_string_lossy();
     if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
         return PathBuf::from(format!(r"\\{rest}"));
