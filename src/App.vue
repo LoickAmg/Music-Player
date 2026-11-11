@@ -258,8 +258,11 @@ let cardTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   () => [appearance.settings.profile.name, appearance.settings.profile.avatar],
   () => {
+    // Changement fait ici (pas une carte reprise d'un autre appareil) : publié 2 s plus tard.
+    if (friends.adoptingCard) return;
+    friends.markCardDirty();
     if (cardTimer) clearTimeout(cardTimer);
-    cardTimer = setTimeout(() => void friends.refreshCard(), 2000);
+    cardTimer = setTimeout(() => void friends.syncCard(), 2000);
   },
 );
 // Appareils liés : un changement ici est publié quelques secondes plus tard.

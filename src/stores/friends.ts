@@ -1,4 +1,5 @@
 import { defineStore } from "pinia";
+import { nextTick } from "vue";
 import {
   type Card,
   hex,
@@ -97,6 +98,10 @@ interface Saved {
   /** Journal du profil déjà lu (date) et dernières entrées vues (plusieurs appareils). */
   cursor: number;
   seen: string[];
+  /** Nom ou photo changés ici depuis la dernière publication de la carte d'ami. */
+  cardDirty: boolean;
+  /** Dernière carte publiée ou reprise par cet appareil : un écart vient d'un autre appareil. */
+  cardSeen: { nom: string; avatar: string | null } | null;
 }
 
 function load(): Saved {
@@ -110,6 +115,8 @@ function load(): Saved {
     incoming: [],
     cursor: 0,
     seen: [],
+    cardDirty: false,
+    cardSeen: null,
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -124,6 +131,7 @@ let lastInbox = 0;
 let lastFriends = 0;
 let lastPublish = 0;
 let lastAnnounce = 0;
+let lastCard = 0;
 let publishedKey = "";
 
 export const useFriendsStore = defineStore("friends", {
@@ -138,6 +146,8 @@ export const useFriendsStore = defineStore("friends", {
     zone: null as { label: string | null; profiles: Card[] } | null,
     error: null as string | null,
     busy: false,
+    /** Carte reprise d'un autre appareil en cours d'application (pas une modification d'ici). */
+    adoptingCard: false,
   }),
   getters: {
     base(): string | null {
@@ -170,6 +180,8 @@ export const useFriendsStore = defineStore("friends", {
         incoming: this.incoming,
         cursor: this.cursor,
         seen: this.seen,
+        cardDirty: this.cardDirty,
+        cardSeen: this.cardSeen,
       };
       try {
         localStorage.setItem(KEY, JSON.stringify(saved));
@@ -216,6 +228,9 @@ export const useFriendsStore = defineStore("friends", {
       this.incoming = saved.incoming ?? [];
       this.cursor = 0;
       this.seen = [];
+      // Carte d'ami : celle du profil rejoint est reprise (cet appareil n'y a rien changé).
+      this.cardSeen = null;
+      this.cardDirty = false;
       if (words?.conversations) this.conversations = words.conversations;
       if (words?.unread) this.unread = words.unread;
       this.save();
@@ -236,6 +251,8 @@ export const useFriendsStore = defineStore("friends", {
       this.unread = {};
       this.cursor = 0;
       this.seen = [];
+      this.cardSeen = null;
+      this.cardDirty = false;
       this.save();
       this.saveWords();
       this.watchInBackground();
@@ -244,12 +261,19 @@ export const useFriendsStore = defineStore("friends", {
     /** Profil sur le relais (code d'ami nouveau si déjà pris), sans activer les Proches. */
     async ensureProfile(): Promise<{ code: string; secret: string }> {
       if (!this.base) throw new RelayError("Aucun relais configuré (Réglages → Partage).", 0);
+      // Profil existant : la carte du relais est commune à mes appareils, on ne l'écrase pas.
+      if (this.me) {
+        await this.syncCard(true);
+        return this.me;
+      }
       const card = await this.myCard();
       for (let attempt = 0; ; attempt++) {
         const me = this.me ?? { code: newCode(), secret: hex(32) };
         try {
           await relay.saveProfile(this.base, me.code, me.secret, card.nom, card.avatar, await publicKey(me.secret));
           this.me = me;
+          this.cardSeen = { nom: card.nom, avatar: card.avatar };
+          this.cardDirty = false;
           this.save();
           return me;
         } catch (e) {
@@ -289,11 +313,77 @@ export const useFriendsStore = defineStore("friends", {
       this.watchInBackground();
       useShareStore().setFriendCode(null);
     },
-    /** Nom ou photo du profil modifiés : carte d'ami mise à jour. */
-    async refreshCard() {
-      if (!this.enabled || !this.me || !this.base) return;
-      const card = await this.myCard();
-      await relay.saveProfile(this.base, this.me.code, this.me.secret, card.nom, card.avatar, await publicKey(this.me.secret)).catch(() => {});
+    /** Nom ou photo changés sur cet appareil : la carte d'ami suivra. */
+    markCardDirty() {
+      if (this.adoptingCard) return;
+      this.cardDirty = true;
+      this.save();
+    },
+    /**
+     * Carte d'ami (nom, photo) : la même sur tous mes appareils. Le relais garde la dernière
+     * publiée. Un changement fait ici la remplace ; sinon, celle du relais est reprise (venue
+     * d'un autre appareil, ou appareil tout juste lié, sans nom ni photo). Un appareil vide
+     * n'écrase donc jamais la carte des autres.
+     */
+    async syncCard(force = false) {
+      if (!this.me || !this.base || (!this.enabled && !force)) return;
+      const { base, me } = { base: this.base, me: this.me };
+      let card: Card | null = null;
+      try {
+        card = await relay.card(base, me.code);
+      } catch (e) {
+        if (!(e instanceof RelayError && e.status === 404)) return; // hors ligne : plus tard
+      }
+      const appearance = useAppearanceStore();
+      const local = appearance.settings.profile;
+      const localEmpty = !local.name.trim() && !local.avatar;
+      const blank = (c: { nom: string; avatar: string | null }) => (!c.nom || c.nom === "Music Player") && !c.avatar;
+      const publish = async () => {
+        const mine = await this.myCard();
+        await relay.saveProfile(base, me.code, me.secret, mine.nom, mine.avatar, await publicKey(me.secret));
+        this.cardSeen = { nom: mine.nom, avatar: mine.avatar };
+        this.cardDirty = false;
+        this.save();
+      };
+      try {
+        if (!card) return await publish();
+        const seen = this.cardSeen;
+        const fromElsewhere = !seen || seen.nom !== card.nom || seen.avatar !== card.avatar;
+        if (this.cardDirty && !localEmpty) return await publish();
+        // Carte vide sur le relais (écrasée par un appareil sans nom) : celle d'ici la répare.
+        if (blank(card) && !localEmpty) return await publish();
+        if (!blank(card) && (fromElsewhere || localEmpty)) {
+          await this.adoptCard(card);
+          if (!card.cle) await publish();
+          return;
+        }
+        if (!card.cle) await publish();
+      } catch {
+        // Relais injoignable : nouvel essai au prochain tour.
+      }
+    },
+    /** Reprend le nom et la photo de la carte d'ami (venus d'un autre de mes appareils). */
+    async adoptCard(card: Card) {
+      const appearance = useAppearanceStore();
+      const seen = this.cardSeen;
+      this.adoptingCard = true;
+      try {
+        const name = card.nom === "Music Player" ? "" : card.nom.slice(0, 40);
+        if (name !== appearance.settings.profile.name) {
+          appearance.settings.profile = { ...appearance.settings.profile, name };
+          appearance.changed();
+        }
+        if (card.avatar !== (seen?.avatar ?? null) || !appearance.settings.profile.avatar) {
+          const blob = card.avatar ? await fetch(card.avatar).then((r) => r.blob()).catch(() => null) : null;
+          if (blob || !card.avatar) await appearance.setAvatar(blob);
+        }
+        this.cardSeen = { nom: card.nom, avatar: card.avatar };
+        this.cardDirty = false;
+        this.save();
+        await nextTick();
+      } finally {
+        this.adoptingCard = false;
+      }
     },
 
     async findProfile(code: string): Promise<Card | null> {
@@ -639,6 +729,11 @@ export const useFriendsStore = defineStore("friends", {
         void this.pollInbox();
       }
       void this.publish();
+      // Nom ou photo changés sur un autre de mes appareils.
+      if (now - lastCard >= (hidden ? 600_000 : 120_000)) {
+        lastCard = now;
+        void this.syncCard();
+      }
       if (this.zoneVisible && now - lastAnnounce >= 5 * 60_000 && this.me && this.base) {
         lastAnnounce = now;
         void relay.announce(this.base, this.me.code, this.me.secret, true).catch(() => {});
@@ -649,8 +744,9 @@ export const useFriendsStore = defineStore("friends", {
       lastFriends = lastInbox = 0;
       timer = setInterval(() => this.tick(), 4_000);
       this.tick();
-      // Profils d'avant le chiffrement : la clé publique rejoint la carte d'ami.
-      void this.refreshCard();
+      // Carte d'ami commune à mes appareils (et clé publique des profils d'avant le chiffrement).
+      lastCard = Date.now();
+      void this.syncCard();
     },
     stop() {
       if (timer) clearInterval(timer);
