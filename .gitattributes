@@ -1,0 +1,2 @@
+# Scripts shell : fins de ligne Unix partout (les machines Windows de la CI les convertiraient).
+*.sh text eol=lf
