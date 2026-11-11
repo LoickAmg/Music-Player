@@ -2,10 +2,12 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod common;
 pub mod matching;
 pub mod queue;
 pub mod source;
 pub mod spotdl;
+pub mod ytdlp;
 
 /// Morceau à télécharger, tel que la personne l'a demandé (import Spotify, sélection…).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
