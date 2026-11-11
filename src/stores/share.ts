@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { api } from "@/lib/api";
 import { transferNotice, transferNoticeDone } from "@/lib/androidMedia";
+import { useDevicesStore } from "./devices";
 import { usePlaylistsStore } from "./playlists";
 import type { NearbyPeer, ShareImportResult, ShareItem, ShareOffer, TransferProgress } from "@/lib/types";
 
@@ -109,6 +110,12 @@ export const useShareStore = defineStore("share", {
         this.defaultRelay = null;
       }
       await this.setDeviceName(deviceName);
+      // Morceaux reçus déplacés dans « Musique/Music Player/Reçus » : nouveaux identifiants.
+      const moved = new Map(await api.takeMovedTracks().catch(() => [] as [string, string][]));
+      if (moved.size) {
+        this.shared = this.shared.map((s) => ({ ...s, id: moved.get(s.id) ?? s.id }));
+        write(SHARED_KEY, JSON.stringify(this.shared));
+      }
     },
     /** Nom affiché aux voisins (nom du profil) ; relance la visibilité si besoin. */
     async setDeviceName(name: string) {
@@ -149,6 +156,7 @@ export const useShareStore = defineStore("share", {
     /** Morceaux d'un élément partagé. */
     idsOf(item: ShareItem): string[] {
       if (item.kind === "track") return [item.id];
+      if (item.kind === "copy") return (item.id.split("|")[1] ?? "").split(",").filter(Boolean);
       return item.kind === "playlist" ? (usePlaylistsStore().byId(item.id)?.track_ids ?? []) : [];
     },
 
@@ -248,22 +256,29 @@ export const useShareStore = defineStore("share", {
     /** Envoi à un appareil voisin. */
     async sendNearby(peer: NearbyPeer) {
       if (!this.sharing) return;
-      const item: ShareItem = { kind: this.sharing.kind, id: this.sharing.id };
-      const t = this.track({
-        id: newId(),
-        direction: "envoi",
-        label: this.sharing.name,
-        peer: peer.name,
-        code: null,
+      const id = this.sendNearbyItem(peer, { kind: this.sharing.kind, id: this.sharing.id }, this.sharing.name);
+      await new Promise<void>((resolve) => {
+        const stop = setInterval(() => {
+          const t = this.byId(id);
+          if (!t || !isRunning(t)) {
+            clearInterval(stop);
+            resolve();
+          }
+        }, 300);
       });
+    },
+    /** Envoi à un voisin, suivi par son identifiant (l'envoi continue en arrière-plan). */
+    sendNearbyItem(peer: NearbyPeer, item: ShareItem, label: string): string {
+      const t = this.track({ id: newId(), direction: "envoi", label, peer: peer.name, code: null });
       t.trackIds = this.idsOf(item);
-      try {
-        await api.nearbySend(peer, item, this.deviceName, t.id);
-        this.finish(t.id, "fini", null);
-      } catch (e) {
-        const message = String(e);
-        this.finish(t.id, message.includes("refusé") ? "refuse" : "erreur", message);
-      }
+      api.nearbySend(peer, item, this.deviceName, t.id).then(
+        () => this.finish(t.id, "fini", null),
+        (e) => {
+          const message = String(e);
+          this.finish(t.id, message.includes("refusé") ? "refuse" : "erreur", message);
+        },
+      );
+      return t.id;
     },
     /** Envoi à distance : renvoie le code à transmettre (l'envoi attend en arrière-plan). */
     async sendRemote(): Promise<string | null> {
@@ -271,6 +286,11 @@ export const useShareStore = defineStore("share", {
       return this.sendRemoteItem({ kind: this.sharing.kind, id: this.sharing.id }, this.sharing.name);
     },
     async sendRemoteItem(item: ShareItem, label: string): Promise<string | null> {
+      return (await this.sendRemoteItemTracked(item, label))?.code ?? null;
+    },
+    /** Envoi à distance suivi : identifiant du transfert et code, ou null si l'envoi n'a pas pu
+     *  commencer. */
+    async sendRemoteItemTracked(item: ShareItem, label: string): Promise<{ id: string; code: string } | null> {
       const t = this.track({
         id: newId(),
         direction: "envoi",
@@ -282,7 +302,7 @@ export const useShareStore = defineStore("share", {
       try {
         const { code } = await api.remoteSendStart(item, this.deviceName, this.relay.trim() || null, t.id);
         t.code = code;
-        return code;
+        return { id: t.id, code };
       } catch (e) {
         this.finish(t.id, "erreur", String(e));
         return null;
@@ -290,26 +310,48 @@ export const useShareStore = defineStore("share", {
     },
     /** Réception avec un code saisi. */
     async receiveRemote(code: string): Promise<Transfer> {
+      const t = this.receiveRemoteTracked(code, "");
+      await new Promise<void>((resolve) => {
+        const stop = setInterval(() => {
+          if (!isRunning(t) && (t.result || t.progress.stage !== "attente")) {
+            clearInterval(stop);
+            resolve();
+          }
+        }, 300);
+      });
+      return t;
+    },
+    /** Réception suivie : le transfert, qui continue en arrière-plan. */
+    receiveRemoteTracked(code: string, label: string): Transfer {
       const t = this.track({
         id: newId(),
         direction: "reception",
-        label: "",
+        label,
         peer: null,
         code: code.trim(),
       });
+      void this.runReceive(t, code);
+      return t;
+    },
+    async runReceive(t: Transfer, code: string) {
       try {
         t.result = await api.remoteReceive(code, this.relay.trim() || null, t.id);
-        t.label = t.result.name;
+        if (!t.label || t.result.kind !== "track") t.label = t.result.name;
         this.noteShared(t.result.track_ids, "recu");
         this.finish(t.id, "fini", null);
       } catch (e) {
         this.finish(t.id, "erreur", String(e));
       }
-      return t;
     },
 
     /** Envoi proposé par un voisin : en attente de réponse. */
     onOffer(id: string, offer: ShareOffer) {
+      // Copie demandée par cet appareil à un autre des miens : acceptée sans question.
+      if (useDevicesStore().claimOffer(offer)) {
+        this.offers.push({ id, offer: { ...offer, name: `Copie depuis ${offer.from}` } });
+        void this.answer(id, true);
+        return;
+      }
       this.offers.push({ id, offer });
     },
     async answer(id: string, accept: boolean) {
@@ -328,6 +370,7 @@ export const useShareStore = defineStore("share", {
     },
     onReceived(result: ShareImportResult) {
       this.noteShared(result.track_ids, "recu");
+      useDevicesStore().onReceived(result.name);
       const t = this.transfers.find((x) => x.direction === "reception" && !x.result && x.label === result.name);
       if (t) t.result = result;
     },

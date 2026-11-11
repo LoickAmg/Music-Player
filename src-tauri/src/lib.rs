@@ -58,8 +58,12 @@ pub fn run() {
             #[cfg(desktop)]
             default_app::set_pending(default_app::file_from_args(&std::env::args().collect::<Vec<_>>()));
 
-            let state = AppState::new(data_dir.clone());
+            let mut state = AppState::new(data_dir.clone());
+            state.music_dir = sharing::public_music_dir(app.path().audio_dir().ok());
             let library_root = commands::restore_state(&state, &data_dir);
+            // Morceaux reçus avant la 0.5.16, cachés dans le dossier privé : rangés dans le
+            // dossier visible, avant le scan qui les y retrouvera.
+            sharing::remember_moved(sharing::move_received(&state));
             app.manage(state);
 
             // La bibliothèque s'affiche aussitôt depuis le cache ; le rescan (nouveaux
@@ -202,6 +206,8 @@ pub fn run() {
             commands::remote_send_start,
             commands::remote_receive,
             commands::transfer_cancel,
+            commands::take_moved_tracks,
+            commands::device_identity,
             updater::check_update,
             updater::install_update,
         ])

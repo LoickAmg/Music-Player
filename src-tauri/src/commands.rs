@@ -107,7 +107,7 @@ pub fn run_scan(app: &AppHandle, root: &str) -> Result<Vec<Track>, String> {
         Vec::new()
     };
     // Morceaux reçus par partage : hors du dossier de musique, mais dans la bibliothèque.
-    let extras = [crate::sharing::imports_dir(&state.data_dir)];
+    let extras = [crate::sharing::received_dir(&state), crate::sharing::imports_dir(&state.data_dir)];
     let tracks = library::scan_library_with_extras(Path::new(root), &extras, &previous, |done, total| {
         let _ = app.emit("scan-progress", ScanProgress { done, total });
     });
@@ -1071,6 +1071,12 @@ pub fn nearby_stop() {
     crate::nearby::stop();
 }
 
+/// Identifiant de cet appareil (le même que celui annoncé aux voisins du Wi-Fi).
+#[tauri::command]
+pub fn device_identity(state: State<AppState>) -> String {
+    crate::nearby::device_id(&state.data_dir)
+}
+
 /// Appareils avec Music Player ouvert sur le même réseau.
 #[tauri::command(async)]
 pub fn nearby_scan(app: AppHandle) -> Result<Vec<crate::nearby::Peer>, String> {
@@ -1191,6 +1197,12 @@ pub fn remote_receive(
     let _ = std::fs::remove_file(&dest);
     finish_report(&app, &transfer_id, &result.as_ref().map(|_| ()).map_err(Clone::clone));
     result
+}
+
+/// Morceaux reçus déplacés au démarrage (ancien identifiant, nouveau), une seule fois.
+#[tauri::command]
+pub fn take_moved_tracks() -> Vec<(String, String)> {
+    sharing::take_moved()
 }
 
 /// Annule un envoi ou une réception en cours.

@@ -18,6 +18,7 @@ export type Route =
   | { name: "settings" }
   | { name: "appearance" }
   | { name: "profile" }
+  | { name: "devices" }
   | { name: "stats" };
 
 export type SidePanel = "lyrics" | "queue" | null;

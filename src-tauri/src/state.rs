@@ -40,6 +40,9 @@ pub struct AppState {
     /// Dossier de données de l'app, où vivent `playlists.json`, `session.json`,
     /// `library.json` et les caches de pochettes et de paroles.
     pub data_dir: PathBuf,
+    /// Dossier « Musique » de l'appareil, visible des autres applis : les morceaux reçus y
+    /// sont rangés (voir `sharing::received_dir`). Inconnu : dossier privé de l'appli.
+    pub music_dir: Option<PathBuf>,
 }
 
 impl AppState {
@@ -57,6 +60,7 @@ impl AppState {
             volume: Mutex::new(1.0),
             resume_at: Mutex::new(0.0),
             data_dir,
+            music_dir: None,
         }
     }
 

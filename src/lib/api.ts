@@ -151,6 +151,10 @@ export const api = {
   remoteReceive: (code: string, relay: string | null, transferId: string) =>
     invoke<ShareImportResult>("remote_receive", { code, relay, transferId }),
   transferCancel: (id: string) => invoke<void>("transfer_cancel", { id }),
+  /** Morceaux reçus rangés dans le dossier visible au démarrage : [ancien id, nouveau]. */
+  takeMovedTracks: () => invoke<[string, string][]>("take_moved_tracks"),
+  /** Identifiant de cet appareil (celui annoncé aux voisins du Wi-Fi). */
+  deviceIdentity: () => invoke<string>("device_identity"),
 
   getInitialState: () => invoke<InitialState>("get_initial_state"),
   saveSession: () => invoke<void>("save_session"),

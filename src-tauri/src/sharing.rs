@@ -137,6 +137,20 @@ pub fn export_track(state: &AppState, dest: &Path, track_id: &str) -> Result<(),
     write_bundle(dest, "track", &name, None, std::slice::from_ref(&track))
 }
 
+/// Exporte plusieurs morceaux d'un coup (copie vers un autre de mes appareils). Ceux qui ne
+/// sont plus dans la bibliothèque sont ignorés.
+pub fn export_tracks(state: &AppState, dest: &Path, name: &str, track_ids: &[String]) -> Result<usize, String> {
+    let tracks: Vec<Track> = {
+        let library = state.library.locked();
+        track_ids.iter().filter_map(|id| library.iter().find(|t| &t.id == id).cloned()).collect()
+    };
+    if tracks.is_empty() {
+        return Err("Aucun de ces morceaux n'est encore sur cet appareil.".to_string());
+    }
+    write_bundle(dest, "track", name, None, &tracks)?;
+    Ok(tracks.len())
+}
+
 /// Exporte une playlist entière (ses morceaux encore présents dans la bibliothèque).
 pub fn export_playlist(state: &AppState, dest: &Path, playlist_id: &str) -> Result<(), String> {
     // Un verrou à la fois : tenir celui des playlists en prenant celui de la bibliothèque pourrait
@@ -156,9 +170,136 @@ pub fn export_playlist(state: &AppState, dest: &Path, playlist_id: &str) -> Resu
     write_bundle(dest, "playlist", &name, theme, &tracks)
 }
 
-/// Dossier des morceaux reçus par partage, ajouté aux dossiers parcourus par le scan.
+/// Ancien dossier des morceaux reçus (privé, invisible hors de l'appli) : repli quand le
+/// dossier visible n'est pas accessible, et parcouru par le scan.
 pub fn imports_dir(data_dir: &Path) -> PathBuf {
     data_dir.join("importes")
+}
+
+/// Dossier « Musique » public de l'appareil. Android : celui du stockage partagé (le dossier
+/// « Music » propre à l'appli, que donne Tauri, est invisible des autres applis).
+pub fn public_music_dir(desktop: Option<PathBuf>) -> Option<PathBuf> {
+    if cfg!(target_os = "android") {
+        let root = std::env::var_os("EXTERNAL_STORAGE").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/storage/emulated/0"));
+        return Some(root.join("Music"));
+    }
+    desktop
+}
+
+/// Dossier des morceaux reçus : « Musique/Music Player/Reçus », visible dans le gestionnaire
+/// de fichiers et les autres lecteurs. Repli sur le dossier privé si l'écriture y est refusée
+/// (Android 10 sans la permission, par exemple).
+pub fn received_dir(state: &AppState) -> PathBuf {
+    if let Some(music) = &state.music_dir {
+        let dir = music.join("Music Player").join("Reçus");
+        if writable(&dir) {
+            return dir;
+        }
+    }
+    imports_dir(&state.data_dir)
+}
+
+fn writable(dir: &Path) -> bool {
+    if fs::create_dir_all(dir).is_err() {
+        return false;
+    }
+    let probe = dir.join(".ecriture");
+    let ok = fs::write(&probe, b"").is_ok();
+    let _ = fs::remove_file(&probe);
+    ok
+}
+
+/// Déplace (ou copie puis efface, d'un stockage à l'autre) un fichier vers `dir`, sous un nom
+/// libre ; renvoie son nouveau chemin.
+fn move_into(source: &Path, dir: &Path) -> std::io::Result<PathBuf> {
+    let stem = source.file_stem().and_then(|s| s.to_str()).unwrap_or("Morceau").to_string();
+    let ext = source.extension().and_then(|e| e.to_str()).unwrap_or("audio").to_string();
+    let mut dest = dir.join(format!("{stem}.{ext}"));
+    let mut n = 1;
+    while dest.exists() {
+        dest = dir.join(format!("{stem} ({n}).{ext}"));
+        n += 1;
+    }
+    if fs::rename(source, &dest).is_err() {
+        fs::copy(source, &dest)?;
+        fs::remove_file(source)?;
+    }
+    Ok(dest)
+}
+
+/// Identifiants changés au démarrage, repris une fois par l'interface (« Reçus récemment »).
+static MOVED: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn remember_moved(moved: Vec<(String, String)>) {
+    MOVED.locked().extend(moved);
+}
+
+pub fn take_moved() -> Vec<(String, String)> {
+    std::mem::take(&mut *MOVED.locked())
+}
+
+/// Range dans le dossier visible les morceaux reçus avant la 0.5.16 (dossier privé). Les
+/// identifiants (tirés du chemin) changent : playlists et titres aimés sont mis à jour.
+/// Renvoie les paires (ancien identifiant, nouveau).
+pub fn move_received(state: &AppState) -> Vec<(String, String)> {
+    let old_dir = imports_dir(&state.data_dir);
+    let new_dir = received_dir(state);
+    if new_dir == old_dir || !old_dir.is_dir() {
+        return Vec::new();
+    }
+    let Ok(entries) = fs::read_dir(&old_dir) else { return Vec::new() };
+    let mut moved = Vec::new();
+    {
+        let mut library = state.library.locked();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() || !library::is_supported(&path) {
+                continue;
+            }
+            let Ok(dest) = move_into(&path, &new_dir) else { continue };
+            let old_id = library::track_id_for_path(&path);
+            let new_id = library::track_id_for_path(&dest);
+            if let Some(track) = library.iter_mut().find(|t| t.id == old_id) {
+                track.id = new_id.clone();
+                track.path = dest.to_string_lossy().to_string();
+            }
+            moved.push((old_id, new_id));
+        }
+    }
+    if moved.is_empty() {
+        return moved;
+    }
+    let rename = |id: &mut String| {
+        if let Some((_, new)) = moved.iter().find(|(old, _)| old == id) {
+            *id = new.clone();
+        }
+    };
+    {
+        let mut playlists = state.playlists.locked();
+        for p in playlists.playlists.iter_mut() {
+            p.track_ids.iter_mut().for_each(rename);
+        }
+        let _ = playlists.save(&state.playlists_path());
+    }
+    {
+        let mut favorites = state.favorites.locked();
+        let ids: Vec<String> = favorites.track_ids.iter().cloned().collect();
+        for mut id in ids {
+            let before = id.clone();
+            rename(&mut id);
+            if id != before {
+                favorites.track_ids.remove(&before);
+                favorites.track_ids.insert(id);
+            }
+        }
+        let _ = favorites.save(&state.favorites_path());
+    }
+    if let Some(root) = state.library_root.locked().clone() {
+        let tracks = state.library.locked().clone();
+        let _ = library::save_cache(&state.library_cache_path(), &root, &tracks);
+    }
+    let _ = fs::remove_dir(&old_dir);
+    moved
 }
 
 /// Importe une archive de partage : copie les fichiers audio dans un dossier dédié du
@@ -183,7 +324,7 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
     let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
 
     // Dossier où les morceaux importés sont enregistrés (persistant, parcouru à chaque scan).
-    let dest_dir = imports_dir(&state.data_dir);
+    let dest_dir = received_dir(state);
     fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
 
     let mut imported_ids = Vec::new();
@@ -329,6 +470,45 @@ mod tests {
             added_secs: 0,
             damage: None,
         }
+    }
+
+    #[test]
+    fn received_tracks_move_to_the_visible_folder_and_keep_their_playlists() {
+        let data = tempfile::tempdir().unwrap();
+        let music = tempfile::tempdir().unwrap();
+        let mut state = make_state(data.path());
+        // Avant la 0.5.16 : le morceau reçu est caché dans le dossier privé.
+        let old_dir = imports_dir(data.path());
+        fs::create_dir_all(&old_dir).unwrap();
+        let track = track_at(write_audio(&old_dir, "A - Lemon.mp3"), "Lemon", "A");
+        let old_id = track.id.clone();
+        state.library.locked().push(track);
+        let pl = state.playlists.locked().create("Funk".into(), None);
+        state.playlists.locked().add_track(&pl, old_id.clone()).unwrap();
+        state.favorites.locked().toggle(&old_id);
+
+        state.music_dir = Some(music.path().to_path_buf());
+        let moved = move_received(&state);
+
+        let visible = music.path().join("Music Player").join("Reçus").join("A - Lemon.mp3");
+        assert!(visible.is_file(), "le fichier est dans Musique/Music Player/Reçus");
+        assert!(!old_dir.exists(), "l'ancien dossier privé est vidé puis retiré");
+        let new_id = library::track_id_for_path(&visible);
+        assert_eq!(moved, vec![(old_id.clone(), new_id.clone())]);
+        assert_eq!(state.library.locked()[0].path, visible.to_string_lossy());
+        assert_eq!(state.playlists.locked().get(&pl).unwrap().track_ids, vec![new_id.clone()]);
+        assert!(state.favorites.locked().is_favorite(&new_id));
+        assert!(!state.favorites.locked().is_favorite(&old_id));
+        // Deuxième lancement : plus rien à déplacer.
+        assert!(move_received(&state).is_empty());
+    }
+
+    #[test]
+    fn without_a_visible_folder_received_tracks_stay_private() {
+        let data = tempfile::tempdir().unwrap();
+        let state = make_state(data.path());
+        assert_eq!(received_dir(&state), imports_dir(data.path()));
+        assert!(move_received(&state).is_empty());
     }
 
     #[test]

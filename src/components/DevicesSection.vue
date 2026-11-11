@@ -68,6 +68,9 @@ function leave() {
       Vos playlists, titres aimés et écoute restent identiques sur vos appareils liés, suppressions comprises. Dernière synchronisation :
       {{ last }}.
     </p>
+    <button v-if="sync.linked" type="button" class="pill pill-ghost devices-link" @click="ui.go({ name: 'devices' })">
+      <Icon name="phone" :size="15" /> Mes appareils : copier les morceaux de l'un à l'autre
+    </button>
     <p v-else class="muted">
       Reliez votre PC et votre téléphone une fois : playlists, titres aimés et écoute se synchronisent ensuite tout seuls, sans compte ni mot de
       passe. Vos proches et vos conversations vous suivent aussi. Tout est chiffré sur vos appareils : le relais n'y a pas accès.

@@ -58,7 +58,7 @@ const permissions = [
   '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
   '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
   // Suppression des doublons sur Android 9 et avant (ensuite : accord du système, MediaStore).
-  '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />',
+  '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />',
   '<uses-permission android:name="android.permission.WAKE_LOCK" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
   '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
@@ -251,6 +251,8 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
       else Manifest.permission.READ_EXTERNAL_STORAGE,
     )
     if (Build.VERSION.SDK_INT >= 33) wanted.add(Manifest.permission.POST_NOTIFICATIONS)
+    // Android 10 et avant : écrire les morceaux reçus dans Musique/Music Player/Reçus.
+    if (Build.VERSION.SDK_INT <= 29) wanted.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
     val missing = wanted.filter {
       ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
     }

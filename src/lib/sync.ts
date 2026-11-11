@@ -6,6 +6,7 @@
 // base). Ce qui était dans la base et manque d'un côté a été supprimé ; ce qui n'y était pas a
 // été ajouté. Les suppressions suivent donc d'un appareil à l'autre, sans date ni horloge.
 
+import { type CopyRequest, type DeviceInventory, mergeCopies, mergeDevices } from "./devices";
 import { LibraryMatcher } from "./spotifyImport";
 import type { BackupTrack } from "./backup";
 import { relay } from "./friendsApi";
@@ -27,6 +28,10 @@ export interface SyncDoc {
   playlists: SyncPlaylist[];
   favorites: BackupTrack[];
   listens: Listen[];
+  /** Mes appareils : la liste des morceaux de chacun (page « Mes appareils »). */
+  devices: DeviceInventory[];
+  /** Copies de morceaux demandées d'un appareil à l'autre. */
+  copies: CopyRequest[];
 }
 
 /** Ce que la base retient : pas l'écoute, qui ne fait que s'additionner. */
@@ -35,7 +40,7 @@ export type SyncBase = Pick<SyncDoc, "playlists" | "favorites">;
 export const EMPTY_BASE: SyncBase = { playlists: [], favorites: [] };
 
 export function emptyDoc(): SyncDoc {
-  return { format: "music-player-synchro", version: 1, playlists: [], favorites: [], listens: [] };
+  return { format: "music-player-synchro", version: 1, playlists: [], favorites: [], listens: [], devices: [], copies: [] };
 }
 
 export function parseDoc(text: string): SyncDoc {
@@ -102,6 +107,8 @@ export function mergeDocs(base: SyncBase, local: SyncDoc, remote: SyncDoc): Sync
     playlists,
     favorites: mergeSet(base.favorites, local.favorites, remote.favorites, trackKey),
     listens: [...local.listens, ...remote.listens.filter((l) => !known.has(listenKey(l)))],
+    devices: mergeDevices(local.devices ?? [], remote.devices ?? []),
+    copies: mergeCopies(local.copies ?? [], remote.copies ?? []),
   };
 }
 
@@ -135,6 +142,9 @@ export interface DeviceState {
   favoriteIds: string[];
   library: Track[];
   listens: Listen[];
+  /** Inventaire de cet appareil (et ceux des autres déjà connus), demandes de copie. */
+  devices?: DeviceInventory[];
+  copies?: CopyRequest[];
 }
 
 /** État de cet appareil, décrit par rapport à la base. */
@@ -156,6 +166,8 @@ export function localDoc(base: SyncBase, device: DeviceState): SyncDoc {
     }),
     favorites: localTracks(base.favorites, device.favoriteIds, matcher, byId),
     listens: device.listens,
+    devices: device.devices ?? [],
+    copies: device.copies ?? [],
   };
 }
 
@@ -253,6 +265,8 @@ export function sameDoc(a: SyncDoc, b: SyncDoc): boolean {
       p: [...d.playlists].map((p) => ({ ...p, tracks: p.tracks.map(trackKey).sort() })).sort((x, y) => x.name.localeCompare(y.name)),
       f: d.favorites.map(trackKey).sort(),
       l: d.listens.map(listenKey).sort(),
+      d: (d.devices ?? []).map((x) => `${x.id}:${x.at}:${x.name}`).sort(),
+      c: (d.copies ?? []).map((x) => `${x.id}:${x.state}:${x.code ?? ""}:${x.updated}`).sort(),
     });
   return norm(a) === norm(b);
 }

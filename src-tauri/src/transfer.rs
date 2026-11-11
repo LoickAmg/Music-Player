@@ -23,6 +23,9 @@ pub enum Item {
     Playlist(String),
     /// Sauvegarde (contenu JSON du .mpsave) : synchronisation avec un autre appareil.
     Backup(String),
+    /// Copie vers un autre de mes appareils : « jeton|id1,id2,… ». Le jeton (connu de mes seuls
+    /// appareils, par l'état synchronisé chiffré) permet au destinataire d'accepter seul.
+    Copy(String),
 }
 
 /// Description d'un envoi, montrée à la personne qui reçoit avant qu'elle accepte.
@@ -93,6 +96,12 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
             };
             sharing::export_playlist(&state, &path, id)?;
             ("playlist", name, count)
+        }
+        Item::Copy(spec) => {
+            let (token, ids) = spec.split_once('|').ok_or("Copie invalide.")?;
+            let ids: Vec<String> = ids.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect();
+            let count = sharing::export_tracks(&state, &path, token, &ids)?;
+            ("copie", token.to_string(), count)
         }
         Item::Backup(json) => {
             serde_json::from_str::<serde_json::Value>(json).map_err(|_| "Sauvegarde invalide.".to_string())?;

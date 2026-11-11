@@ -454,6 +454,8 @@ export function installTauriMock() {
       return { name: "Soirée d'été entre amis", kind: "playlist", added_tracks: 12, skipped_tracks: 0, playlist_id: "pl-2", track_ids: [] };
     },
     transfer_cancel: () => undefined,
+    take_moved_tracks: () => [],
+    device_identity: () => "demo-pc",
     // Visualiseur : spectre de démonstration qui « bat » à 120 BPM pendant la lecture.
     get_spectrum: () => {
       if (isPaused) return [];

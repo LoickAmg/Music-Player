@@ -160,14 +160,16 @@ export interface Artist {
 /** Ce que l'on partage avec un autre appareil. */
 export interface ShareItem {
   /** « backup » : contenu JSON (id) envoyé par code, pour relier un autre appareil. */
-  kind: "track" | "playlist" | "backup";
+  /** « copy » : « jeton|id1,id2,… », copie vers un autre de mes appareils. */
+  kind: "track" | "playlist" | "backup" | "copy";
   id: string;
 }
 
 /** Offre d'envoi : montrée à la personne qui reçoit avant qu'elle accepte. */
 export interface ShareOffer {
   from: string;
-  kind: "track" | "playlist" | "sauvegarde";
+  /** « copie » : envoi d'un autre de mes appareils (name = jeton de la demande). */
+  kind: "track" | "playlist" | "sauvegarde" | "copie";
   name: string;
   tracks: number;
   size: number;

@@ -21,6 +21,7 @@ import {
   type SyncPlan,
   uploadDoc,
 } from "@/lib/sync";
+import { useDevicesStore } from "./devices";
 import { useFavoritesStore } from "./favorites";
 import { type ChatLine, type Friend, type Incoming, type Outgoing, useFriendsStore } from "./friends";
 import { useLibraryStore } from "./library";
@@ -135,6 +136,7 @@ export const useSyncStore = defineStore("sync", {
         favoriteIds: [...useFavoritesStore().ids],
         library: useLibraryStore().tracks,
         listens,
+        ...useDevicesStore().forSync(),
       };
     },
 
@@ -339,6 +341,7 @@ export const useSyncStore = defineStore("sync", {
             }
           }
           store(BASE_KEY, asBase(merged));
+          useDevicesStore().onSynced(merged.devices, merged.copies);
           lastVersion = (await relay.syncState(id.base, id.code, id.secret)).version;
           dirty = false;
           this.saved = { ...this.saved!, lastSync: Date.now() };
@@ -383,6 +386,7 @@ export const useSyncStore = defineStore("sync", {
       changeTimer = setTimeout(() => void this.check(), AFTER_CHANGE);
     },
     async start() {
+      await useDevicesStore().init();
       await this.migrateAccount();
       if (timer) return;
       timer = setInterval(() => void this.check(), CHECK_EVERY);
