@@ -251,3 +251,9 @@ export interface FetchJobUpdate {
   state: FetchJobState;
   error: string | null;
 }
+
+/** Playlist lue depuis un lien Spotify (`fetch::link::LinkPlaylist`). */
+export interface LinkPlaylist {
+  name: string;
+  tracks: { title: string; artist: string; album: string; duration_secs: number | null }[];
+}

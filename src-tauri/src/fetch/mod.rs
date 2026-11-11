@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub mod commands;
 pub mod common;
 pub mod import;
+pub mod link;
 pub mod matching;
 pub mod queue;
 pub mod source;

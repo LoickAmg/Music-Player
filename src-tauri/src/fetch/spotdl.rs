@@ -26,13 +26,13 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTPUT_TEMPLATE: &str = "{artists} - {title}.{output-ext}";
 
 #[derive(Clone, Copy)]
-struct Runner {
+pub(super) struct Runner {
     executable: &'static str,
     module: bool,
 }
 
 impl Runner {
-    fn command(self) -> Command {
+    pub(super) fn command(self) -> Command {
         let mut command = Command::new(self.executable);
         if self.module {
             command.arg("-m").arg("spotdl");
@@ -75,7 +75,7 @@ impl Source for SpotDlSource {
     }
 }
 
-fn resolve_runner(cancel: &AtomicBool) -> Result<Runner, JobError> {
+pub(super) fn resolve_runner(cancel: &AtomicBool) -> Result<Runner, JobError> {
     let mut candidates = vec![Runner { executable: "spotdl", module: false }];
     #[cfg(windows)]
     candidates.push(Runner { executable: "py", module: true });

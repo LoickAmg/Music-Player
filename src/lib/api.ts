@@ -10,6 +10,7 @@ import type {
   FetchJob,
   FetchJobUpdate,
   FetchWanted,
+  LinkPlaylist,
   InitialState,
   Lyrics,
   LyricsCandidate,
@@ -58,6 +59,8 @@ export const api = {
   fetchEnqueue: (wanted: FetchWanted[]) => invoke<string[]>("fetch_enqueue", { wanted }),
   /** Arrête une tâche (en attente ou en cours). */
   fetchCancel: (id: string) => invoke<void>("fetch_cancel", { id }),
+  /** Lit une playlist, un album ou un morceau Spotify depuis son lien (PC avec spotDL). */
+  fetchReadLink: (url: string) => invoke<LinkPlaylist>("fetch_read_link", { url }),
   /** Retire les tâches terminées, échouées ou arrêtées ; renvoie leur nombre. */
   fetchClearFinished: () => invoke<number>("fetch_clear_finished"),
   pickLibraryFolder: () => invoke<string | null>("pick_library_folder"),
