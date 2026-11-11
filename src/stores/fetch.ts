@@ -49,8 +49,9 @@ export const useFetchStore = defineStore("fetch", () => {
           },
         });
         const [tools, list] = await Promise.all([api.fetchAvailability(), api.fetchJobs()]);
-        availability.value = tools;
-        if (!fresher) jobs.value = list;
+        // Mode démo du navigateur : les commandes inconnues y renvoient null.
+        availability.value = tools ?? { spotdl: false, ytdlp: false };
+        if (!fresher) jobs.value = Array.isArray(list) ? list : [];
         initialized.value = true;
       } catch (error) {
         lastError.value = message(error);
@@ -67,7 +68,7 @@ export const useFetchStore = defineStore("fetch", () => {
   /** Relit les outils installés (après une installation, sans redémarrer la vue). */
   async function refreshAvailability(): Promise<void> {
     try {
-      availability.value = await api.fetchAvailability();
+      availability.value = (await api.fetchAvailability()) ?? { spotdl: false, ytdlp: false };
     } catch (error) {
       lastError.value = message(error);
     }
@@ -83,9 +84,9 @@ export const useFetchStore = defineStore("fetch", () => {
     }
   }
 
-  const enqueue = (wanted: FetchWanted[]) => (wanted.length ? run(() => api.fetchEnqueue(wanted), [] as string[]) : Promise.resolve([] as string[]));
+  const enqueue = async (wanted: FetchWanted[]) => (wanted.length ? ((await run(() => api.fetchEnqueue(wanted), [] as string[])) ?? []) : []);
   const cancel = (id: string) => run(() => api.fetchCancel(id), undefined);
-  const clearFinished = () => run(() => api.fetchClearFinished(), 0);
+  const clearFinished = async () => (await run(() => api.fetchClearFinished(), 0)) ?? 0;
 
   function dispose(): void {
     stop?.();

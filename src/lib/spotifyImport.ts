@@ -11,6 +11,8 @@ export interface SpotifyTrack {
   title: string;
   artist: string;
   album: string;
+  /** Connue quand la playlist vient d'un lien (aide le moteur à choisir le bon résultat). */
+  duration_secs?: number | null;
 }
 
 /** Identité d'un morceau manquant envoyée au moteur de téléchargement local. */

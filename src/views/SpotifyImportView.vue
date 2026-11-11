@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { api } from "@/lib/api";
-import { LibraryMatcher, type MatchedPlaylist, matchPlaylist, missingText, readExportFile, type SpotifyExport } from "@/lib/spotifyImport";
+import {
+  LibraryMatcher,
+  type MatchedPlaylist,
+  matchPlaylist,
+  missingText,
+  readExportFile,
+  type SpotifyExport,
+  type SpotifyTrack,
+} from "@/lib/spotifyImport";
+import type { FetchJob, FetchWanted } from "@/lib/types";
 import { useFavoritesStore } from "@/stores/favorites";
+import { useFetchStore } from "@/stores/fetch";
 import { useLibraryStore } from "@/stores/library";
 import { usePlaylistsStore } from "@/stores/playlists";
 import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 
-// Import Spotify : lecture de l'export, correspondance locale, puis téléchargement optionnel
-// des absents par spotDL sur PC.
+// Import Spotify : trois sources (lien, données du compte, fichier JSON/CSV) qui aboutissent
+// toutes à des playlists Spotify, correspondance locale, puis téléchargement des absents par la
+// file du backend (spotDL puis yt-dlp, PC seulement).
 const library = useLibraryStore();
 const playlists = usePlaylistsStore();
 const favorites = useFavoritesStore();
+const fetchStore = useFetchStore();
 const ui = useUiStore();
 
 const data = ref<SpotifyExport | null>(null);
@@ -23,20 +35,10 @@ const chosen = reactive<Record<number, boolean>>({});
 const importLiked = ref(true);
 const open = reactive<Record<string, boolean>>({});
 const busy = ref(false);
+const queuing = ref(false);
 const importedPlaylistIds = reactive<Record<number, string>>({});
-const spotdlBusy = ref(false);
-const spotdlReport = ref<{ items: { title: string; artist: string; status: string; detail: string }[]; imported: number } | null>(null);
-const spotdlError = ref<string | null>(null);
-/** Avancement du lot en cours (événements du moteur) et arrêt demandé. */
-const spotdlNow = ref<{ index: number; total: number; title: string; artist: string } | null>(null);
-const spotdlDone = ref<{ title: string; artist: string; status: string }[]>([]);
-const spotdlStopping = ref(false);
-let offProgress: (() => void) | null = null;
-onBeforeUnmount(() => offProgress?.());
-async function stopSpotdl() {
-  spotdlStopping.value = true;
-  await api.spotdlCancel().catch(() => {});
-}
+const link = ref("");
+const fileInput = ref<HTMLInputElement | null>(null);
 const isAndroid = /Android/i.test(navigator.userAgent);
 const done = ref<{ playlists: number; tracks: number; liked: number } | null>(null);
 
@@ -52,77 +54,84 @@ const totals = computed(() => {
   return { found, missing, percent: found + missing ? Math.round((found / (found + missing)) * 100) : 0 };
 });
 const selectedCount = computed(() => matched.value.filter((p, i) => chosen[i] && p.found.length).length);
-const missingForSpotdl = computed(() => {
-  const source = [
-    ...matched.value.filter((_, i) => chosen[i]).flatMap((p) => p.missing),
-    ...(importLiked.value ? liked.value?.missing ?? [] : []),
-  ];
+
+/** Absents sélectionnés, chacun une seule fois (la première playlist qui le contient le reçoit). */
+const missingForDownload = computed(() => {
   const seen = new Set<string>();
-  return source.filter((t) => {
-    const key = `${t.artist.toLocaleLowerCase()}\0${t.title.toLocaleLowerCase()}`;
-    if (seen.has(key)) return false;
+  const out: { track: SpotifyTrack; playlist: number | null }[] = [];
+  const add = (track: SpotifyTrack, playlist: number | null) => {
+    const key = `${track.artist.toLocaleLowerCase()}\0${track.title.toLocaleLowerCase()}`;
+    if (seen.has(key)) return;
     seen.add(key);
-    return true;
+    out.push({ track, playlist });
+  };
+  matched.value.forEach((p, i) => {
+    if (chosen[i]) p.missing.forEach((t) => add(t, i));
   });
+  if (importLiked.value) liked.value?.missing.forEach((t) => add(t, null));
+  return out;
 });
 
-async function downloadMissing() {
-  if (spotdlBusy.value || !missingForSpotdl.value.length) return;
-  spotdlBusy.value = true;
-  spotdlStopping.value = false;
-  spotdlError.value = null;
-  spotdlReport.value = null;
-  spotdlNow.value = null;
-  spotdlDone.value = [];
-  offProgress?.();
-  offProgress = await api
-    .onSpotdlProgress((p) => {
-      if (p.status === "en_cours") spotdlNow.value = p;
-      else spotdlDone.value = [...spotdlDone.value, { title: p.title, artist: p.artist, status: p.status }];
-    })
-    .catch(() => null);
+const jobStateLabel: Record<FetchJob["state"], string> = {
+  queued: "En attente",
+  running: "Téléchargement en cours…",
+  done: "Ajouté à la bibliothèque",
+  failed: "Échec",
+  cancelled: "Arrêté",
+};
+
+// Une tâche terminée avec une playlist cible l'a modifiée côté backend : on recharge les
+// playlists. La bibliothèque arrive par l'événement global « library-updated » ; les morceaux
+// arrivés passent alors d'eux-mêmes en « retrouvés », et « Importer » redevient possible.
+const seenDone = new Set<string>();
+watch(
+  () => fetchStore.jobs.filter((job) => job.state === "done").map((job) => job.id),
+  (ids) => {
+    const fresh = fetchStore.jobs.filter((job) => job.state === "done" && !seenDone.has(job.id));
+    ids.forEach((id) => seenDone.add(id));
+    if (!fresh.length) return;
+    if (fresh.some((job) => job.wanted.playlist_id)) void playlists.fetchAll();
+    done.value = null;
+  },
+);
+
+onMounted(async () => {
+  if (isAndroid) return;
+  // Les tâches déjà terminées avant l'ouverture de la vue ne déclenchent rien.
+  await fetchStore.initialize();
+  for (const job of fetchStore.jobs) if (job.state === "done") seenDone.add(job.id);
+});
+onBeforeUnmount(() => fetchStore.dispose());
+
+function setData(next: SpotifyExport, names: string[]) {
+  Object.keys(importedPlaylistIds).forEach((key) => delete importedPlaylistIds[Number(key)]);
+  Object.keys(chosen).forEach((key) => delete chosen[Number(key)]);
+  data.value = next;
+  fileNames.value = names;
+  next.playlists.forEach((_, i) => (chosen[i] = true));
+  done.value = null;
+  readError.value = null;
+}
+
+async function readLink() {
+  const url = link.value.trim();
+  if (isAndroid || reading.value || !url) return;
+  reading.value = true;
+  readError.value = null;
   try {
-    const report = await api.spotdlDownloadMissing(missingForSpotdl.value);
-    library.applyScanResult(report.library);
-    spotdlReport.value = report;
-    const after = new LibraryMatcher(library.tracks);
-    for (const item of spotdlReport.value.items) {
-      if (item.status === "telecharge" && !after.find({ title: item.title, artist: item.artist, album: "" })) {
-        item.status = "fichier_non_importe";
-        item.detail = `${item.detail}\nLe processus a réussi, mais le fichier n’apparaît pas dans la bibliothèque rescannée.`;
-      }
-    }
-    spotdlReport.value.imported = spotdlReport.value.items.filter((item) => item.status === "telecharge").length;
-    if (report.items.some((item) => item.status === "telecharge")) await runImport();
+    const result = await api.fetchReadLink(url);
+    setData({ playlists: [{ name: result.name, tracks: result.tracks }], liked: [] }, ["Lien Spotify"]);
   } catch (error) {
-    spotdlError.value = String(error);
+    readError.value = `Lecture du lien impossible : ${String(error)}`;
   } finally {
-    spotdlBusy.value = false;
-    spotdlNow.value = null;
-    offProgress?.();
-    offProgress = null;
+    reading.value = false;
   }
 }
-const spotdlCounts = computed(() => ({
-  ok: spotdlDone.value.filter((d) => d.status === "telecharge").length,
-  ko: spotdlDone.value.filter((d) => d.status !== "telecharge").length,
-}));
 
-function spotdlStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    telecharge: "Téléchargé",
-    introuvable: "Aucune correspondance trouvée",
-    reseau: "Problème réseau ou limitation du service",
-    ffmpeg: "FFmpeg absent ou en erreur",
-    deno: "Deno requis ou en erreur",
-    outil_absent: "spotDL absent",
-    fichier_non_importe: "Fichier téléchargé mais introuvable dans la bibliothèque",
-    erreur_lancement: "Impossible de lancer spotDL",
-    echec_spotdl: "Échec spotDL",
-    delai: "Délai dépassé (6 min) : arrêté, le lot a continué",
-    annule: "Non téléchargé (arrêté)",
-  };
-  return labels[status] ?? status;
+function openFilePicker(mode: "account" | "file") {
+  if (reading.value || !fileInput.value) return;
+  fileInput.value.accept = mode === "account" ? ".zip,application/zip" : ".json,.csv,application/json,text/csv";
+  fileInput.value.click();
 }
 
 async function pick(e: Event) {
@@ -132,7 +141,6 @@ async function pick(e: Event) {
   if (!files.length) return;
   reading.value = true;
   readError.value = null;
-  done.value = null;
   try {
     const merged: SpotifyExport = { playlists: [], liked: [] };
     for (const f of files) {
@@ -144,10 +152,10 @@ async function pick(e: Event) {
       readError.value = "Aucune playlist ni titre liké dans ce fichier. Choisissez my_spotify_data.zip, un fichier PlaylistN.json ou un CSV.";
       return;
     }
-    Object.keys(importedPlaylistIds).forEach((key) => delete importedPlaylistIds[Number(key)]);
-    data.value = merged;
-    fileNames.value = files.map((f) => f.name);
-    merged.playlists.forEach((_, i) => (chosen[i] = true));
+    setData(
+      merged,
+      files.map((f) => f.name),
+    );
   } catch (err) {
     readError.value = `Fichier illisible : ${String(err)}`;
   } finally {
@@ -163,6 +171,15 @@ function uniqueName(name: string): string {
   return candidate;
 }
 
+/** Playlist créée pour la i-ième playlist Spotify (une seule fois), ou null en cas d'échec. */
+async function ensurePlaylist(i: number, name: string): Promise<string | null> {
+  const existing = importedPlaylistIds[i];
+  if (existing) return existing;
+  const id = await playlists.create(uniqueName(name));
+  if (id) importedPlaylistIds[i] = id;
+  return id;
+}
+
 async function runImport() {
   if (busy.value) return;
   busy.value = true;
@@ -170,13 +187,12 @@ async function runImport() {
   try {
     for (const [i, p] of matched.value.entries()) {
       if (!chosen[i] || !p.found.length) continue;
-      let id = importedPlaylistIds[i];
-      if (!id) {
-        id = (await playlists.create(uniqueName(p.name))) ?? "";
-        if (!id) continue;
-        importedPlaylistIds[i] = id;
-      }
-      result.tracks += await playlists.addTracks(id, p.found.map((t) => t.id));
+      const id = await ensurePlaylist(i, p.name);
+      if (!id) continue;
+      result.tracks += await playlists.addTracks(
+        id,
+        p.found.map((t) => t.id),
+      );
     }
     result.playlists = Object.keys(importedPlaylistIds).length;
     if (importLiked.value && liked.value?.found.length) {
@@ -189,6 +205,29 @@ async function runImport() {
     ui.notify(`Import interrompu : ${String(e)}`);
   } finally {
     busy.value = false;
+  }
+}
+
+/** Met les absents dans la file ; chaque playlist concernée est créée d'abord pour les recevoir. */
+async function downloadMissing() {
+  if (queuing.value || !missingForDownload.value.length) return;
+  queuing.value = true;
+  try {
+    const wanted: FetchWanted[] = [];
+    for (const { track, playlist } of missingForDownload.value) {
+      const playlistId = playlist === null ? null : await ensurePlaylist(playlist, matched.value[playlist].name);
+      wanted.push({
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        duration_secs: track.duration_secs ?? null,
+        playlist_id: playlistId,
+      });
+    }
+    const ids = await fetchStore.enqueue(wanted);
+    if (ids.length) ui.notify(`${ids.length} morceau${ids.length > 1 ? "x" : ""} en file de téléchargement`);
+  } finally {
+    queuing.value = false;
   }
 }
 
@@ -212,18 +251,55 @@ async function copyMissing(list: MatchedPlaylist[]) {
 
     <section class="card how">
       <p>
-        Retrouvez vos playlists et vos titres likés avec la musique déjà présente sur cet appareil. Rien n'est
-        téléchargé : les morceaux que vous n'avez pas sont listés à part.
+        Retrouvez vos playlists et vos titres likés avec la musique déjà présente sur cet appareil. Les morceaux que
+        vous n'avez pas sont listés à part, et peuvent être téléchargés sur PC.
       </p>
-      <ol>
-        <li>Sur spotify.com : <strong>Compte → Confidentialité du compte → Télécharger vos données</strong>, cochez « Données du compte ».</li>
-        <li>Spotify envoie un e-mail sous quelques jours : téléchargez <strong>my_spotify_data.zip</strong>.</li>
-        <li>Choisissez ce fichier ci-dessous (un CSV d'Exportify ou un fichier PlaylistN.json marche aussi).</li>
-      </ol>
-      <label class="pill pill-accent file">
-        <Icon name="import" :size="15" /> {{ reading ? "Lecture…" : data ? "Choisir d'autres fichiers…" : "Choisir l'export…" }}
-        <input type="file" accept=".zip,.json,.csv,application/zip,application/json,text/csv" multiple :disabled="reading" @change="pick" />
-      </label>
+
+      <div class="import-methods">
+        <div class="import-method">
+          <h2>Coller un lien</h2>
+          <form class="link-form" @submit.prevent="readLink">
+            <input
+              v-model="link"
+              type="text"
+              inputmode="url"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="https://open.spotify.com/playlist/…"
+              aria-label="Lien Spotify (playlist, album ou morceau)"
+              :disabled="isAndroid || reading"
+            />
+            <button type="submit" class="pill pill-accent" :disabled="isAndroid || reading || !link.trim()">
+              {{ reading ? "Lecture…" : "Lire" }}
+            </button>
+          </form>
+          <p class="muted small">
+            <template v-if="isAndroid">L'import par lien est disponible sur PC avec spotDL installé. Sur téléphone, utilisez vos données Spotify ou un fichier.</template>
+            <template v-else>Playlist, album ou morceau. Une playlist privée n'est pas lisible : rendez-la publique, ou utilisez vos données Spotify.</template>
+          </p>
+        </div>
+
+        <div class="import-method">
+          <h2>Mes données Spotify</h2>
+          <ol>
+            <li>Sur spotify.com : <strong>Compte → Confidentialité du compte → Télécharger vos données</strong>, cochez « Données du compte ».</li>
+            <li>Spotify envoie un e-mail sous quelques jours : téléchargez <strong>my_spotify_data.zip</strong>.</li>
+          </ol>
+          <button type="button" class="pill pill-ghost" :disabled="reading" @click="openFilePicker('account')">
+            <Icon name="import" :size="15" /> {{ reading ? "Lecture…" : "Choisir my_spotify_data.zip" }}
+          </button>
+        </div>
+
+        <div class="import-method">
+          <h2>Un fichier</h2>
+          <p class="muted small">PlaylistN.json ou YourLibrary.json (tirés de l'export), ou un CSV d'Exportify.</p>
+          <button type="button" class="pill pill-ghost" :disabled="reading" @click="openFilePicker('file')">
+            <Icon name="import" :size="15" /> {{ reading ? "Lecture…" : "Choisir un fichier" }}
+          </button>
+        </div>
+      </div>
+
+      <input ref="fileInput" class="file-input" type="file" multiple :disabled="reading" @change="pick" />
       <p v-if="readError" class="error">{{ readError }}</p>
     </section>
 
@@ -245,39 +321,51 @@ async function copyMissing(list: MatchedPlaylist[]) {
       </div>
 
       <section v-if="totals.missing && isAndroid" class="spotdl card">
-        <p>Le téléchargement spotDL est disponible uniquement sur PC pour le moment. Tu peux quand même importer les morceaux déjà présents dans la bibliothèque.</p>
+        <p>Le téléchargement des morceaux manquants est disponible uniquement sur PC pour le moment. Tu peux quand même importer les morceaux déjà présents dans la bibliothèque.</p>
       </section>
-      <section v-else-if="totals.missing" class="spotdl card">
-        <h2>Télécharger les morceaux manquants avec spotDL</h2>
+      <section v-else-if="totals.missing || fetchStore.jobs.length" class="spotdl card">
+        <h2>Télécharger les morceaux manquants</h2>
         <p>
-          Les titres et artistes sélectionnés seront recherchés un à un. spotDL utilise YouTube comme source audio ;
-          les résultats peuvent donc différer de l’enregistrement Spotify. Les messages détaillés seront affichés pour chaque échec.
+          Chaque morceau est cherché avec spotDL, puis yt-dlp si besoin. La source audio est YouTube : le résultat peut
+          différer de l'enregistrement Spotify, et un résultat trop éloigné du titre demandé n'est pas ajouté.
         </p>
-        <p class="muted small">Sur Windows, installe Python puis <code>py -m pip install -U spotdl</code>. Installe FFmpeg avec <code>spotdl --download-ffmpeg</code> (Deno est recommandé avec <code>spotdl --download-deno</code>). Redémarre Music Player après l’installation.</p>
+        <p class="muted small">Sur Windows, installe Python puis <code>py -m pip install -U spotdl</code>. Installe FFmpeg avec <code>spotdl --download-ffmpeg</code> (Deno est recommandé avec <code>spotdl --download-deno</code>). Redémarre Music Player après l'installation.</p>
+        <p v-if="fetchStore.initialized && !fetchStore.anyTool" class="error">
+          Ni spotDL ni yt-dlp n'a été trouvé sur ce PC. Installe-en un, puis
+          <button type="button" class="link" @click="fetchStore.refreshAvailability()">vérifie à nouveau</button>.
+        </p>
         <div class="spotdl-actions">
-          <button type="button" class="pill pill-accent" :disabled="spotdlBusy || !missingForSpotdl.length" @click="downloadMissing">
-            {{ spotdlBusy ? "Téléchargement en cours…" : `Télécharger ${missingForSpotdl.length} morceau${missingForSpotdl.length > 1 ? "x" : ""}` }}
+          <button
+            type="button"
+            class="pill pill-accent"
+            :disabled="queuing || !missingForDownload.length || !fetchStore.anyTool"
+            @click="downloadMissing"
+          >
+            {{ queuing ? "Mise en file…" : `Télécharger ${missingForDownload.length} morceau${missingForDownload.length > 1 ? "x" : ""}` }}
           </button>
-          <button v-if="spotdlBusy" type="button" class="pill pill-danger" :disabled="spotdlStopping" @click="stopSpotdl">
-            {{ spotdlStopping ? "Arrêt…" : "Arrêter" }}
+          <button v-if="fetchStore.finished.length" type="button" class="pill pill-ghost" @click="fetchStore.clearFinished()">
+            Vider les terminées
           </button>
         </div>
-        <div v-if="spotdlBusy && spotdlNow" class="spotdl-progress" role="status">
-          <div class="spotdl-progress-text">
-            <span>Morceau {{ spotdlNow.index + 1 }} sur {{ spotdlNow.total }} · {{ spotdlNow.artist ? `${spotdlNow.artist} — ` : "" }}{{ spotdlNow.title }}</span>
-            <span class="muted">{{ spotdlCounts.ok }} téléchargé{{ spotdlCounts.ok > 1 ? "s" : "" }} · {{ spotdlCounts.ko }} échec{{ spotdlCounts.ko > 1 ? "s" : "" }}</span>
-          </div>
-          <div class="spotdl-bar"><span :style="{ width: `${Math.round((spotdlNow.index / spotdlNow.total) * 100)}%` }" /></div>
-          <small class="muted">Chaque morceau a 6 minutes au plus ; au-delà, il est passé et le lot continue.</small>
-        </div>
-        <p v-if="spotdlError" class="error">{{ spotdlError }}</p>
-        <template v-if="spotdlReport">
-          <p class="done">{{ spotdlReport.imported }} morceau{{ spotdlReport.imported > 1 ? "x" : "" }} ajouté{{ spotdlReport.imported > 1 ? "s" : "" }} à la bibliothèque.</p>
-          <details v-for="(item, i) in spotdlReport.items" :key="`${item.artist}-${item.title}-${i}`" class="spotdl-result">
-            <summary><strong>{{ spotdlStatusLabel(item.status) }}</strong> · {{ item.artist ? `${item.artist} — ` : "" }}{{ item.title }}</summary>
-            <pre>{{ item.detail || "spotDL n’a fourni aucun détail." }}</pre>
-          </details>
-        </template>
+        <p v-if="fetchStore.lastError" class="error">{{ fetchStore.lastError }}</p>
+        <p v-if="fetchStore.active.length" class="muted small">
+          {{ fetchStore.active.length }} en cours ou en attente · chaque morceau a 6 minutes au plus. La file continue même si tu quittes cette page.
+        </p>
+        <ul v-if="fetchStore.jobs.length" class="fetch-jobs">
+          <li v-for="job in fetchStore.jobs" :key="job.id" class="fetch-job" :class="job.state">
+            <div class="fetch-job-main">
+              <strong>{{ job.wanted.artist ? `${job.wanted.artist} — ` : "" }}{{ job.wanted.title }}</strong>
+              <span class="muted">{{ jobStateLabel[job.state] }}</span>
+              <details v-if="job.last_error && job.state === 'failed'" class="job-error">
+                <summary>Détails</summary>
+                <pre>{{ job.last_error }}</pre>
+              </details>
+            </div>
+            <button v-if="job.state === 'queued' || job.state === 'running'" type="button" class="pill pill-danger" @click="fetchStore.cancel(job.id)">
+              Arrêter
+            </button>
+          </li>
+        </ul>
       </section>
 
       <p v-if="done" class="done">
@@ -302,7 +390,8 @@ async function copyMissing(list: MatchedPlaylist[]) {
 
       <section v-for="(p, i) in matched" :key="`${p.name}-${i}`" class="row-card" :class="{ off: !p.found.length }">
         <label class="toggle">
-          <input v-model="chosen[i]" type="checkbox" :disabled="!p.found.length" />
+          <!-- Une playlist sans aucun morceau local reste cochable : ses absents peuvent être téléchargés. -->
+          <input v-model="chosen[i]" type="checkbox" :disabled="!p.found.length && (isAndroid || !p.missing.length)" />
           <span class="name">{{ p.name }}</span>
         </label>
         <span class="count" :class="{ full: !p.missing.length }">{{ p.found.length }} / {{ p.found.length + p.missing.length }}</span>
@@ -314,8 +403,8 @@ async function copyMissing(list: MatchedPlaylist[]) {
         </ul>
       </section>
       <p class="muted small">
-        Une playlist dont aucun morceau n'est sur l'appareil n'est pas créée. Après avoir ajouté des morceaux à la
-        bibliothèque, rechoisissez l'export : les nouveaux sont retrouvés.
+        « Importer » crée les playlists avec les morceaux déjà présents. Ceux qui arrivent ensuite par téléchargement
+        sont rangés dans leur playlist automatiquement ; « Importer » redevient disponible pour les autres trouvés entre-temps.
       </p>
     </template>
   </div>
@@ -329,47 +418,99 @@ async function copyMissing(list: MatchedPlaylist[]) {
   margin-bottom: var(--space-5);
   max-width: 760px;
 }
-.spotdl h2 {
+.spotdl h2,
+.import-method h2 {
   margin: 0 0 var(--space-2);
-  font-size: 16px;
+  font-size: 15px;
+}
+.import-methods {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+}
+.import-method {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  box-shadow: inset 0 0 0 0.5px rgba(var(--fg-rgb), 0.14);
+}
+.import-method .small,
+.import-method ol {
+  margin: 0;
+}
+.import-method .pill {
+  margin-top: auto;
+}
+.link-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.link-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: rgba(var(--fg-rgb), 0.07);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.link-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.file-input {
+  display: none;
 }
 .spotdl-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
-.spotdl-progress {
+.fetch-jobs {
   display: grid;
   gap: 6px;
-  margin-top: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
 }
-.spotdl-progress-text {
+.fetch-job {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   justify-content: space-between;
-  gap: 4px 12px;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: rgba(var(--fg-rgb), 0.04);
   font-size: 13px;
 }
-.spotdl-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(var(--fg-rgb), 0.1);
-  overflow: hidden;
+.fetch-job.done .muted {
+  color: var(--success);
 }
-.spotdl-bar span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  transition: width 0.3s;
+.fetch-job.failed .muted {
+  color: var(--danger-text);
 }
-.spotdl-result {
-  margin-top: var(--space-2);
-  font-size: 12.5px;
+.fetch-job-main {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
 }
-.spotdl-result summary {
+.fetch-job-main strong {
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.job-error summary {
   cursor: pointer;
+  font-size: 12px;
+  color: var(--text-2);
 }
-.spotdl-result pre {
+.job-error pre {
   max-height: 220px;
   overflow: auto;
   white-space: pre-wrap;
@@ -378,31 +519,20 @@ async function copyMissing(list: MatchedPlaylist[]) {
   background: rgba(var(--fg-rgb), 0.05);
   border-radius: var(--radius);
   color: var(--text-2);
+  font-size: 12px;
 }
-.how p {
+.how > p {
   margin: 0 0 var(--space-3);
   line-height: 1.5;
 }
 .how ol {
-  margin: 0 0 var(--space-4);
-  padding-left: 20px;
+  padding-left: 18px;
   color: var(--text-2);
-  line-height: 1.6;
-  font-size: 13.5px;
+  line-height: 1.55;
+  font-size: 13px;
 }
 .how strong {
   color: var(--text);
-}
-.file {
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-}
-.file input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
 }
 .error {
   color: var(--danger-text);
@@ -471,6 +601,7 @@ async function copyMissing(list: MatchedPlaylist[]) {
 }
 .link {
   border: 0;
+  padding: 0;
   background: none;
   color: var(--accent);
   font-size: 12.5px;
@@ -487,5 +618,8 @@ async function copyMissing(list: MatchedPlaylist[]) {
 .small {
   margin-top: var(--space-4);
   font-size: 12px;
+}
+.import-method .small {
+  margin-top: 0;
 }
 </style>
