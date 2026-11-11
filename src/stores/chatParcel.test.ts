@@ -79,7 +79,7 @@ describe("son envoyé dans la discussion", () => {
     expect(new Uint8Array(disk.written.flat())).toEqual(disk.archive);
     expect(other.conversations[A.code][0].recu).toEqual(["recu-1"]);
     expect(useShareStore().shared[0]).toMatchObject({ id: "recu-1", direction: "recu", who: "Mahouna", via: "discussion" });
-  });
+  }, 30_000); // chiffrement de quelques Mo : lent quand toute la suite tourne en parallèle
 
   it("envoie le titre seul, en le disant, si le proche n'est pas à jour", async () => {
     const friends = useFriendsStore();

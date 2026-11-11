@@ -52,7 +52,7 @@ describe("son joint à un message (colis)", () => {
     const out = sink();
     await receiveParcel(BASE, ref, out.write);
     expect(out.joined()).toEqual(file);
-  });
+  }, 30_000); // chiffrement de quelques Mo : lent quand toute la suite tourne en parallèle
 
   it("refuse le dépôt d'un inconnu", async () => {
     await expect(sendParcel({ base: BASE, de: ME.code, secret: "b".repeat(64) }, 10, reader(bytes(10)))).rejects.toThrow(/non reconnu/);
