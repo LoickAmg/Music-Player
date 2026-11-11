@@ -15,6 +15,8 @@ jobs:
   # disponibles via apt.
   test:
     runs-on: ubuntu-latest
+    # Un blocage échoue au lieu de tourner sans fin (vu le 11/11 : 44 min).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -44,7 +46,21 @@ jobs:
 
       - name: cargo test (queue, bibliothèque, playlists, session, égaliseur)
         working-directory: src-tauri
-        run: cargo test
+        # Un test à la fois, 15 min au plus : un test bloqué apparaît en dernier dans le journal,
+        # recopié dans le résumé de l'exécution (lisible sans ouvrir les journaux).
+        run: |
+          set -o pipefail
+          timeout 900 cargo test -- --test-threads=1 2>&1 | tee ../cargo-test.log
+
+      - name: Fin du journal des tests (en cas d'échec)
+        if: failure()
+        run: |
+          {
+            echo "### Fin du journal de cargo test"
+            echo '```'
+            tail -n 60 cargo-test.log 2>/dev/null || echo "(pas de journal : échec avant les tests)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: cargo clippy
         working-directory: src-tauri
@@ -66,6 +82,8 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/app-v')
     runs-on: ubuntu-latest
+    # Un blocage échoue au lieu de tourner sans fin (vu le 11/11 : 44 min).
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -99,6 +117,8 @@ jobs:
           - platform: macos-latest
           - platform: windows-latest
     runs-on: ${{ matrix.platform }}
+    # Un blocage échoue au lieu de tourner sans fin (vu le 11/11 : 44 min).
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -171,6 +191,8 @@ jobs:
       (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') &&
       (startsWith(github.ref, 'refs/tags/app-v') || github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[android]'))
     runs-on: ubuntu-latest
+    # Un blocage échoue au lieu de tourner sans fin (vu le 11/11 : 44 min).
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:

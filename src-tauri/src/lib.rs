@@ -13,6 +13,7 @@ pub mod lyrics;
 pub mod nearby;
 pub mod opus;
 pub mod bounded;
+pub mod fetch;
 pub mod playlists;
 pub mod power;
 pub mod queue;
