@@ -62,7 +62,7 @@ declare global {
     AndroidUpdate?: AndroidUpdateBridge;
     __mpMedia?: (command: string, arg: number) => void;
     __mpUpdate?: (stage: string, value: number | string) => void;
-    __mpInsets?: (insets: Partial<Record<"top" | "bottom" | "left" | "right", number>>) => void;
+    __mpInsets?: (insets: Partial<Record<"top" | "bottom" | "left" | "right" | "ime", number>>) => void;
     __mpOpenFile?: () => void;
     __mpLibraryChanged?: () => void;
   }
@@ -71,15 +71,41 @@ declare global {
 /** Marges réelles des barres système et de l'encoche, transmises par l'activité Android
  *  (au démarrage, puis à chaque rotation, pliage ou dépliage) : variables --sa-* utilisées
  *  par --safe-* (style.css). */
+let nativeIme = false;
+
+/** Champ en cours de saisie : ramené en vue quand le clavier s'ouvre. */
+function keepFocusedVisible() {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName) || el.closest("[data-keyboard-aware]")) return;
+  requestAnimationFrame(() => el.scrollIntoView({ block: "center", behavior: "smooth" }));
+}
+
+/** Navigateurs (et anciennes versions Android) : hauteur du clavier tirée de la zone visible. */
+function installKeyboardFallback() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const update = () => {
+    if (nativeIme) return;
+    const hidden = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--sa-ime", `${hidden > 80 ? hidden : 0}px`);
+    if (hidden > 80) keepFocusedVisible();
+  };
+  vv.addEventListener("resize", update);
+  vv.addEventListener("scroll", update);
+}
+
 export function installInsets() {
   const apply: NonNullable<Window["__mpInsets"]> = (insets) => {
     const root = document.documentElement.style;
-    for (const side of ["top", "bottom", "left", "right"] as const) {
+    for (const side of ["top", "bottom", "left", "right", "ime"] as const) {
       const v = insets[side];
       if (typeof v === "number" && Number.isFinite(v)) root.setProperty(`--sa-${side}`, `${v}px`);
     }
+    if (typeof insets.ime === "number") nativeIme = true;
+    keepFocusedVisible();
   };
   window.__mpInsets = apply;
+  installKeyboardFallback();
   try {
     const initial = window.AndroidMedia?.insets?.();
     if (initial) apply(JSON.parse(initial));

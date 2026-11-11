@@ -310,10 +310,14 @@ ${edgeToEdge ? "    enableEdgeToEdge()\n" : ""}    super.onCreate(savedInstanceS
       val bars = insets.getInsets(
         WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
       )
+      // Clavier : la vue web n'est pas redimensionnée (edge-to-edge), la page remonte d'elle-même
+      // la zone de saisie au-dessus (--sa-ime).
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
       val density = resources.displayMetrics.density
       MediaCommands.insets = JSONObject()
         .put("top", (bars.top / density).toDouble())
         .put("bottom", (bars.bottom / density).toDouble())
+        .put("ime", (ime.bottom / density).toDouble())
         .put("left", (bars.left / density).toDouble())
         .put("right", (bars.right / density).toDouble())
         .toString()

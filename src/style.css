@@ -427,6 +427,11 @@ select {
 :root[data-field-shape="pill"] .fieldbox {
   border-radius: 999px;
 }
+/* Zone de texte sur plusieurs lignes : une pilule en couperait le début et la fin des lignes
+   (avis de Méryl). Coins simplement arrondis. Sans :has(), que les vues web anciennes ignorent. */
+:root[data-field-shape="pill"] textarea.fieldbox {
+  border-radius: 18px;
+}
 :root[data-field-shape="square"] .fieldbox {
   border-radius: 2px;
 }
