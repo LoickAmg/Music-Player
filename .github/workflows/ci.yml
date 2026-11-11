@@ -22,6 +22,10 @@ jobs:
 
       - name: Dépendances système Tauri (build Linux + audio)
         run: |
+          # Miroir Azure de GitHub parfois injoignable (11/11 : « Ign: » en boucle, 44 min) :
+          # miroir officiel d'Ubuntu en premier, Azure en secours, délais courts et nouveaux essais.
+          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/80-ci-reseau > /dev/null
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
@@ -125,6 +129,10 @@ jobs:
       - name: Dépendances système Tauri (Linux uniquement)
         if: matrix.platform == 'ubuntu-latest'
         run: |
+          # Miroir Azure de GitHub parfois injoignable (11/11 : « Ign: » en boucle, 44 min) :
+          # miroir officiel d'Ubuntu en premier, Azure en secours, délais courts et nouveaux essais.
+          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/80-ci-reseau > /dev/null
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
