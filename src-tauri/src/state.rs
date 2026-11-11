@@ -48,8 +48,13 @@ pub struct AppState {
 impl AppState {
     pub fn new(data_dir: PathBuf) -> Self {
         let eq_gains = new_eq_gains([0.0, 0.0, 0.0]);
+        // En test, moteur muet : pas de sortie son ouverte pour chaque état créé.
+        #[cfg(not(test))]
+        let audio = AudioHandle::spawn(eq_gains.clone());
+        #[cfg(test)]
+        let audio = AudioHandle::silent();
         Self {
-            audio: AudioHandle::spawn(eq_gains.clone()),
+            audio,
             queue: Mutex::new(Queue::new()),
             library: Mutex::new(Vec::new()),
             library_root: Mutex::new(None),

@@ -85,6 +85,15 @@ impl AudioHandle {
         }
     }
 
+    /// Moteur muet pour les tests : ni fil ni sortie son, les commandes sont ignorées.
+    /// Sur une machine sans carte son (CI Windows de GitHub), des dizaines de fils audio
+    /// ouvrant puis lâchant la sortie de Windows finissaient en violation d'accès (12/11).
+    #[cfg(test)]
+    pub fn silent() -> Self {
+        let (tx, _) = mpsc::channel::<AudioCommand>();
+        Self { tx: Mutex::new(tx), status: Arc::new(Mutex::new(AudioStatus::default())) }
+    }
+
     fn send(&self, cmd: AudioCommand) {
         let _ = self.tx.locked().send(cmd);
     }
