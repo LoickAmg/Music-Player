@@ -12,6 +12,7 @@ pub mod listening;
 pub mod lyrics;
 pub mod nearby;
 pub mod opus;
+pub mod bounded;
 pub mod playlists;
 pub mod power;
 pub mod queue;
@@ -133,6 +134,7 @@ pub fn run() {
             commands::pick_library_folder,
             commands::scan_library,
             commands::spotdl_download_missing,
+            commands::spotdl_cancel,
             commands::get_library,
             commands::open_audio_file,
             commands::get_cover,

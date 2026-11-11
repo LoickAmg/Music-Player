@@ -132,6 +132,28 @@ pub struct SpotdlItemResult {
     pub detail: String,
 }
 
+/// Avancement d'un lot spotDL (événement « spotdl-progress ») : morceau `index` sur `total`,
+/// « en_cours » au départ, puis son résultat.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpotdlProgress {
+    pub index: usize,
+    pub total: usize,
+    pub title: String,
+    pub artist: String,
+    pub status: String,
+}
+
+/// Arrêt demandé du lot spotDL en cours.
+static SPOTDL_CANCEL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Délai maximal par morceau : au-delà, spotDL est arrêté et le lot continue.
+const SPOTDL_TRACK_LIMIT: Duration = Duration::from_secs(6 * 60);
+
+/// Arrête le lot spotDL en cours (le morceau en cours de téléchargement compris).
+#[tauri::command]
+pub fn spotdl_cancel() {
+    SPOTDL_CANCEL.store(true, Ordering::SeqCst);
+}
+
 #[derive(Debug, Serialize)]
 pub struct SpotdlReport {
     pub items: Vec<SpotdlItemResult>,
@@ -155,7 +177,7 @@ pub fn spotdl_download_missing(
     }
     #[cfg(not(target_os = "android"))]
     {
-        use std::process::{Command, Stdio};
+        use std::process::Command;
 
         if queries.is_empty() {
             return Err("Aucun morceau manquant à télécharger.".into());
@@ -185,43 +207,61 @@ pub fn spotdl_download_missing(
             return Err("spotDL introuvable. Installez Python puis `pip install -U spotdl`, ou configurez l’exécutable spotdl dans le PATH. Redémarrez Music Player après l’installation.".into());
         };
 
+        SPOTDL_CANCEL.store(false, Ordering::SeqCst);
+        let total = queries.len();
+        let report = |index: usize, title: &str, artist: &str, status: &str| {
+            let _ = app.emit(
+                "spotdl-progress",
+                SpotdlProgress { index, total, title: title.to_owned(), artist: artist.to_owned(), status: status.to_owned() },
+            );
+        };
         let mut items = Vec::with_capacity(queries.len());
-        for q in queries {
+        for (index, q) in queries.iter().enumerate() {
             let title = q.title.trim();
             let artist = q.artist.trim();
             if title.is_empty() {
                 continue;
             }
+            // Arrêt demandé : les morceaux restants sont notés comme non tentés.
+            if SPOTDL_CANCEL.load(Ordering::SeqCst) {
+                items.push(SpotdlItemResult { title: title.to_owned(), artist: artist.to_owned(), status: "annule".into(), detail: "Arrêté avant ce morceau.".into() });
+                continue;
+            }
+            report(index, title, artist, "en_cours");
             let query = if artist.is_empty() { title.to_owned() } else { format!("{artist} - {title}") };
             let mut cmd = Command::new(executable);
             crate::ffmpeg::quiet(&mut cmd);
             if executable != "spotdl" {
                 cmd.arg("-m").arg("spotdl");
             }
-            let result = cmd
-                .arg("download")
+            cmd.arg("download")
                 .arg(query)
                 .arg("--format").arg("mp3")
                 .arg("--output").arg(&output)
                 .arg("--overwrite").arg("skip")
                 .arg("--max-retries").arg("3")
                 .arg("--log-level").arg("INFO")
-                .arg("--print-errors")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output();
+                .arg("--print-errors");
+            let tail = |text: String| -> String { text.chars().rev().take(12000).collect::<String>().chars().rev().collect() };
+            let result = match crate::bounded::run(&mut cmd, SPOTDL_TRACK_LIMIT, &SPOTDL_CANCEL) {
+                Ok(crate::bounded::Bounded::Finished { status, stdout, stderr }) => Ok((status, stdout, stderr)),
+                Ok(crate::bounded::Bounded::TimedOut { stdout, stderr }) => Err(Ok((
+                    "delai",
+                    tail(format!("Arrêté au bout de {} minutes sans fin de téléchargement.\n{stderr}\n{stdout}", SPOTDL_TRACK_LIMIT.as_secs() / 60)),
+                ))),
+                Ok(crate::bounded::Bounded::Cancelled { stdout, stderr }) => Err(Ok(("annule", tail(format!("Arrêté pendant le téléchargement.\n{stderr}\n{stdout}"))))),
+                Err(e) => Err(Err(e)),
+            };
             let (status, detail) = match result {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
+                Err(Ok((kind, detail))) => (kind, detail),
+                Err(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => (
                     "outil_absent",
                     format!("Exécutable introuvable ({executable}). Vérifiez Python/spotDL et le PATH. {e}"),
                 ),
-                Err(e) => ("erreur_lancement", format!("Impossible de démarrer spotDL : {e}")),
-                Ok(out) if out.status.success() => (
-                    "telecharge",
-                    String::from_utf8_lossy(&out.stdout).chars().rev().take(12000).collect::<String>().chars().rev().collect(),
-                ),
-                Ok(out) => {
-                    let raw = format!("{}\n{}", String::from_utf8_lossy(&out.stderr), String::from_utf8_lossy(&out.stdout));
+                Err(Err(e)) => ("erreur_lancement", format!("Impossible de démarrer spotDL : {e}")),
+                Ok((status, stdout, _)) if status.success() => ("telecharge", tail(stdout)),
+                Ok((_, stdout, stderr)) => {
+                    let raw = format!("{stderr}\n{stdout}");
                     let lower = raw.to_lowercase();
                     let kind = if lower.contains("ffmpeg") {
                         "ffmpeg"
@@ -234,10 +274,10 @@ pub fn spotdl_download_missing(
                     } else {
                         "echec_spotdl"
                     };
-                    let detail = raw.chars().rev().take(12000).collect::<String>().chars().rev().collect();
-                    (kind, detail)
+                    (kind, tail(raw))
                 }
             };
+            report(index, title, artist, status);
             items.push(SpotdlItemResult { title: title.to_owned(), artist: artist.to_owned(), status: status.to_owned(), detail });
         }
         let successful = items.iter().any(|i| i.status == "telecharge");

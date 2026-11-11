@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, reactive, ref } from "vue";
 import { api } from "@/lib/api";
 import { LibraryMatcher, type MatchedPlaylist, matchPlaylist, missingText, readExportFile, type SpotifyExport } from "@/lib/spotifyImport";
 import { useFavoritesStore } from "@/stores/favorites";
@@ -27,6 +27,16 @@ const importedPlaylistIds = reactive<Record<number, string>>({});
 const spotdlBusy = ref(false);
 const spotdlReport = ref<{ items: { title: string; artist: string; status: string; detail: string }[]; imported: number } | null>(null);
 const spotdlError = ref<string | null>(null);
+/** Avancement du lot en cours (événements du moteur) et arrêt demandé. */
+const spotdlNow = ref<{ index: number; total: number; title: string; artist: string } | null>(null);
+const spotdlDone = ref<{ title: string; artist: string; status: string }[]>([]);
+const spotdlStopping = ref(false);
+let offProgress: (() => void) | null = null;
+onBeforeUnmount(() => offProgress?.());
+async function stopSpotdl() {
+  spotdlStopping.value = true;
+  await api.spotdlCancel().catch(() => {});
+}
 const isAndroid = /Android/i.test(navigator.userAgent);
 const done = ref<{ playlists: number; tracks: number; liked: number } | null>(null);
 
@@ -59,8 +69,18 @@ const missingForSpotdl = computed(() => {
 async function downloadMissing() {
   if (spotdlBusy.value || !missingForSpotdl.value.length) return;
   spotdlBusy.value = true;
+  spotdlStopping.value = false;
   spotdlError.value = null;
-  spotdlReport.value = { items: [], imported: 0 };
+  spotdlReport.value = null;
+  spotdlNow.value = null;
+  spotdlDone.value = [];
+  offProgress?.();
+  offProgress = await api
+    .onSpotdlProgress((p) => {
+      if (p.status === "en_cours") spotdlNow.value = p;
+      else spotdlDone.value = [...spotdlDone.value, { title: p.title, artist: p.artist, status: p.status }];
+    })
+    .catch(() => null);
   try {
     const report = await api.spotdlDownloadMissing(missingForSpotdl.value);
     library.applyScanResult(report.library);
@@ -78,8 +98,15 @@ async function downloadMissing() {
     spotdlError.value = String(error);
   } finally {
     spotdlBusy.value = false;
+    spotdlNow.value = null;
+    offProgress?.();
+    offProgress = null;
   }
 }
+const spotdlCounts = computed(() => ({
+  ok: spotdlDone.value.filter((d) => d.status === "telecharge").length,
+  ko: spotdlDone.value.filter((d) => d.status !== "telecharge").length,
+}));
 
 function spotdlStatusLabel(status: string) {
   const labels: Record<string, string> = {
@@ -92,6 +119,8 @@ function spotdlStatusLabel(status: string) {
     fichier_non_importe: "Fichier téléchargé mais introuvable dans la bibliothèque",
     erreur_lancement: "Impossible de lancer spotDL",
     echec_spotdl: "Échec spotDL",
+    delai: "Délai dépassé (6 min) : arrêté, le lot a continué",
+    annule: "Non téléchargé (arrêté)",
   };
   return labels[status] ?? status;
 }
@@ -225,9 +254,22 @@ async function copyMissing(list: MatchedPlaylist[]) {
           les résultats peuvent donc différer de l’enregistrement Spotify. Les messages détaillés seront affichés pour chaque échec.
         </p>
         <p class="muted small">Sur Windows, installe Python puis <code>py -m pip install -U spotdl</code>. Installe FFmpeg avec <code>spotdl --download-ffmpeg</code> (Deno est recommandé avec <code>spotdl --download-deno</code>). Redémarre Music Player après l’installation.</p>
-        <button type="button" class="pill pill-accent" :disabled="spotdlBusy || !missingForSpotdl.length" @click="downloadMissing">
-          {{ spotdlBusy ? "Téléchargement en cours…" : `Télécharger ${missingForSpotdl.length} morceau${missingForSpotdl.length > 1 ? "x" : ""}` }}
-        </button>
+        <div class="spotdl-actions">
+          <button type="button" class="pill pill-accent" :disabled="spotdlBusy || !missingForSpotdl.length" @click="downloadMissing">
+            {{ spotdlBusy ? "Téléchargement en cours…" : `Télécharger ${missingForSpotdl.length} morceau${missingForSpotdl.length > 1 ? "x" : ""}` }}
+          </button>
+          <button v-if="spotdlBusy" type="button" class="pill pill-danger" :disabled="spotdlStopping" @click="stopSpotdl">
+            {{ spotdlStopping ? "Arrêt…" : "Arrêter" }}
+          </button>
+        </div>
+        <div v-if="spotdlBusy && spotdlNow" class="spotdl-progress" role="status">
+          <div class="spotdl-progress-text">
+            <span>Morceau {{ spotdlNow.index + 1 }} sur {{ spotdlNow.total }} · {{ spotdlNow.artist ? `${spotdlNow.artist} — ` : "" }}{{ spotdlNow.title }}</span>
+            <span class="muted">{{ spotdlCounts.ok }} téléchargé{{ spotdlCounts.ok > 1 ? "s" : "" }} · {{ spotdlCounts.ko }} échec{{ spotdlCounts.ko > 1 ? "s" : "" }}</span>
+          </div>
+          <div class="spotdl-bar"><span :style="{ width: `${Math.round((spotdlNow.index / spotdlNow.total) * 100)}%` }" /></div>
+          <small class="muted">Chaque morceau a 6 minutes au plus ; au-delà, il est passé et le lot continue.</small>
+        </div>
         <p v-if="spotdlError" class="error">{{ spotdlError }}</p>
         <template v-if="spotdlReport">
           <p class="done">{{ spotdlReport.imported }} morceau{{ spotdlReport.imported > 1 ? "x" : "" }} ajouté{{ spotdlReport.imported > 1 ? "s" : "" }} à la bibliothèque.</p>
@@ -290,6 +332,35 @@ async function copyMissing(list: MatchedPlaylist[]) {
 .spotdl h2 {
   margin: 0 0 var(--space-2);
   font-size: 16px;
+}
+.spotdl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.spotdl-progress {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+.spotdl-progress-text {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.spotdl-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(var(--fg-rgb), 0.1);
+  overflow: hidden;
+}
+.spotdl-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
 }
 .spotdl-result {
   margin-top: var(--space-2);
