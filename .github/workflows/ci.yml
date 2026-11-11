@@ -11,26 +11,15 @@ on:
 jobs:
   # Feedback rapide sur chaque push/PR : lint + tests backend (Rust) et
   # frontend (Vue), sans construire d'installeur. Tourne uniquement sur
-  # Linux, où toutes les libs système Tauri (webkit2gtk, alsa...) sont
-  # disponibles via apt.
+  # Windows depuis le 11/11 : les machines Linux de GitHub n'arrivaient plus à télécharger les
+  # paquets système (« Ign: » sur chaque paquet, miroirs Azure et officiel), alors que Windows
+  # n'en a besoin d'aucun (WebView2 est déjà là). Les tests passent de même sur les deux.
   test:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     # Un blocage échoue au lieu de tourner sans fin (vu le 11/11 : 44 min).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-
-      - name: Dépendances système Tauri (build Linux + audio)
-        run: |
-          # Miroir Azure de GitHub parfois injoignable (11/11 : « Ign: » en boucle, 44 min) :
-          # miroir officiel d'Ubuntu en premier, Azure en secours, délais courts et nouveaux essais.
-          printf 'http://archive.ubuntu.com/ubuntu\tpriority:1\nhttp://azure.archive.ubuntu.com/ubuntu\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
-          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/80-ci-reseau > /dev/null
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev libasound2-dev build-essential curl wget file \
-            libssl-dev libsoup-3.0-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -52,12 +41,14 @@ jobs:
         working-directory: src-tauri
         # Un test à la fois, 15 min au plus : un test bloqué apparaît en dernier dans le journal,
         # recopié dans le résumé de l'exécution (lisible sans ouvrir les journaux).
+        shell: bash
         run: |
           set -o pipefail
           timeout 900 cargo test -- --test-threads=1 2>&1 | tee ../cargo-test.log
 
       - name: Fin du journal des tests (en cas d'échec)
         if: failure()
+        shell: bash
         run: |
           {
             echo "### Fin du journal de cargo test"
@@ -95,7 +86,7 @@ jobs:
         with:
           name: "Music Player ${{ github.ref_name }}"
           body: |
-            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
+            Installeurs générés automatiquement par la CI pour Windows, macOS et Android (Linux : momentanément absent).
             Choisis le fichier correspondant à ton système ci-dessous.
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
@@ -103,7 +94,6 @@ jobs:
             - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
-            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
 
   release:
     needs: [test, create-release]
@@ -117,7 +107,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: ubuntu-latest
+          # Linux mis de côté le 11/11 (téléchargement des paquets impossible sur les machines
+          # Linux de GitHub) : à reprendre plus tard.
           - platform: macos-latest
           - platform: windows-latest
     runs-on: ${{ matrix.platform }}
@@ -176,7 +167,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Music Player ${{ github.ref_name }}"
           releaseBody: |
-            Installeurs générés automatiquement par la CI pour Windows, macOS, Linux et Android.
+            Installeurs générés automatiquement par la CI pour Windows, macOS et Android (Linux : momentanément absent).
             Choisis le fichier correspondant à ton système ci-dessous.
             Les applications déjà installées (à partir de la 0.4.3 sur ordinateur, 0.4.4 sur Android) proposent la mise à jour d'elles-mêmes.
 
@@ -184,7 +175,6 @@ jobs:
             - Android 8.0 ou plus, Android System WebView à jour (111+) : Music-Player-android-arm64.apk (la plupart des téléphones), Music-Player-android-armv7.apk (anciens téléphones 32 bits) ou Music-Player-android.apk (complet, pour tous)
             - Windows 10/11 64 bits : Music.Player_*_x64-setup.exe
             - macOS 10.15 ou plus, Mac Apple Silicon : Music.Player_*_aarch64.dmg
-            - Linux x86_64 (Ubuntu 22.04, Debian 12, Fedora 38 ou plus récents) : .deb, .rpm ou .AppImage
           releaseDraft: false
           prerelease: false
 
