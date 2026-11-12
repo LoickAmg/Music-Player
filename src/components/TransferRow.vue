@@ -33,16 +33,19 @@ function remaining(secs: number): string {
 
 const status = computed(() => {
   const t = props.transfer;
+  // Envoi par cycles (grosse playlist) : « Partie 2 sur 5 » devant l'étape en cours.
+  const part = p.value.message?.startsWith("Partie ") ? `${p.value.message} · ` : "";
   switch (p.value.stage) {
     case "attente":
+      if (part) return `${part}${t.direction === "reception" ? "en attente de la suite…" : "préparation de la suite…"}`;
       if (t.direction === "reception") return "Connexion à l'expéditeur…";
       return t.peer
         ? `En attente de l'accord de ${t.peer}…`
         : "En attente de la personne qui a le code (15 minutes au plus)…";
     case "envoi":
-      return `Envoi… ${percent.value ?? 0} % · ${formatBytes(p.value.done)} sur ${formatBytes(p.value.total)}${pace.value}`;
+      return `${part}Envoi… ${percent.value ?? 0} % · ${formatBytes(p.value.done)} sur ${formatBytes(p.value.total)}${pace.value}`;
     case "reception":
-      return `Réception… ${percent.value ?? 0} % · ${formatBytes(p.value.done)} sur ${formatBytes(p.value.total)}${pace.value}`;
+      return `${part}Réception… ${percent.value ?? 0} % · ${formatBytes(p.value.done)} sur ${formatBytes(p.value.total)}${pace.value}`;
     case "reprise":
       if (p.value.message) return p.value.message;
       return `Connexion perdue : nouvel essai ${p.value.done} sur ${p.value.total}, le transfert reprendra où il s'est arrêté…`;

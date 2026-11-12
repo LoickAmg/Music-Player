@@ -47,6 +47,12 @@ pub struct Offer {
     /// (partage à distance). Absent chez les versions 0.5.7 et antérieures.
     #[serde(default)]
     pub acks: bool,
+    /// Envoi par cycles (grosse playlist par le relais) : partie `part` (à partir de 0) sur
+    /// `parts`. 0 partie : envoi d'un seul tenant (versions 0.7.0 et antérieures).
+    #[serde(default)]
+    pub part: usize,
+    #[serde(default)]
+    pub parts: usize,
 }
 
 /// Archive acceptée à la réception : 4 Go au plus.
@@ -122,6 +128,8 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
             tracks,
             size,
             acks: true,
+            part: 0,
+            parts: 0,
         },
     ))
 }
@@ -129,6 +137,12 @@ pub fn prepare(app: &AppHandle, item: &Item, from: &str) -> Result<(PathBuf, Off
 /// Contenu reçu : archive de partage importée dans la bibliothèque, ou sauvegarde transmise à
 /// l'interface (qui propose de la restaurer). Le fichier reçu est effacé ensuite.
 pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, String> {
+    import_received_into(app, path, None, true)
+}
+
+/// Comme `import_received` ; `into` : playlist à compléter (partie suivante d'un envoi par
+/// cycles), `announce` : prévenir l'interface (« share-received ») — seulement à la fin.
+pub fn import_received_into(app: &AppHandle, path: &Path, into: Option<&str>, announce: bool) -> Result<ImportResult, String> {
     let state = app.state::<AppState>();
     if is_backup(path) {
         let content = std::fs::read_to_string(path).map_err(|e| e.to_string());
@@ -143,11 +157,13 @@ pub fn import_received(app: &AppHandle, path: &Path) -> Result<ImportResult, Str
             track_ids: Vec::new(),
         });
     }
-    let result = sharing::import_bundle(&state, path);
+    let result = sharing::import_bundle_into(&state, path, into);
     let _ = std::fs::remove_file(path);
     let result = result?;
     let _ = app.emit("library-updated", &*state.library.locked());
-    let _ = app.emit("share-received", &result);
+    if announce {
+        let _ = app.emit("share-received", &result);
+    }
     Ok(result)
 }
 

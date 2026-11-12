@@ -357,6 +357,21 @@ pub fn open_send(relay: &str) -> Result<PendingSend, String> {
     Err("Le relais de partage est saturé, réessayez dans un instant.".into())
 }
 
+/// Partie suivante d'un envoi par cycles : l'expéditeur reprend la même salle (même code). La
+/// place peut rester prise quelques secondes, le temps que le relais referme l'ancienne liaison.
+pub fn rejoin_send(relay: &str, code: &Code, cancel: &AtomicBool) -> Result<PendingSend, String> {
+    let mut last = String::new();
+    for attempt in 0..15u32 {
+        transfer::cancelled(cancel)?;
+        match connect(relay, &code.room, "envoi") {
+            Ok(ws) => return Ok(PendingSend { ws, code: code.clone() }),
+            Err(e) => last = e,
+        }
+        transfer::pause(Duration::from_secs(if attempt < 5 { 2 } else { 6 }), cancel)?;
+    }
+    Err(last)
+}
+
 /// Erreur définitive (refus, annulation, mauvais code) ou coupure qu'on peut reprendre.
 fn classify(e: String) -> Failure {
     if e == WRONG_CODE || e.contains("annulé") || e.contains("refusé") || e.contains("volumineuse") {
@@ -497,6 +512,22 @@ pub fn receive(
     code: &Code,
     dest: &Path,
     cancel: &AtomicBool,
+    progress: impl FnMut(&'static str, u64, u64),
+) -> Result<Offer, String> {
+    receive_part(relay, code, dest, cancel, false, progress)
+}
+
+/// Délai laissé à l'expéditeur pour préparer et envoyer la partie suivante.
+const WAIT_NEXT_PART: Duration = Duration::from_secs(10 * 60);
+
+/// Réception d'une partie ; `next_part` : partie suivante d'un envoi par cycles (la salle peut
+/// être encore occupée un instant, l'expéditeur peut prendre plus longtemps à revenir).
+pub fn receive_part(
+    relay: &str,
+    code: &Code,
+    dest: &Path,
+    cancel: &AtomicBool,
+    next_part: bool,
     mut progress: impl FnMut(&'static str, u64, u64),
 ) -> Result<Offer, String> {
     progress("attente", 0, 0);
@@ -505,13 +536,13 @@ pub fn receive(
     loop {
         let result = (|| -> Result<Offer, Failure> {
             let mut ws = connect(relay, &code.room, "reception").map_err(|e| {
-                if e == TAKEN && known.is_none() {
+                if e == TAKEN && known.is_none() && !next_part {
                     Failure::Final("Ce code est déjà en cours d'utilisation.".into())
                 } else {
                     Failure::Retry(e)
                 }
             })?;
-            wait_ready(&mut ws, cancel, WAIT_SENDER).map_err(|e| {
+            wait_ready(&mut ws, cancel, if next_part { WAIT_NEXT_PART } else { WAIT_SENDER }).map_err(|e| {
                 if known.is_none() && e.contains("répond") {
                     Failure::Final("Personne n'envoie avec ce code pour l'instant.".into())
                 } else {
@@ -680,7 +711,7 @@ mod tests {
     }
 
     fn offer(size: u64) -> Offer {
-        Offer { id: "envoi-1".into(), from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size, acks: true }
+        Offer { id: "envoi-1".into(), from: "Testeur".into(), kind: "playlist".into(), name: "Essai".into(), tracks: 2, size, acks: true, part: 0, parts: 0 }
     }
 
     #[test]
@@ -722,6 +753,44 @@ mod tests {
         assert!(retries >= 1, "la coupure doit provoquer une reprise");
         assert!(resumed_from.iter().any(|&from| from >= CHUNK as u64), "reprise sans repartir de zéro : {resumed_from:?}");
         assert_eq!(std::fs::read(&dest).unwrap(), content);
+    }
+
+    #[test]
+    fn a_playlist_crosses_the_relay_in_several_parts_with_one_code() {
+        // Envoi par cycles : 3 parties l'une après l'autre, même code, même salle.
+        let relay = local_relay(None);
+        let dir = tempfile::tempdir().unwrap();
+        let contents: Vec<Vec<u8>> = (0..3u32).map(|p| (0..400_000u32).map(|i| ((i + p * 7) % 233) as u8).collect()).collect();
+        let pending = open_send(&relay).unwrap();
+        let code = pending.code.clone();
+        let sending = {
+            let (relay, code, contents, dir) = (relay.clone(), code.clone(), contents.clone(), dir.path().to_path_buf());
+            std::thread::spawn(move || {
+                let cancel = AtomicBool::new(false);
+                let mut first = Some(pending);
+                for (i, content) in contents.iter().enumerate() {
+                    let source = dir.join(format!("partie-{i}.mpshare"));
+                    std::fs::write(&source, content).unwrap();
+                    let offer = Offer { id: format!("groupe-{i}"), part: i, parts: 3, ..offer(content.len() as u64) };
+                    let link = match first.take() {
+                        Some(p) => p,
+                        None => rejoin_send(&relay, &code, &cancel).unwrap(),
+                    };
+                    link.finish(&relay, &source, &offer, &cancel, |_, _, _| {}).unwrap();
+                }
+            })
+        };
+        let cancel = AtomicBool::new(false);
+        let dest = dir.path().join("recu.mpshare");
+        let first = receive(&relay, &code, &dest, &cancel, |_, _, _| {}).unwrap();
+        assert_eq!((first.part, first.parts), (0, 3));
+        assert_eq!(std::fs::read(&dest).unwrap(), contents[0]);
+        for (k, content) in contents.iter().enumerate().skip(1) {
+            let offer = receive_part(&relay, &code, &dest, &cancel, true, |_, _, _| {}).unwrap();
+            assert_eq!(offer.part, k);
+            assert_eq!(&std::fs::read(&dest).unwrap(), content, "partie {k} intacte");
+        }
+        sending.join().unwrap();
     }
 
     /// Envoi de `size` octets à un destinataire lent (`delay` par tranche) ; renvoie la plus

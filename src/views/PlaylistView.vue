@@ -11,6 +11,7 @@ import { useUiStore } from "@/stores/ui";
 import Icon from "@/components/Icon.vue";
 import PlaylistCover from "@/components/PlaylistCover.vue";
 import TrackRow from "@/components/TrackRow.vue";
+import VirtualList from "@/components/VirtualList.vue";
 
 const props = defineProps<{ id: string }>();
 const library = useLibraryStore();
@@ -122,9 +123,14 @@ function share() {
       <p class="muted">Cherchez et cochez autant de morceaux, d'albums ou d'artistes que vous voulez.</p>
       <button type="button" class="pill pill-accent add-first" @click="ui.trackPicker = playlist.id"><Icon name="plus" :size="15" /> Ajouter des morceaux</button>
     </div>
-    <div v-for="(track, i) in tracks" :key="`${i}-${track.id}`" class="row">
-      <TrackRow :track="track" :index="i" variant="playlist" :playlist-id="playlist.id" striped @play="player.playQueue(ids, track.id)" />
-    </div>
+    <!-- Liste virtualisée : seules les lignes à l'écran sont dessinées. Une grosse playlist
+         (des centaines de morceaux) mettait sinon de longues secondes à s'ouvrir sur
+         téléphone, et le toucher semblait sans effet. -->
+    <VirtualList v-else :items="tracks" :row-height="52">
+      <template #default="{ item, index }">
+        <TrackRow :track="item" :index="index" variant="playlist" :playlist-id="playlist.id" striped @play="player.playQueue(ids, item.id)" />
+      </template>
+    </VirtualList>
   </div>
 </template>
 

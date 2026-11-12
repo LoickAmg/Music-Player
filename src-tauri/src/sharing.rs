@@ -153,6 +153,56 @@ pub fn export_tracks(state: &AppState, dest: &Path, name: &str, track_ids: &[Str
     Ok(tracks.len())
 }
 
+/// Envoi par cycles : une partie d'archive ne dépasse ni ce poids ni ce nombre de morceaux
+/// (comme la copie entre mes appareils, lib/devices.ts).
+pub const PART_BYTES: u64 = 150 * 1024 * 1024;
+pub const PART_TRACKS: usize = 40;
+
+/// Morceaux d'une playlist (encore dans la bibliothèque) découpés en parties : nom, thème,
+/// parties. Un morceau plus lourd qu'une partie forme une partie à lui seul.
+/// Playlist prête pour l'envoi par cycles : nom, thème, parties.
+pub type PlaylistParts = (String, Option<String>, Vec<Vec<Track>>);
+
+pub fn playlist_parts(state: &AppState, playlist_id: &str) -> Result<PlaylistParts, String> {
+    let (name, theme, ids) = {
+        let store = state.playlists.locked();
+        let playlist = store.get(playlist_id).ok_or("Playlist introuvable.")?;
+        (playlist.name.clone(), Some(playlist.theme.clone()), playlist.track_ids.clone())
+    };
+    let tracks: Vec<Track> = {
+        let library = state.library.locked();
+        ids.iter().filter_map(|id| library.iter().find(|t| &t.id == id).cloned()).collect()
+    };
+    if tracks.is_empty() {
+        return Err("Cette playlist est vide (ou ses morceaux ne sont plus dans la bibliothèque).".to_string());
+    }
+    Ok((name, theme, split_parts(tracks, |t| fs::metadata(&t.path).map(|m| m.len()).unwrap_or(0))))
+}
+
+fn split_parts(tracks: Vec<Track>, size_of: impl Fn(&Track) -> u64) -> Vec<Vec<Track>> {
+    let mut parts: Vec<Vec<Track>> = Vec::new();
+    let mut current: Vec<Track> = Vec::new();
+    let mut bytes = 0u64;
+    for track in tracks {
+        let size = size_of(&track);
+        if !current.is_empty() && (current.len() >= PART_TRACKS || bytes + size > PART_BYTES) {
+            parts.push(std::mem::take(&mut current));
+            bytes = 0;
+        }
+        bytes += size;
+        current.push(track);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
+/// Exporte une partie de playlist (envoi par cycles).
+pub fn export_playlist_part(dest: &Path, name: &str, theme: Option<String>, tracks: &[Track]) -> Result<(), String> {
+    write_bundle(dest, "playlist", name, theme, tracks)
+}
+
 /// Exporte une playlist entière (ses morceaux encore présents dans la bibliothèque).
 pub fn export_playlist(state: &AppState, dest: &Path, playlist_id: &str) -> Result<(), String> {
     // Un verrou à la fois : tenir celui des playlists en prenant celui de la bibliothèque pourrait
@@ -308,6 +358,12 @@ pub fn move_received(state: &AppState) -> Vec<(String, String)> {
 /// dossier de données de l'appli, les ajoute à la bibliothèque, et recrée la playlist
 /// si l'archive en contenait une.
 pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, String> {
+    import_bundle_into(state, source, None)
+}
+
+/// Comme `import_bundle`, mais une playlist reçue en plusieurs parties (envoi par cycles)
+/// complète la playlist déjà créée par la première partie (`into`) au lieu d'en créer une.
+pub fn import_bundle_into(state: &AppState, source: &Path, into: Option<&str>) -> Result<ImportResult, String> {
     let file = fs::File::open(source).map_err(|e| e.to_string())?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|_| "Ce fichier n'est pas une archive de partage valide.".to_string())?;
@@ -421,7 +477,8 @@ pub fn import_bundle(state: &AppState, source: &Path) -> Result<ImportResult, St
 
     let playlist_id = if manifest.kind == "playlist" {
         let mut store = state.playlists.locked();
-        let id = store.create(manifest.name.clone(), manifest.theme.clone());
+        let existing = into.filter(|id| store.get(id).is_some()).map(str::to_string);
+        let id = existing.unwrap_or_else(|| store.create(manifest.name.clone(), manifest.theme.clone()));
         let _ = store.add_tracks(&id, imported_ids.clone());
         let _ = store.save(&state.playlists_path());
         Some(id)
@@ -573,6 +630,38 @@ mod tests {
         assert!(result.playlist_id.is_none());
         assert_eq!(other_state.library.locked().len(), 1);
         assert_eq!(other_state.library.locked()[0].title, "Une chanson");
+    }
+
+    #[test]
+    fn playlist_is_split_into_parts_by_weight_and_count() {
+        let tracks: Vec<Track> = (0..90).map(|i| track_at(format!("/x/{i}.mp3"), &format!("T{i}"), "A")).collect();
+        // 90 petits morceaux : 40 + 40 + 10.
+        let parts = super::split_parts(tracks.clone(), |_| 1_000_000);
+        assert_eq!(parts.iter().map(Vec::len).collect::<Vec<_>>(), vec![40, 40, 10]);
+        // Morceaux de 60 Mo : 2 par partie (150 Mo au plus), un morceau énorme reste seul.
+        let parts = super::split_parts(tracks[..5].to_vec(), |t| if t.title == "T2" { 400 * 1024 * 1024 } else { 60 * 1024 * 1024 });
+        assert_eq!(parts.iter().map(Vec::len).collect::<Vec<_>>(), vec![2, 1, 2]);
+        assert_eq!(parts.iter().flatten().count(), 5, "aucun morceau perdu");
+    }
+
+    #[test]
+    fn a_later_part_completes_the_playlist_of_the_first() {
+        let source_dir = tempfile::tempdir().unwrap();
+        let t1 = track_at(write_audio(source_dir.path(), "un.mp3"), "Un", "Artiste");
+        let t2 = track_at(write_audio(source_dir.path(), "deux.mp3"), "Deux", "Artiste");
+        let bundles = tempfile::tempdir().unwrap();
+        let (a, b) = (bundles.path().join("1.mpshare"), bundles.path().join("2.mpshare"));
+        super::export_playlist_part(&a, "Grosse", Some("ocean".into()), std::slice::from_ref(&t1)).unwrap();
+        super::export_playlist_part(&b, "Grosse", Some("ocean".into()), std::slice::from_ref(&t2)).unwrap();
+        let other_dir = tempfile::tempdir().unwrap();
+        let other = make_state(other_dir.path());
+        let first = super::import_bundle_into(&other, &a, None).unwrap();
+        let id = first.playlist_id.clone().unwrap();
+        let second = super::import_bundle_into(&other, &b, Some(&id)).unwrap();
+        assert_eq!(second.playlist_id.as_deref(), Some(id.as_str()));
+        let store = other.playlists.locked();
+        assert_eq!(store.playlists.len(), 1, "une seule playlist");
+        assert_eq!(store.get(&id).unwrap().track_ids.len(), 2);
     }
 
     #[test]

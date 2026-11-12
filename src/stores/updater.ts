@@ -3,10 +3,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api } from "@/lib/api";
 import type { UpdateInfo } from "@/lib/types";
 
-// Mise à jour : vérifiée au démarrage, installée en un clic. Ordinateur : par Tauri
-// (installateur signé, redémarrage). Android : le service de téléchargement d'Android
-// récupère l'APK (connexion lente, coupure, nouvel essai), puis l'installateur d'Android
-// s'ouvre (window.AndroidUpdate). Android vérifie aussi en arrière-plan, appli fermée.
+// Mise à jour : vérifiée au démarrage. Ordinateur : installée en un clic par Tauri
+// (installateur signé, redémarrage). Android : l'APK officiel s'ouvre dans le navigateur, qui
+// le télécharge et propose l'installation (window.AndroidUpdate). Android vérifie aussi en
+// arrière-plan, appli fermée, et prévient par une notification.
 export const useUpdaterStore = defineStore("updater", {
   state: () => ({
     available: null as UpdateInfo | null,
@@ -54,25 +54,13 @@ export const useUpdaterStore = defineStore("updater", {
       this.failed = false;
       const url = this.available?.url;
       if (url && window.AndroidUpdate) {
-        window.__mpUpdate = (stage, value) => {
-          if (stage === "progress") {
-            this.progress = Number(value) >= 0 ? Number(value) : null;
-            this.message = null;
-          } else if (stage === "waiting") {
-            this.message = String(value);
-          } else if (stage === "permission") {
-            this.message =
-              "Autorise « Installer des applis inconnues » pour Music Player, puis reviens : l'installation reprendra.";
-          } else if (stage === "ready") {
-            this.installing = false;
-            this.message = "Installation lancée : confirme « Mettre à jour » dans la fenêtre d'Android.";
-          } else if (stage === "error") {
-            this.installing = false;
-            this.failed = true;
-            this.message = `Téléchargement impossible : ${value}`;
-          }
-        };
-        window.AndroidUpdate.download(url, this.available?.version ?? "");
+        // Android : le navigateur télécharge l'APK officiel et propose l'installation. L'appli
+        // n'installe rien elle-même : Play Protect la signalait comme dangereuse à chaque mise
+        // à jour quand elle le faisait.
+        window.AndroidUpdate.openInBrowser(url);
+        this.installing = false;
+        this.message =
+          "Le téléchargement continue dans le navigateur. À la fin, touche « Ouvrir » (ou la notification de téléchargement) puis « Mettre à jour » : tes musiques et réglages sont conservés.";
         return;
       }
       let off: UnlistenFn | null = null;

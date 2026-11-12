@@ -1182,6 +1182,19 @@ fn report(app: &AppHandle, id: &str) -> impl FnMut(&'static str, u64, u64) + Sen
     }
 }
 
+/// Avancement d'une partie d'un envoi par cycles : « Partie 2 sur 5 » accompagne chaque étape.
+fn report_part(app: &AppHandle, id: &str, part: usize, parts: usize) -> impl FnMut(&'static str, u64, u64) + Send + 'static {
+    let app = app.clone();
+    let id = id.to_string();
+    move |stage, done, total| {
+        let mut p = crate::transfer::Progress::new(&id, stage, done, total);
+        if stage != "reprise" {
+            p.message = Some(format!("Partie {} sur {parts}", part + 1));
+        }
+        crate::transfer::emit(&app, p)
+    }
+}
+
 fn finish_report(app: &AppHandle, id: &str, result: &Result<(), String>) {
     let mut p = crate::transfer::Progress::new(id, "fini", 0, 0);
     if let Err(e) = result {
@@ -1246,6 +1259,14 @@ pub fn remote_send_start(
     transfer_id: String,
 ) -> Result<RemoteStart, String> {
     let relay = relay_or_default(relay)?;
+    // Grosse playlist : envoi par cycles (parties de 150 Mo / 40 morceaux au plus, une à une),
+    // chaque partie importée dès son arrivée chez le destinataire.
+    if let crate::transfer::Item::Playlist(id) = &item {
+        let (name, theme, parts) = sharing::playlist_parts(&app.state::<AppState>(), id)?;
+        if parts.len() > 1 {
+            return remote_send_parts(app, relay, &from, transfer_id, name, theme, parts);
+        }
+    }
     let (path, offer) = crate::transfer::prepare(&app, &item, &from)?;
     let pending = match crate::remote::open_send(&relay) {
         Ok(p) => p,
@@ -1264,6 +1285,70 @@ pub fn remote_send_start(
     Ok(RemoteStart { code })
 }
 
+/// Envoi par cycles d'une playlist : chaque partie est préparée juste avant d'être envoyée
+/// (pas toute la playlist en double dans le stockage), avec le même code.
+fn remote_send_parts(
+    app: AppHandle,
+    relay: String,
+    from: &str,
+    transfer_id: String,
+    name: String,
+    theme: Option<String>,
+    parts: Vec<Vec<Track>>,
+) -> Result<RemoteStart, String> {
+    let dir = share_temp_dir(&app).ok_or("Dossier temporaire indisponible.")?;
+    let pending = crate::remote::open_send(&relay)?;
+    let code = pending.code.clone();
+    let text = code.text();
+    let cancel = crate::transfer::cancel_flag(&transfer_id);
+    let from: String = if from.trim().is_empty() { "Music Player".into() } else { from.trim().chars().take(40).collect() };
+    let group = uuid::Uuid::new_v4().simple().to_string();
+    let count = parts.len();
+    let tracks: usize = parts.iter().map(Vec::len).sum();
+    std::thread::spawn(move || {
+        let mut first = Some(pending);
+        let result = (|| -> Result<(), String> {
+            for (i, part) in parts.iter().enumerate() {
+                crate::transfer::cancelled(&cancel)?;
+                let path = dir.join(format!("{group}-{i}.{}", sharing::EXTENSION));
+                let prepared = sharing::export_playlist_part(&path, &name, theme.clone(), part)
+                    .and_then(|()| std::fs::metadata(&path).map(|m| m.len()).map_err(|e| e.to_string()));
+                let size = match prepared {
+                    Ok(size) => size,
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&path);
+                        return Err(e);
+                    }
+                };
+                let offer = crate::transfer::Offer {
+                    id: format!("{group}-{i}"),
+                    from: from.clone(),
+                    kind: "playlist".into(),
+                    name: name.clone(),
+                    tracks,
+                    size,
+                    acks: true,
+                    part: i,
+                    parts: count,
+                };
+                let link = match first.take() {
+                    Some(p) => Ok(p),
+                    None => crate::remote::rejoin_send(&relay, &code, &cancel),
+                };
+                let sent = link.and_then(|p| p.finish(&relay, &path, &offer, &cancel, report_part(&app, &transfer_id, i, count)));
+                let _ = std::fs::remove_file(&path);
+                sent.map_err(|e| if i > 0 { format!("Partie {} sur {count} non envoyée : {e}", i + 1) } else { e })?;
+                if i + 1 < count {
+                    crate::transfer::pause(Duration::from_secs(3), &cancel)?;
+                }
+            }
+            Ok(())
+        })();
+        finish_report(&app, &transfer_id, &result);
+    });
+    Ok(RemoteStart { code: text })
+}
+
 /// Reçoit ce qui est envoyé avec ce code, puis l'importe dans la bibliothèque.
 #[tauri::command(async)]
 pub fn remote_receive(
@@ -1277,11 +1362,61 @@ pub fn remote_receive(
     let dir = share_temp_dir(&app).ok_or("Dossier temporaire indisponible.")?;
     let dest = dir.join(format!("{transfer_id}.{}", sharing::EXTENSION));
     let cancel = crate::transfer::cancel_flag(&transfer_id);
-    let result = crate::remote::receive(&relay, &code, &dest, &cancel, report(&app, &transfer_id))
-        .and_then(|_| crate::transfer::import_received(&app, &dest));
+    let result = receive_all(&app, &relay, &code, &dest, &cancel, &transfer_id);
     let _ = std::fs::remove_file(&dest);
     finish_report(&app, &transfer_id, &result.as_ref().map(|_| ()).map_err(Clone::clone));
     result
+}
+
+/// Réception d'un envoi, en une fois ou par cycles : chaque partie est importée dès son
+/// arrivée dans la même playlist. Si une partie manque, ce qui est arrivé reste dans la
+/// bibliothèque et la playlist, et le message le dit.
+fn receive_all(
+    app: &AppHandle,
+    relay: &str,
+    code: &crate::remote::Code,
+    dest: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+    transfer_id: &str,
+) -> Result<ImportResult, String> {
+    let first = crate::remote::receive(relay, code, dest, cancel, report(app, transfer_id))?;
+    let parts = first.parts;
+    let mut total = crate::transfer::import_received_into(app, dest, None, parts <= 1)?;
+    if parts <= 1 {
+        return Ok(total);
+    }
+    let into = total.playlist_id.clone();
+    let mut missing = None;
+    for k in 1..parts {
+        let received = crate::remote::receive_part(relay, code, dest, cancel, true, report_part(app, transfer_id, k, parts)).and_then(|offer| {
+            if offer.kind != "playlist" || offer.parts != parts || offer.part != k {
+                return Err("Envoi inattendu de l'expéditeur.".into());
+            }
+            crate::transfer::import_received_into(app, dest, into.as_deref(), false)
+        });
+        match received {
+            Ok(part) => {
+                total.added_tracks += part.added_tracks;
+                total.skipped_tracks += part.skipped_tracks;
+                total.track_ids.extend(part.track_ids);
+            }
+            Err(e) => {
+                missing = Some(format!(
+                    "Partie {} sur {parts} non reçue ({e}). Les {} morceaux déjà reçus sont dans la playlist « {} ».",
+                    k + 1,
+                    total.track_ids.len(),
+                    total.name
+                ));
+                break;
+            }
+        }
+    }
+    // Annoncée une seule fois, complète ou non : la playlist apparaît avec ce qui est arrivé.
+    let _ = app.emit("share-received", &total);
+    match missing {
+        Some(message) => Err(message),
+        None => Ok(total),
+    }
 }
 
 /// Morceaux reçus déplacés au démarrage (ancien identifiant, nouveau), une seule fois.

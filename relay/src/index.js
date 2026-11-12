@@ -23,7 +23,10 @@
 
 const ROOM = /^[0-9]{4,8}$/;
 const ROLES = new Set(["envoi", "reception"]);
+// Salle d'envoi par code : fermée si personne ne l'a rejointe en 15 min, mais gardée tant que
+// l'expéditeur et le destinataire y sont (grosse playlist : bien plus de 15 min), 12 h au plus.
 const LIFETIME_MS = 15 * 60 * 1000;
+const ROOM_MAX_MS = 12 * 60 * 60 * 1000;
 
 const CODE = /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/;
 const SECRET = /^[0-9a-f]{64}$/;
@@ -284,6 +287,7 @@ export class Salle {
     if (this.state.getWebSockets(role).length > 0) return new Response("Place déjà prise", { status: 409 });
     const [client, server] = Object.values(new WebSocketPair());
     this.state.acceptWebSocket(server, [role]);
+    if (!(await this.state.storage.get("ouverte"))) await this.state.storage.put("ouverte", Date.now());
     await this.state.storage.setAlarm(Date.now() + LIFETIME_MS);
     if (this.state.getWebSockets("envoi").length && this.state.getWebSockets("reception").length) {
       for (const ws of this.state.getWebSockets()) ws.send(JSON.stringify({ type: "pret" }));
@@ -308,7 +312,15 @@ export class Salle {
   }
 
   async alarm() {
+    // Transfert en cours (les deux appareils sont là) : la salle reste ouverte.
+    const opened = (await this.state.storage.get("ouverte")) ?? Date.now();
+    const both = this.state.getWebSockets("envoi").length > 0 && this.state.getWebSockets("reception").length > 0;
+    if (both && Date.now() - opened < ROOM_MAX_MS) {
+      await this.state.storage.setAlarm(Date.now() + LIFETIME_MS);
+      return;
+    }
     for (const ws of this.state.getWebSockets()) ws.close(1000, "Délai dépassé");
+    await this.state.storage.delete("ouverte");
   }
 }
 
