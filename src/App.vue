@@ -22,6 +22,8 @@ import Icon from "@/components/Icon.vue";
 import MobileBar from "@/components/MobileBar.vue";
 import MobileTop from "@/components/MobileTop.vue";
 import NowPlaying from "@/components/NowPlaying.vue";
+import Baladeur from "@/components/Baladeur.vue";
+import { useBaladeurStore } from "@/stores/baladeur";
 import LyricsSearch from "@/components/LyricsSearch.vue";
 import LyricsShare from "@/components/LyricsShare.vue";
 import ProfileView from "@/views/ProfileView.vue";
@@ -71,6 +73,7 @@ const share = useShareStore();
 const eq = useEqStore();
 const appearance = useAppearanceStore();
 const ui = useUiStore();
+const baladeur = useBaladeurStore();
 setBanner((message) => ui.notify(message));
 // Clé de la transition de page : le nom de la route suffit, sauf pour un album ou une
 // playlist (sinon ouvrir un autre album ne jouerait pas la transition).
@@ -470,6 +473,10 @@ onBeforeUnmount(() => {
 
     <Transition name="np">
       <NowPlaying v-if="ui.nowPlayingOpen" />
+    </Transition>
+    <!-- Mode baladeur : téléphone seulement, l'écran entier devient un lecteur de poche. -->
+    <Transition name="fade">
+      <Baladeur v-if="ui.isMobile && baladeur.enabled && library.root" />
     </Transition>
     <MobileBar v-if="ui.isMobile" />
     <UpdateDialog />

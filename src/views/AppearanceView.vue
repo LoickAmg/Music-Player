@@ -7,6 +7,8 @@ import { FONTS } from "@/lib/fontCatalog";
 import { BUILTIN_THEMES, cloneTheme, contrast, parseHex, parseThemeFile, themeFile, type FontRole, type Theme } from "@/lib/themes";
 import { useAppearanceStore, type ButtonShape, type ButtonStyle, type FieldShape, type FieldStyle, type IconStyle, type SchemeMode } from "@/stores/appearance";
 import { useUiStore } from "@/stores/ui";
+import { useBaladeurStore } from "@/stores/baladeur";
+import { SKINS } from "@/lib/baladeur";
 import CropDialog from "@/components/CropDialog.vue";
 import FontPicker from "@/components/FontPicker.vue";
 import Icon from "@/components/Icon.vue";
@@ -15,6 +17,7 @@ import Icon from "@/components/Icon.vue";
 // l'interface, des titres et des paroles, taille des paroles.
 const appearance = useAppearanceStore();
 const ui = useUiStore();
+const baladeur = useBaladeurStore();
 
 const s = computed(() => appearance.settings);
 const current = computed(() => appearance.theme);
@@ -280,6 +283,20 @@ const VINYL_COLORS: { id: VinylColor; label: string }[] = [
       <h1 class="page-title">Personnalisation</h1>
       <button type="button" class="pill pill-ghost" @click="resetAll">Réinitialiser</button>
     </div>
+
+    <section v-if="ui.isMobile" class="card">
+      <h2>Mode baladeur</h2>
+      <p class="muted small">
+        Le téléphone devient un lecteur de poche : écran encastré, molette tactile qu'on fait tourner du doigt, clics et
+        vibrations, paroles taillées pour le petit écran. Pour en sortir : Menu, puis « Quitter le baladeur ».
+      </p>
+      <div class="seg wide" role="radiogroup" aria-label="Finition du baladeur">
+        <button v-for="skin in SKINS" :key="skin.id" type="button" role="radio" :aria-checked="baladeur.skinId === skin.id" :class="{ on: baladeur.skinId === skin.id }" @click="baladeur.skinId = skin.id">
+          {{ skin.name }}
+        </button>
+      </div>
+      <button type="button" class="pill pill-accent baladeur-go" @click="baladeur.enabled = true">Passer en mode baladeur</button>
+    </section>
 
     <section class="card">
       <h2>Mode clair ou sombre</h2>
@@ -988,5 +1005,8 @@ h2 {
   .actions .pill {
     flex: 1 1 auto;
   }
+}
+.baladeur-go {
+  margin-top: var(--space-3);
 }
 </style>
