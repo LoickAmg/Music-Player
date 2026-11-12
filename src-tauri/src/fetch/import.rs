@@ -64,6 +64,13 @@ fn import_downloaded_file(downloaded: &Path, wanted: &Wanted, library_root: &Pat
         )));
     }
 
+    // yt-dlp étiquette avec le titre de la vidéo (« … (Official Video) (4K Remaster) ») et sans
+    // album ; la correspondance étant acceptée, on écrit la demande. spotDL pose déjà les
+    // étiquettes Spotify. Sans effet si l'écriture échoue : le morceau reste importable.
+    if source_name == "yt-dlp" {
+        retag(downloaded, wanted);
+    }
+
     let destination = available_destination(library_root, &requested_file_name(wanted))?;
     fs::rename(downloaded, &destination)
         .map_err(|error| JobError::Failed(format!("Impossible de déplacer le morceau dans la bibliothèque : {error}")))?;
@@ -73,6 +80,28 @@ fn import_downloaded_file(downloaded: &Path, wanted: &Wanted, library_root: &Pat
         let _ = fs::remove_file(&destination);
         JobError::Failed("Le morceau déplacé ne peut pas être relu par la bibliothèque.".to_owned())
     })
+}
+
+/// Titre, artiste et album demandés écrits dans le fichier (au mieux).
+fn retag(path: &Path, wanted: &Wanted) {
+    use lofty::config::WriteOptions;
+    use lofty::file::{AudioFile, TaggedFileExt};
+    use lofty::tag::{Accessor, Tag};
+
+    let Ok(mut tagged) = lofty::read_from_path(path) else { return };
+    if tagged.primary_tag().is_none() {
+        let kind = tagged.primary_tag_type();
+        tagged.insert_tag(Tag::new(kind));
+    }
+    let Some(tag) = tagged.primary_tag_mut() else { return };
+    tag.set_title(wanted.title.trim().to_owned());
+    if !wanted.artist.trim().is_empty() {
+        tag.set_artist(wanted.artist.trim().to_owned());
+    }
+    if !wanted.album.trim().is_empty() {
+        tag.set_album(wanted.album.trim().to_owned());
+    }
+    let _ = tagged.save_to_path(path, WriteOptions::default());
 }
 
 /// Préserve les fichiers déjà présents : « Artiste - Titre (2).mp3 », puis (3), etc.
@@ -176,4 +205,38 @@ mod tests {
         let next = available_destination(root.path(), "Damso - Bruxelles vie.mp3").expect("nom libre");
         assert_eq!(next.file_name().and_then(|n| n.to_str()), Some("Damso - Bruxelles vie (2).mp3"));
     }
+
+    /// Vrai téléchargement puis import (réseau, spotDL, yt-dlp, FFmpeg) :
+    /// `cargo test -- --ignored --test-threads=1 vrai_telechargement`.
+    fn vrai_telechargement(source: &dyn Source) {
+        let root = tempfile::tempdir().expect("dossier");
+        let wanted = Wanted {
+            title: "Never Gonna Give You Up".into(),
+            artist: "Rick Astley".into(),
+            album: String::new(),
+            duration_secs: Some(213.0),
+            playlist_id: None,
+        };
+        let track = download_and_import(source, &wanted, root.path(), &AtomicBool::new(false)).expect("morceau importé");
+        println!("{} : {track:?}", source.name());
+        assert!(Path::new(&track.path).is_file());
+        assert_eq!(track.title, "Never Gonna Give You Up", "titre propre, pas celui de la vidéo");
+        assert_eq!(track.artist, "Rick Astley");
+        assert_eq!(Path::new(&track.path).parent(), Some(root.path()), "rangé à la racine de la bibliothèque");
+        let staging = root.path().join(STAGING_DIR);
+        assert_eq!(fs::read_dir(&staging).map(|d| d.count()).unwrap_or(0), 0, "dossier de tâche effacé");
+    }
+
+    #[test]
+    #[ignore = "réseau, spotDL et FFmpeg installés"]
+    fn vrai_telechargement_spotdl() {
+        vrai_telechargement(&crate::fetch::spotdl::SpotDlSource);
+    }
+
+    #[test]
+    #[ignore = "réseau, yt-dlp et FFmpeg installés"]
+    fn vrai_telechargement_ytdlp() {
+        vrai_telechargement(&crate::fetch::ytdlp::YtDlpSource);
+    }
 }
+

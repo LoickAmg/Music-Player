@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::bounded::{self, Bounded};
 use crate::ffmpeg;
 
-use super::common::{cleanup_attempt, create_attempt_directory, ffmpeg_missing, join_logs, network_failure, take_output, truncate_log};
+use super::common::{cleanup_attempt, create_attempt_directory, ffmpeg_missing, join_logs, network_failure, spotdl_ffmpeg, take_output, tool_locations, truncate_log};
 use super::source::Source;
 use super::spotdl::requested_file_name;
 use super::{JobError, Wanted};
@@ -24,15 +24,15 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Modèle de nom, relatif au dossier donné par `-P` (un `-o` absolu ferait ignorer `-P`).
 const OUTPUT_TEMPLATE: &str = "%(title)s.%(ext)s";
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Runner {
-    executable: &'static str,
+    executable: PathBuf,
     module: bool,
 }
 
 impl Runner {
-    fn command(self) -> Command {
-        let mut command = Command::new(self.executable);
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.executable);
         if self.module {
             command.arg("-m").arg("yt_dlp");
         }
@@ -75,10 +75,12 @@ impl Source for YtDlpSource {
 }
 
 fn resolve_runner(cancel: &AtomicBool) -> Result<Runner, JobError> {
-    let mut candidates = vec![Runner { executable: "yt-dlp", module: false }];
+    // PATH d'abord, puis les installations hors PATH (Anaconda, uv…), puis Python.
+    let mut candidates = vec![Runner { executable: "yt-dlp".into(), module: false }];
+    candidates.extend(tool_locations("yt-dlp").into_iter().map(|executable| Runner { executable, module: false }));
     #[cfg(windows)]
-    candidates.push(Runner { executable: "py", module: true });
-    candidates.push(Runner { executable: "python", module: true });
+    candidates.push(Runner { executable: "py".into(), module: true });
+    candidates.push(Runner { executable: "python".into(), module: true });
 
     let mut last_error = None;
     for runner in candidates {
@@ -131,7 +133,14 @@ fn run_download(runner: Runner, query: &str, attempt_dir: &Path, cancel: &Atomic
         .arg("--output")
         .arg(OUTPUT_TEMPLATE)
         .arg("--print")
-        .arg("after_move:filepath")
+        .arg("after_move:filepath");
+    // FFmpeg hors du PATH : celui installé par spotDL, s'il existe.
+    if ffmpeg::find_tool("ffmpeg").is_none() {
+        if let Some(location) = spotdl_ffmpeg() {
+            command.arg("--ffmpeg-location").arg(location);
+        }
+    }
+    command
         // Le séparateur empêche la recherche d'être interprétée comme une option.
         .arg("--")
         .arg(query);

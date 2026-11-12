@@ -2,7 +2,6 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { SpotdlQuery } from "./spotifyImport";
 import type {
   AlignModelStatus,
   DuplicateOutcome,
@@ -44,13 +43,6 @@ function toBase64(bytes: Uint8Array): Promise<string> {
 }
 
 export const api = {
-  /** Arrête le lot spotDL en cours (le morceau en cours compris). */
-  spotdlCancel: () => invoke<void>("spotdl_cancel"),
-  /** Avancement d'un lot spotDL : morceau `index` sur `total`, « en_cours » puis son résultat. */
-  onSpotdlProgress: (handler: (p: { index: number; total: number; title: string; artist: string; status: string }) => void): Promise<UnlistenFn> =>
-    listen<{ index: number; total: number; title: string; artist: string; status: string }>("spotdl-progress", (e) => handler(e.payload)),
-  spotdlDownloadMissing: (queries: SpotdlQuery[]) =>
-    invoke<{ items: { title: string; artist: string; status: string; detail: string }[]; imported: number; library: Track[] }>("spotdl_download_missing", { queries }),
   /** Outils de téléchargement installés sur la machine. */
   fetchAvailability: () => invoke<FetchAvailability>("fetch_availability"),
   /** File de téléchargements enregistrée (reprise au démarrage). */

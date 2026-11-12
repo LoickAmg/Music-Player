@@ -167,12 +167,15 @@ export function installTauriMock() {
   const handlers: Record<string, (args: any, options?: unknown) => unknown> = {
     pick_library_folder: () => "/musique/demo",
     scan_library: () => library,
-    spotdl_cancel: () => undefined,
-    spotdl_download_missing: ({ queries }: { queries: { title: string; artist: string }[] }) => ({
-      items: queries.map((q) => ({ ...q, status: "echec_spotdl", detail: "spotDL est disponible uniquement dans l’application de bureau." })),
-      imported: 0,
-      library,
-    }),
+    // File de téléchargements : aucun outil dans le navigateur.
+    fetch_availability: () => ({ spotdl: false, ytdlp: false }),
+    fetch_jobs: () => [],
+    fetch_enqueue: () => [],
+    fetch_cancel: () => undefined,
+    fetch_clear_finished: () => 0,
+    fetch_read_link: () => {
+      throw "L'import par lien demande l'application de bureau avec spotDL.";
+    },
     get_library: () => library,
     get_cover: ({ trackId }) => demoCover(Number(String(trackId).replace("mock-", "")) || 0),
     // « mock-1 » : texte seul (comme lyrics.ovh), qu'une passe d'amélioration remplace par une

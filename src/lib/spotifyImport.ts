@@ -15,12 +15,6 @@ export interface SpotifyTrack {
   duration_secs?: number | null;
 }
 
-/** Identité d'un morceau manquant envoyée au moteur de téléchargement local. */
-export interface SpotdlQuery {
-  title: string;
-  artist: string;
-}
-
 export interface SpotifyPlaylist {
   name: string;
   tracks: SpotifyTrack[];

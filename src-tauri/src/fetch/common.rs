@@ -104,11 +104,72 @@ pub fn network_failure(lower_log: &str) -> bool {
     .any(|needle| lower_log.contains(needle))
 }
 
+/// Exécutables d'un outil Python installé hors du `PATH` : Anaconda/Miniconda (base et
+/// environnements, celui qui porte le nom de l'outil d'abord), uv/pipx (`~/.local/bin`) et
+/// les dossiers `Scripts` de Python. Seuls les fichiers existants sont rendus, sans doublon.
+pub fn tool_locations(tool: &str) -> Vec<PathBuf> {
+    let exe = if cfg!(windows) { format!("{tool}.exe") } else { tool.to_owned() };
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let env_dir = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let home = env_dir(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
+
+    let mut conda_roots: Vec<PathBuf> = Vec::new();
+    for base in [env_dir("ProgramData"), home.clone(), env_dir("LOCALAPPDATA")].into_iter().flatten() {
+        for name in ["anaconda3", "miniconda3", "miniforge3", "mambaforge"] {
+            conda_roots.push(base.join(name));
+        }
+    }
+    let bin = if cfg!(windows) { "Scripts" } else { "bin" };
+    for root in conda_roots.iter().filter(|root| root.is_dir()) {
+        dirs.push(root.join("envs").join(tool).join(bin));
+        if let Ok(entries) = fs::read_dir(root.join("envs")) {
+            dirs.extend(entries.flatten().map(|entry| entry.path().join(bin)));
+        }
+        dirs.push(root.join(bin));
+    }
+    if let Some(home) = &home {
+        dirs.push(home.join(".local").join("bin"));
+    }
+    #[cfg(windows)]
+    for base in [env_dir("APPDATA").map(|d| d.join("Python")), env_dir("LOCALAPPDATA").map(|d| d.join("Programs").join("Python"))]
+        .into_iter()
+        .flatten()
+    {
+        if let Ok(entries) = fs::read_dir(&base) {
+            dirs.extend(entries.flatten().map(|entry| entry.path().join("Scripts")));
+        }
+    }
+    #[cfg(not(windows))]
+    dirs.extend([PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")]);
+
+    let mut found: Vec<PathBuf> = Vec::new();
+    for candidate in dirs.into_iter().map(|dir| dir.join(&exe)) {
+        if candidate.is_file() && !found.contains(&candidate) {
+            found.push(candidate);
+        }
+    }
+    found
+}
+
+/// FFmpeg pour yt-dlp quand il n'est pas dans le `PATH` : celui que spotDL installe
+/// (`spotdl --download-ffmpeg`, dans `~/.spotdl`).
+pub fn spotdl_ffmpeg() -> Option<PathBuf> {
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    let path = PathBuf::from(home).join(".spotdl").join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+    path.is_file().then_some(path)
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
 
-    use super::{create_attempt_directory, take_output, truncate_log, MAX_LOG_CHARS};
+    use super::{create_attempt_directory, take_output, tool_locations, truncate_log, MAX_LOG_CHARS};
+
+    #[test]
+    fn ne_rend_que_des_executables_existants() {
+        assert!(tool_locations("outil-qui-n-existe-pas-xyz").is_empty());
+        assert!(tool_locations("cmd").iter().all(|path| path.is_file()));
+    }
     use crate::fetch::JobError;
 
     #[test]

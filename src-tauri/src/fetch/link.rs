@@ -24,7 +24,9 @@ use crate::state::{AppState, Locked};
 const TOOL: &str = "spotDL";
 const MAX_FILE_BYTES: u64 = 20 * 1024 * 1024;
 const MAX_TRACKS: usize = 10_000;
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(2 * 60);
+/// spotDL lit les métadonnées morceau par morceau (83 s mesurées pour un seul titre, 12/11) :
+/// une playlist demande bien plus que 2 min.
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 const INSTALL_MESSAGE: &str = "Import par lien disponible sur PC avec spotDL installé ; sinon, utilisez l'export de vos données Spotify.";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -150,12 +152,12 @@ fn read_link_with_runner(runner: Runner, link: &ValidatedLink, staging: &Path, c
 fn run_save(runner: Runner, link: &str, save_file: &Path, cancel: &AtomicBool) -> Result<(), JobError> {
     let mut command = runner.command();
     command
+        // Le lien suit directement l'opération (après les options, spotDL le refuse) et sans
+        // « -- » (refusé aussi) ; reconstruit, il commence toujours par « https:// ».
         .arg("save")
+        .arg(link)
         .arg("--save-file")
-        .arg(save_file)
-        // Le lien reconstruit reste une donnée, jamais une option.
-        .arg("--")
-        .arg(link);
+        .arg(save_file);
     ffmpeg::quiet(&mut command);
     let outcome = bounded::run(&mut command, COMMAND_TIMEOUT, cancel).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
@@ -309,5 +311,24 @@ mod tests {
         let path = directory.path().join("test.spotdl");
         fs::write(&path, "[]").expect("fichier de test");
         assert!(read_spotdl_file(&path, Kind::Playlist).is_err());
+    }
+
+    /// Vrai lien, vrai spotDL (réseau) : `cargo test -- --ignored lit_un_vrai_lien`.
+    #[test]
+    #[ignore = "réseau et spotDL installé"]
+    fn lit_un_vrai_lien_spotify() {
+        use std::sync::atomic::AtomicBool;
+        let cancel = AtomicBool::new(false);
+        let runner = super::resolve_runner(&cancel).expect("spotDL trouvé");
+        let link = validate_spotify_link("https://open.spotify.com/track/4PTG3Z6ehGkBFwjybzWkR8?si=x").expect("lien");
+        let staging = tempfile::tempdir().expect("dossier");
+        let playlist = super::read_link_with_runner(runner, &link, staging.path(), &cancel).expect("lecture du lien");
+        println!("{playlist:?}");
+        assert_eq!(playlist.tracks.len(), 1);
+        let track = &playlist.tracks[0];
+        assert!(track.title.to_lowercase().contains("never gonna give you up"), "{track:?}");
+        assert!(track.artist.contains("Rick Astley"), "{track:?}");
+        assert!(track.duration_secs.is_some_and(|d| d > 150.0), "{track:?}");
+        assert_eq!(fs::read_dir(staging.path()).expect("dossier").count(), 0, "dossier de tâche effacé");
     }
 }

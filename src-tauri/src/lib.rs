@@ -143,8 +143,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::pick_library_folder,
             commands::scan_library,
-            commands::spotdl_download_missing,
-            commands::spotdl_cancel,
             fetch::commands::fetch_availability,
             fetch::commands::fetch_jobs,
             fetch::commands::fetch_enqueue,

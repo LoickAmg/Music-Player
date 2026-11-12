@@ -15,7 +15,7 @@ use std::time::Duration;
 use crate::bounded::{self, Bounded};
 use crate::ffmpeg;
 
-use super::common::{cleanup_attempt, create_attempt_directory, ffmpeg_missing, join_logs, network_failure, take_output, truncate_log};
+use super::common::{cleanup_attempt, create_attempt_directory, ffmpeg_missing, join_logs, network_failure, take_output, tool_locations, truncate_log};
 use super::source::{sanitize_file_name, Source};
 use super::{JobError, Wanted};
 
@@ -25,15 +25,15 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Modèle de nom de spotDL (variables remplacées par spotDL, valeurs nettoyées par lui).
 const OUTPUT_TEMPLATE: &str = "{artists} - {title}.{output-ext}";
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct Runner {
-    executable: &'static str,
+    executable: PathBuf,
     module: bool,
 }
 
 impl Runner {
-    pub(super) fn command(self) -> Command {
-        let mut command = Command::new(self.executable);
+    pub(super) fn command(&self) -> Command {
+        let mut command = Command::new(&self.executable);
         if self.module {
             command.arg("-m").arg("spotdl");
         }
@@ -76,10 +76,12 @@ impl Source for SpotDlSource {
 }
 
 pub(super) fn resolve_runner(cancel: &AtomicBool) -> Result<Runner, JobError> {
-    let mut candidates = vec![Runner { executable: "spotdl", module: false }];
+    // PATH d'abord, puis les installations hors PATH (Anaconda, uv…), puis Python.
+    let mut candidates = vec![Runner { executable: "spotdl".into(), module: false }];
+    candidates.extend(tool_locations("spotdl").into_iter().map(|executable| Runner { executable, module: false }));
     #[cfg(windows)]
-    candidates.push(Runner { executable: "py", module: true });
-    candidates.push(Runner { executable: "python", module: true });
+    candidates.push(Runner { executable: "py".into(), module: true });
+    candidates.push(Runner { executable: "python".into(), module: true });
 
     let mut last_error = None;
     for runner in candidates {
@@ -109,6 +111,12 @@ pub(super) fn make_query(wanted: &Wanted) -> Result<String, JobError> {
         return Err(JobError::Failed("Le titre du morceau est vide ; recherche annulée.".to_owned()));
     }
     let query = if artist.is_empty() { title.to_owned() } else { format!("{artist} - {title}") };
+    // Jamais de « - » en tête : spotDL refuse « -- », et une recherche « -x » serait lue
+    // comme une option.
+    let query = query.trim_start_matches(|c: char| c == '-' || c.is_whitespace()).to_owned();
+    if query.is_empty() {
+        return Err(JobError::Failed("Le titre du morceau est vide ; recherche annulée.".to_owned()));
+    }
     if query.len() > 1_024 {
         return Err(JobError::Failed("La recherche dépasse la taille autorisée.".to_owned()));
     }
@@ -128,11 +136,23 @@ pub(super) fn requested_file_name(wanted: &Wanted) -> String {
 fn run_download(runner: Runner, query: &str, attempt_dir: &Path, cancel: &AtomicBool) -> Result<Bounded, JobError> {
     let mut command = runner.command();
     command
+        // La recherche suit directement l'opération : placée après les options, spotDL la
+        // refuse (« unrecognized arguments »). Elle ne commence jamais par « - » (`make_query`).
         .arg("download")
+        .arg(query)
+        // YouTube Music d'abord, YouTube ensuite : YouTube Music bloque parfois (« No results
+        // found », vu le 12/11), YouTube répond encore, et spotDL garde ses étiquettes Spotify.
+        .arg("--audio")
+        .arg("youtube-music")
+        .arg("youtube")
         .arg("--format")
         .arg("mp3")
+        // Modèle relatif, spotDL lancé dans le dossier de la tâche : avec un chemin complet,
+        // spotDL retire le point de « .telechargements » et range le fichier dans
+        // « telechargements », hors du dossier de la tâche et en pleine bibliothèque (12/11).
         .arg("--output")
-        .arg(attempt_dir.join(OUTPUT_TEMPLATE))
+        .arg(OUTPUT_TEMPLATE)
+        .current_dir(attempt_dir)
         .arg("--overwrite")
         .arg("skip")
         .arg("--max-retries")
@@ -142,10 +162,7 @@ fn run_download(runner: Runner, query: &str, attempt_dir: &Path, cancel: &Atomic
         .arg("--log-level")
         .arg("INFO")
         .arg("--print-errors")
-        .arg("--headless")
-        // Le séparateur empêche un titre commençant par « - » d'être lu comme une option.
-        .arg("--")
-        .arg(query);
+        .arg("--headless");
     run_command(&mut command, COMMAND_TIMEOUT, cancel)
 }
 
@@ -190,6 +207,9 @@ mod tests {
     #[test]
     fn garde_la_recherche_dans_un_argument_unique() {
         assert_eq!(make_query(&wanted("Titre --help", "Artiste")).expect("recherche"), "Artiste - Titre --help");
+        // spotDL refuse « -- » : une recherche ne commence jamais par « - ».
+        assert_eq!(make_query(&wanted("--help", "")).expect("recherche"), "help");
+        assert!(make_query(&wanted("--", " ")).is_err());
     }
 
     #[test]
